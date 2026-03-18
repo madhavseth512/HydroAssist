@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/home/nightfury/miniconda3/envs/hydroassist/bin/pip install:*)",
+      "Bash(/home/nightfury/miniconda3/envs/hydroassist/bin/pip uninstall:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

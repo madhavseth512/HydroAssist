@@ -1,0 +1,26 @@
+retrieval:
+  chunk_size: 800
+  chunk_overlap: 150
+  top_k: 3
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  similarity_threshold: 0.6
+
+vectorstore:
+  persist_directory: "./data/vectordb_dev"
+  collection_name: "hydrogeology_kb_dev"
+
+llm:
+  provider: "gemini"
+  model: "gemini-2.0-flash-exp"
+  temperature: 0.3
+  max_tokens: 4096
+  api_key_env: "GEMINI_API_KEY"
+
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+ingestion:
+  sources:
+    - usgs
+  validate_metadata: true
