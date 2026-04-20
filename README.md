@@ -1,250 +1,223 @@
-# 💧 HydroAssist - Intelligent Hydrogeological Consultant
+# HydroAssist — Intelligent Hydrogeological Analysis Platform
 
-**Phase 1 (BTP-1)**: An open-source RAG-based chatbot for hydrogeological pumping test analysis, powered by LangGraph and Gemini AI.
+**BTP-1 → BTP-2**: RAG-based consultant chatbot + confined aquifer pumping test calculator, powered by LangGraph and Gemini AI.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Phase](https://img.shields.io/badge/phase-2%20in%20progress-orange.svg)]()
 
-## 🎯 Overview
+---
 
-HydroAssist is an intelligent consultant that helps hydrogeologists understand pumping test analysis methods, select appropriate techniques for different aquifer conditions, and explains the theoretical foundations of aquifer characterization.
+## Overview
 
-**Current Capabilities (Phase 1):**
-- 📖 Answer questions about pumping test analysis methods (Theis, Cooper-Jacob, Hantush-Jacob, etc.)
-- 🎯 Method selection guidance for different aquifer types
-- 📐 Explain assumptions and limitations of various methods
-- 🔬 Discuss aquifer characterization theory
-- 📚 Cite sources from USGS publications and scientific literature
+HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pumping test analysis.
 
-**Phase 2 Roadmap (BTP-2):**
-- Curve-fitting analysis using nonlinear least squares
-- Automatic parameter estimation (T, S, K)
-- Diagnostic plots generation
-- Data validation and quality checks
+**Phase 1 — Consultant (complete)**
+- RAG-based chatbot answering questions about pumping test theory, method selection, and aquifer characterisation
+- Grounded in USGS TWI Book 3-B1 and curated AQTESOLV method metadata
+- Metadata-filtered retrieval (aquifer type, method, section)
+- Intent classification and conversation routing via LangGraph
 
-## 🏗️ Architecture
+**Phase 2 — Calculator (in progress)**
+- CSV upload with automatic column detection, unit conversion, and data validation
+- Confined aquifer curve-fitting analysis: Theis (1935), Cooper-Jacob (1946), Papadopulos-Cooper (1967)
+- Outputs T (transmissivity) and S (storativity) with 95% confidence intervals
+- Diagnostic plots and PDF report generation
+- IIT KGP email-based authentication
+
+---
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Streamlit Web UI                         │
-└──────────────────────────┬──────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      Streamlit Web UI                            │
+│   consultation mode  →  transition/suggestion  →  workspace     │
+└──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   LangGraph State Machine                    │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
-│  │ Manager  │───▶│Consultant│    │Calculator│              │
-│  │  Agent   │    │  Agent   │    │  Agent   │              │
-│  └──────────┘    └──────────┘    └──────────┘              │
-└──────────────────────────┬──────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    LangGraph State Machine                        │
+│   ┌──────────────┐   ┌────────────────┐   ┌──────────────────┐ │
+│   │ Manager Agent│──▶│Consultant Agent│   │ Calculator Agent │ │
+│   │ (routing +   │   │ (RAG Q&A)      │   │ (Phase 2)        │ │
+│   │  suggestion) │   └────────────────┘   └──────────────────┘ │
+│   └──────────────┘                                               │
+└──────────────────────────┬──────────────────────────────────────┘
                            │
-           ┌───────────────┴───────────────┐
-           ▼                               ▼
-    ┌─────────────┐              ┌──────────────────┐
-    │   Gemini    │              │   RAG Pipeline   │
-    │ 2.0 Flash   │              │  ┌────────────┐  │
-    │     LLM     │              │  │ ChromaDB   │  │
-    └─────────────┘              │  │VectorStore │  │
-                                 │  └────────────┘  │
-                                 │  ┌────────────┐  │
-                                 │  │ Sentence   │  │
-                                 │  │Transformers│  │
-                                 │  └────────────┘  │
-                                 └──────────────────┘
+          ┌────────────────┼────────────────────────┐
+          ▼                ▼                        ▼
+   ┌────────────┐   ┌────────────────┐   ┌─────────────────────┐
+   │   Gemini   │   │  RAG Pipeline  │   │  Calculator Engine  │
+   │  2.5 Flash │   │  ChromaDB +    │   │  src/calculator/    │
+   │    LLM     │   │  Sentence-Trns │   │  scipy curve_fit    │
+   └────────────┘   └────────────────┘   └─────────────────────┘
 ```
 
-### Key Components
+### Agent State
 
-- **Manager Agent**: Intent classification and conversation routing using Gemini
-- **Consultant Agent**: RAG-based Q&A with retrieval from knowledge base
-- **Calculator Agent**: Phase 2 stub for numerical analysis (coming soon)
-- **Vector Store**: ChromaDB with metadata-filtered similarity search
-- **Embeddings**: Sentence-transformers for local embedding generation
-- **LLM**: Google Gemini 2.0 Flash for reasoning and response generation
+All agents share a typed `AgentState` with these key fields:
 
-## 📋 Prerequisites
+| Field | Type | Purpose |
+|---|---|---|
+| `messages` | `List[AnyMessage]` | Full conversation history |
+| `user_intent` | `str` | consultation / calculation / clarification |
+| `aquifer_context` | `str` | confined / unconfined / leaky / fractured |
+| `selected_method` | `str` | Method extracted from user message |
+| `method_suggestion` | `Dict` | Structured suggestion card for UI |
+| `suggestion_confirmed` | `bool` | Gates the calculator workspace |
+| `calculation_input` | `Dict` | CSV data + well parameters |
+| `calculation_result` | `Dict` | T, S, confidence intervals, plots |
 
-- Python 3.10 or higher
-- Google Gemini API key ([Get one here](https://makersuite.google.com/app/apikey))
-- 4GB+ RAM (for embedding model)
-- 2GB+ disk space (for vector database)
+---
 
-## 🚀 Quick Start
+## Project Structure
+
+```
+hydroassist/
+├── app.py                     # Streamlit entry point (3 UI layout modes)
+├── requirements.txt
+├── configs/                   # YAML configs (default, development, production)
+├── src/
+│   ├── core/
+│   │   ├── config.py          # Configuration management
+│   │   ├── state.py           # AgentState TypedDict
+│   │   └── graph.py           # LangGraph workflow
+│   ├── agents/
+│   │   ├── base.py            # Abstract BaseAgent
+│   │   ├── manager.py         # Intent classification + routing
+│   │   ├── consultant.py      # RAG Q&A agent
+│   │   └── calculator.py      # Phase 2 calculator orchestrator
+│   ├── retrieval/
+│   │   ├── embeddings.py      # Sentence-transformers (all-MiniLM-L6-v2)
+│   │   ├── vectorstore.py     # ChromaDB manager
+│   │   └── retriever.py       # Metadata-filtered semantic search
+│   ├── ingestion/
+│   │   ├── pipeline.py        # Ingestion orchestration
+│   │   ├── processors/        # PDF + HTML processors, chunker
+│   │   └── scrapers/          # USGS + AQTESOLV scrapers
+│   ├── data/                  # Phase 2 — CSV pipeline
+│   │   ├── csv_inspector.py   # Column detection + unit inference (3-layer)
+│   │   ├── formatter.py       # Unit conversion → standard schema
+│   │   └── validator.py       # Physical plausibility + method suitability
+│   ├── calculator/            # Phase 2 — numerical methods
+│   │   ├── base.py            # CalculationInput / CalculationResult / BaseCalculator
+│   │   └── theis.py           # Theis (1935) curve fitting
+│   └── prompts/               # LLM prompts for each agent
+├── data/
+│   ├── raw/                   # USGS PDFs, AQTESOLV metadata, custom uploads
+│   ├── processed/             # Chunked documents
+│   └── vectordb/              # ChromaDB persistence
+└── tests/
+```
+
+---
+
+## Phase 2 — Calculator
+
+### Supported Methods (Confined Aquifer)
+
+| Method | Reference | Valid When | Outputs |
+|---|---|---|---|
+| **Theis** | Theis (1935) | All times, homogeneous confined aquifer | T, S |
+| **Cooper-Jacob** | Cooper & Jacob (1946) | u < 0.05 (large time / small r) | T, S |
+| **Papadopulos-Cooper** | Papadopulos & Cooper (1967) | Large-diameter wells with wellbore storage | T, S |
+
+### CSV Pipeline
+
+The data pipeline handles messy real-world field data in 3 stages:
+
+```
+CSV upload
+  ↓
+CSVInspector   — 3-layer detection: regex → statistics → LLM fallback
+  ↓
+DataFormatter  — unit conversion (min→s, ft→m), t=0 removal, deduplication
+  ↓
+DataValidator  — min points, monotonic time, log-cycle span, method suitability
+  ↓
+Standard schema: time_s | drawdown_m | well_id (optional)
+```
+
+### Theis Calculator — Verified Against Theis (1935)
+
+Key implementation decisions grounded in the original paper:
+
+- **W(u) computation**: `scipy.special.expn(1, u)` — the exponential integral E₁(u), exact computation of the Theis well function
+- **u guard**: `np.maximum(u, 1e-10)` — prevents divergence as u → 0 (paper eq. 3 series diverges at -ln(u) → ∞)
+- **Factory pattern**: `make_theis_model(Q, r)` — Q and r are invariants of the test setup per Theis
+- **S bounds**: S_max = 1e-2 — enforces compaction-based storage (confined), not gravity drainage (unconfined)
+- **T bounds**: T_max = 1.0 m²/s — covers karst and fractured systems (86,400 m²/day)
+- **Tolerances**: `ftol=xtol=gtol=1e-12` — tightened for parameters spanning 4-5 orders of magnitude
+- **CI computation**: Guards against `inf` and negative diagonal in covariance matrix
+
+**Smoke test results on synthetic data (T=2.5e-3 m²/s, S=5e-5, σ=5mm noise):**
+- T recovery error: **0.09%**
+- S recovery error: **0.98%**
+- R²: **0.9999**, RMSE: **4.55 mm**
+
+---
+
+## Quick Start
 
 ### 1. Clone and Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/hydroassist.git
-cd hydroassist
+git clone https://github.com/madhavseth512/HydroAssist.git
+cd HydroAssist
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment
 
 ```bash
-# Copy example environment file
-cp .env.example .env
-
-# Edit .env and add your Gemini API key
-# GEMINI_API_KEY=your_actual_api_key_here
+# Create .env file
+echo GEMINI_API_KEY=your_api_key_here > .env
 ```
+
+Get a Gemini API key at [aistudio.google.com](https://aistudio.google.com/app/apikey).
 
 ### 3. Ingest Knowledge Base
 
 ```bash
-# Download and process USGS documents + AQTESOLV metadata
 python scripts/ingest.py --all
-
-# This will:
-# - Download USGS TWI Book 3-B1 (public domain)
-# - Load curated pumping test method metadata
-# - Chunk documents (1000 chars, 200 overlap)
-# - Create embeddings and populate vector store
-# - Takes ~5-10 minutes on first run
+# Downloads USGS TWI Book 3-B1, chunks text, populates ChromaDB
+# Takes ~5-10 minutes on first run
 ```
 
-### 4. Launch Web Interface
+### 4. Launch
 
 ```bash
-# Start Streamlit app
 streamlit run app.py
-
 # Opens at http://localhost:8501
 ```
 
-### 5. Test the System
+---
 
-```bash
-# Test retrieval quality
-python scripts/test_retrieval.py "What is the Theis method?"
-
-# Test with filters
-python scripts/test_retrieval.py "confined aquifer analysis" --aquifer confined --top-k 10
-```
-
-## 💻 Usage Examples
-
-### Web Interface
-
-1. **Open the app**: `streamlit run app.py`
-2. **Ask questions**:
-   - "What is the Theis method?"
-   - "When should I use Cooper-Jacob instead of Theis?"
-   - "What assumptions does Hantush-Jacob make?"
-   - "Explain confined aquifer analysis"
-3. **View context**: Check sidebar for aquifer type, selected method, and intent
-4. **Export chat**: Download conversation history as text file
-
-### CLI Scripts
-
-#### Ingest Data
-
-```bash
-# Ingest all sources
-python scripts/ingest.py --all
-
-# Ingest specific source
-python scripts/ingest.py --source usgs
-
-# Force re-download
-python scripts/ingest.py --all --force-download
-
-# Custom chunk size
-python scripts/ingest.py --all --chunk-size 800
-```
-
-#### Test Retrieval
-
-```bash
-# Basic query
-python scripts/test_retrieval.py "What is the Theis method?"
-
-# With filters
-python scripts/test_retrieval.py "drawdown analysis" \
-    --aquifer confined \
-    --top-k 10
-
-# Different config
-python scripts/test_retrieval.py "Cooper-Jacob" \
-    --config production
-```
-
-#### Reset Database
-
-```bash
-# Reset vector store (requires confirmation)
-python scripts/reset_db.py --confirm
-```
-
-### Python API
-
-```python
-from src.core.graph import HydroAssistChat
-from src.core.config import load_config
-
-# Initialize chat
-config = load_config()
-chat = HydroAssistChat(config)
-
-# Send message
-response = chat.send_message("What is the Theis method?")
-print(response)
-
-# Get context
-context = chat.get_context()
-print(f"Aquifer: {context['aquifer']}")
-print(f"Method: {context['method']}")
-
-# Reset conversation
-chat.reset()
-```
-
-## 📁 Project Structure
-
-```
-hydroassist/
-├── src/
-│   ├── core/              # State management, config, LangGraph orchestration
-│   ├── agents/            # Manager, Consultant, Calculator agents
-│   ├── retrieval/         # Embeddings, vector store, retriever
-│   ├── ingestion/         # Data scrapers, processors, chunker
-│   ├── prompts/           # LLM prompts for each agent
-│   └── utils/             # Logger, metadata, citations
-├── scripts/               # CLI tools (ingest, test, reset)
-├── configs/               # YAML configurations (default, dev, prod)
-├── data/                  # Raw data, processed chunks, vector DB
-├── tests/                 # Unit and integration tests
-├── app.py                 # Streamlit web interface
-└── requirements.txt       # Python dependencies
-```
-
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
 ```bash
-# .env file
-GEMINI_API_KEY=your_api_key_here
-HYDROASSIST_ENV=default  # or development, production
+GEMINI_API_KEY=your_key_here
+HYDROASSIST_ENV=default          # default | development | production
 
 # Optional overrides
-HYDROASSIST_LLM_MODEL=gemini-2.0-flash-exp
+HYDROASSIST_LLM_MODEL=gemini-2.5-flash
 HYDROASSIST_LLM_TEMPERATURE=0.1
 HYDROASSIST_CHUNK_SIZE=1000
 HYDROASSIST_TOP_K=5
 HYDROASSIST_LOG_LEVEL=INFO
 ```
 
-### Configuration Files
-
-Edit `configs/default.yaml` (or create custom configs):
+### configs/default.yaml
 
 ```yaml
 retrieval:
@@ -252,192 +225,89 @@ retrieval:
   chunk_overlap: 200
   top_k: 5
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-  similarity_threshold: 0.7
-
-vectorstore:
-  persist_directory: "./data/vectordb"
-  collection_name: "hydrogeology_kb"
+  similarity_threshold: 0.2
 
 llm:
   provider: "gemini"
-  model: "gemini-2.0-flash-exp"
+  model: "gemini-2.5-flash"
   temperature: 0.1
   max_tokens: 8192
 ```
 
-## 🧪 Testing
+---
 
-```bash
-# Install dev dependencies
-pip install -r requirements-dev.txt
+## Roadmap
 
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test file
-pytest tests/unit/test_retrieval.py
-
-# Run with verbose output
-pytest -v
-```
-
-## 📊 Data Sources
-
-### USGS TWI Book 3-B1
-
-- **Source**: USGS Techniques of Water-Resources Investigations
-- **Document**: Book 3, Chapter B1 - "Methods of Determining Permeability, Transmissibility, and Drawdown"
-- **Status**: Public domain
-- **Content**: Comprehensive theory and methods for pumping test analysis
-
-### AQTESOLV Method Metadata
-
-- **Source**: Manually curated from peer-reviewed literature
-- **Content**: Method names, aquifer types, basic assumptions
-- **Methods Included**:
-  - Theis (1935) - Confined aquifers
-  - Cooper-Jacob (1946) - Confined aquifers, large time
-  - Hantush-Jacob (1955) - Leaky confined aquifers
-  - Neuman (1972) - Unconfined aquifers
-  - Boulton (1963) - Unconfined aquifers
-  - Moench (1985) - Fractured aquifers
-
-**Note**: If you have official collaboration with AQTESOLV, update `src/ingestion/scrapers/aqtesolv_scraper.py` with proper API access.
-
-## 🔧 Troubleshooting
-
-### Vector Store is Empty
-
-```bash
-# Check if ingestion ran successfully
-python scripts/ingest.py --all --validate
-
-# Verify database
-python scripts/test_retrieval.py "test query"
-```
-
-### API Key Issues
-
-```bash
-# Verify .env file exists and has correct key
-cat .env | grep GEMINI_API_KEY
-
-# Test API key
-python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(os.getenv('GEMINI_API_KEY'))"
-```
-
-### Embedding Model Download
-
-On first run, the sentence-transformers model (~90MB) will download automatically:
-
-```bash
-# If download fails, manually install
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-```
-
-### Memory Issues
-
-If you encounter memory errors:
-
-```python
-# Edit configs/default.yaml
-retrieval:
-  chunk_size: 800  # Reduce from 1000
-  top_k: 3         # Reduce from 5
-```
-
-## 🛣️ Roadmap
-
-### Phase 1 (Current) ✅
+### Phase 1 — Consultant (Complete)
 - [x] RAG-based consultant chatbot
-- [x] LangGraph state management
-- [x] Intent classification and routing
-- [x] Metadata-filtered retrieval
+- [x] LangGraph multi-agent state machine
+- [x] Intent classification and conversation routing
+- [x] Metadata-filtered retrieval (aquifer type, method, source)
 - [x] Streamlit web interface
-- [x] CLI tools for ingestion and testing
 
-### Phase 2 (BTP-2) 🚧
-- [ ] Pumping test data upload
-- [ ] Curve-fitting analysis (nonlinear least squares)
-- [ ] Parameter estimation (T, S, K)
-- [ ] Diagnostic plots (time-drawdown, residuals)
-- [ ] Goodness-of-fit metrics
-- [ ] Multi-well analysis
+### Phase 2 — Calculator (In Progress)
+- [x] AgentState extended with `method_suggestion`, `suggestion_confirmed`, `calculation_input`, `calculation_result`
+- [x] Manager agent fixes: confidence threshold, method extraction location, aquifer filter scope
+- [x] CSV inspector — 3-layer column/unit detection with LLM fallback
+- [x] Data formatter — unit conversion, t=0 removal, wide-to-long melt
+- [x] Data validator — physical plausibility checks, method suitability pre-filtering
+- [x] Theis (1935) calculator — verified against original paper
+- [ ] Cooper-Jacob (1946) calculator
+- [ ] Papadopulos-Cooper (1967) calculator
+- [ ] Diagnostic plots (log-log type curve, semi-log straight line)
+- [ ] PDF report generation
+- [ ] IIT KGP email authentication
+- [ ] Calculator workspace UI (3-mode layout)
 
-### Phase 3 (Future) 💡
-- [ ] Multi-user support with authentication
-- [ ] Project management (save/load analyses)
-- [ ] Export to PDF reports
-- [ ] Batch processing
+### Phase 3 — Future
+- [ ] Recovery analysis (Theis 1935, eq. 7)
+- [ ] Derivative diagnostic plots (ds/dln(t))
+- [ ] Interactive type curve adjustment
+- [ ] Unconfined and leaky aquifer methods
+- [ ] Multi-user project management
 - [ ] REST API
-- [ ] Integration with GIS tools
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-# Install dev dependencies
-pip install -r requirements-dev.txt
-
-# Run tests before committing
-pytest
-
-# Format code
-black src/ tests/
-isort src/ tests/
-
-# Type checking
-mypy src/
-```
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **USGS** for public domain hydrogeological publications
-- **Google** for Gemini API
-- **LangChain & LangGraph** for orchestration framework
-- **ChromaDB** for vector storage
-- **Sentence-Transformers** for embeddings
-
-## 📧 Contact
-
-- **Project Lead**: [Your Name]
-- **Email**: your.email@example.com
-- **GitHub**: [@yourusername](https://github.com/yourusername)
-
-## 📚 References
-
-### Key Papers
-
-1. Theis, C.V. (1935). The relation between the lowering of the piezometric surface and the rate and duration of discharge of a well using groundwater storage. *Transactions of the American Geophysical Union*, 16(2), 519-524.
-
-2. Cooper, H.H., & Jacob, C.E. (1946). A generalized graphical method for evaluating formation constants and summarizing well-field history. *Transactions of the American Geophysical Union*, 27(4), 526-534.
-
-3. Hantush, M.S., & Jacob, C.E. (1955). Non-steady radial flow in an infinite leaky aquifer. *Transactions of the American Geophysical Union*, 36(1), 95-100.
-
-4. Neuman, S.P. (1972). Theory of flow in unconfined aquifers considering delayed response of the water table. *Water Resources Research*, 8(4), 1031-1045.
-
-### Additional Resources
-
-- [USGS Groundwater Information](https://www.usgs.gov/mission-areas/water-resources/science/groundwater-information)
-- [LangChain Documentation](https://python.langchain.com/)
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
 
 ---
 
-**Built with ❤️ for hydrogeologists and groundwater professionals**
+## Dependencies
+
+| Package | Purpose |
+|---|---|
+| `langchain`, `langgraph` | Multi-agent orchestration |
+| `langchain-google-genai` | Gemini 2.5 Flash LLM |
+| `chromadb` | Vector store |
+| `sentence-transformers` | Local embeddings (all-MiniLM-L6-v2) |
+| `scipy` | curve_fit, expn (Theis W(u) well function) |
+| `numpy` | Array operations, polyfit |
+| `matplotlib` | Diagnostic plots |
+| `pandas` | CSV processing |
+| `reportlab` | PDF report generation |
+| `streamlit` | Web interface |
+| `pypdf` | PDF text extraction |
+
+---
+
+## References
+
+1. **Theis, C.V. (1935)**. The relation between the lowering of the piezometric surface and the rate and duration of discharge of a well using ground-water storage. *Transactions of the American Geophysical Union*, 16, 519–524.
+
+2. **Cooper, H.H. & Jacob, C.E. (1946)**. A generalized graphical method for evaluating formation constants and summarizing well-field history. *Transactions of the American Geophysical Union*, 27(4), 526–534.
+
+3. **Papadopulos, I.S. & Cooper, H.H. (1967)**. Drawdown in a well of large diameter. *Water Resources Research*, 3(1), 241–244.
+
+4. **Hantush, M.S. & Jacob, C.E. (1955)**. Non-steady radial flow in an infinite leaky aquifer. *Transactions of the American Geophysical Union*, 36(1), 95–100.
+
+5. **USGS TWI Book 3-B1** — Techniques of Water-Resources Investigations, Book 3, Chapter B1.
+
+---
+
+## Acknowledgments
+
+- USGS for public domain hydrogeological publications
+- Google for Gemini API
+- LangChain & LangGraph teams
+- IIT Kharagpur — BTP supervision
+
+---
+
+**Developed as part of BTP (Bachelor Thesis Project) at IIT Kharagpur**

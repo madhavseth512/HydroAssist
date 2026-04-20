@@ -194,6 +194,8 @@ class HydroAssistChat:
             "intent": self.state.get("user_intent", "unknown"),
             "aquifer": self.state.get("aquifer_context", "unknown"),
             "method": self.state.get("selected_method", ""),
+            "suggestion_confirmed": self.state.get("suggestion_confirmed", False),
+            "method_suggestion": self.state.get("method_suggestion", {}),
             "message_count": len(self.state.get("messages", [])),
             "retrieved_docs_count": len(self.state.get("retrieved_docs", []))
         }

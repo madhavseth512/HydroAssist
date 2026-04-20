@@ -1,6 +1,5 @@
 """Consultant Agent - RAG-based Q&A for hydrogeological theory."""
 
-import re
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -71,13 +70,17 @@ class ConsultantAgent(BaseAgent):
 
         question = last_message.content
 
-        # Build metadata filters
+        # Build metadata filters.
+        # Aquifer filtering is only applied when the user has confirmed a method
+        # (i.e. they are in calculation mode). During general consultation it is
+        # too aggressive and excludes cross-aquifer documents that are often relevant.
         metadata_filters = {}
 
-        aquifer_context = state.get("aquifer_context", "unknown")
-        if aquifer_context != "unknown":
-            metadata_filters["aquifer"] = aquifer_context
-            self.logger.info(f"Filtering by aquifer: {aquifer_context}")
+        if state.get("suggestion_confirmed", False):
+            aquifer_context = state.get("aquifer_context", "unknown")
+            if aquifer_context != "unknown":
+                metadata_filters["aquifer"] = aquifer_context
+                self.logger.info(f"Filtering by aquifer: {aquifer_context}")
 
         # Retrieve relevant documents
         try:
@@ -117,12 +120,6 @@ class ConsultantAgent(BaseAgent):
 
             self.logger.info(f"Generated answer ({len(answer)} chars)")
 
-            # Extract method if mentioned
-            extracted_method = self._extract_method_from_response(answer)
-            if extracted_method and state.get("selected_method", "") == "":
-                state["selected_method"] = extracted_method
-                self.logger.info(f"Extracted method: {extracted_method}")
-
             # Add response to state
             state["messages"].append(AIMessage(content=answer))
 
@@ -134,31 +131,3 @@ class ConsultantAgent(BaseAgent):
             state["messages"].append(AIMessage(content=error_response))
             return state
 
-    def _extract_method_from_response(self, response: str) -> str:
-        """
-        Extract pumping test method name from response.
-
-        Args:
-            response: Generated response text
-
-        Returns:
-            Method name or empty string
-        """
-        # Common method patterns
-        patterns = [
-            r"(Theis)\s*\(?\s*(\d{4})\)?",
-            r"(Cooper[-\s]Jacob)\s*\(?\s*(\d{4})\)?",
-            r"(Hantush[-\s]Jacob)\s*\(?\s*(\d{4})\)?",
-            r"(Neuman)\s*\(?\s*(\d{4})\)?",
-            r"(Boulton)\s*\(?\s*(\d{4})\)?",
-            r"(Moench)\s*\(?\s*(\d{4})\)?",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, response, re.IGNORECASE)
-            if match:
-                method_name = match.group(1).replace('-', '_').replace(' ', '_')
-                year = match.group(2)
-                return f"{method_name}_{year}"
-
-        return ""

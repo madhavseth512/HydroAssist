@@ -128,11 +128,12 @@ class ManagerAgent(BaseAgent):
         try:
             classification = json.loads(clean_response)
 
-            # Validate confidence threshold
+            # Log confidence for observability but never override intent based on it.
+            # Hydrogeological queries are often highly technical and Gemini may return
+            # low confidence on queries that are obviously consultations to a domain expert.
             confidence = classification.get("confidence", 0.0)
-            if confidence < 0.7 and classification["intent"] not in ["clarification", "unknown"]:
-                self.logger.warning(f"Low confidence: {confidence}")
-                classification["intent"] = "clarification"
+            if confidence < 0.5:
+                self.logger.warning(f"Low confidence ({confidence}) — keeping intent as-is: {classification['intent']}")
 
             return classification
 

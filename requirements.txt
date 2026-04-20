@@ -25,3 +25,11 @@ python-dotenv>=1.0.0
 
 # Utilities
 pydantic>=2.7.0
+
+# Phase 2 — Calculator & Data Processing
+scipy>=1.13.0          # curve_fit, expn (Theis W(u) well function), optimization
+numpy>=1.26.0          # polyfit, linear algebra, array operations
+matplotlib>=3.8.0      # diagnostic plots (time-drawdown, type curves)
+reportlab>=4.2.0       # PDF report generation
+openpyxl>=3.1.0        # Excel export of results and data tables
+pandas>=2.2.0          # CSV inspection, formatting, and tabular data handling
