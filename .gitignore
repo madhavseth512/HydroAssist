@@ -60,6 +60,9 @@ htmlcov/
 .pytest_cache/
 .tox/
 
+# Claude Code machine-specific config
+.claude/settings.local.json
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
