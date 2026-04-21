@@ -156,6 +156,22 @@ Key implementation decisions grounded in the original paper:
 - S recovery error: **0.98%**
 - R²: **0.9999**, RMSE: **4.55 mm**
 
+### Cooper-Jacob Calculator — Verified Against Cooper & Jacob (1946)
+
+Key implementation decisions grounded in the original paper:
+
+- **Validity threshold**: `u_threshold = 0.02` — paper p.3: *"tolerable where u is less than about 0.02"* (stricter than the common textbook value of 0.05)
+- **Equations 8 & 9**: `T = 2.303Q / (4π × Δs)`, `S = 2.25 × T × t₀ / r²`
+- **2-pass data selection**: Pass 1 regresses all data → estimates T, S → Pass 2 filters to `u < 0.02` → re-regresses on late-time data only
+- **Asymmetric CI on T**: T and slope have an inverse relationship (`T = const/slope`), so `T_lower = const/slope_upper` and `T_upper = const/slope_lower`
+- **CI on S**: 4-corner propagation through both slope and intercept uncertainty
+- **Post-fit u check**: Authoritative recheck using final T, S on all fitted points; marginal violations flagged as informational notes
+
+**Smoke test results on same synthetic data (T=2.5e-3 m²/s, S=5e-5, σ=5mm noise):**
+- T recovery error: **1.21%** (higher than Theis by design — CJ is an approximation valid only at large t)
+- S recovery error: **7.83%** (S depends on extrapolated t₀; Theis provides a more reliable S estimate)
+- R²: **0.9945**, RMSE: **3.70 mm**
+
 ---
 
 ## Quick Start
@@ -252,7 +268,7 @@ llm:
 - [x] Data formatter — unit conversion, t=0 removal, wide-to-long melt
 - [x] Data validator — physical plausibility checks, method suitability pre-filtering
 - [x] Theis (1935) calculator — verified against original paper
-- [ ] Cooper-Jacob (1946) calculator
+- [x] Cooper-Jacob (1946) calculator — u < 0.02 threshold (paper-verified), 2-pass iterative data selection, asymmetric CI
 - [ ] Papadopulos-Cooper (1967) calculator
 - [ ] Diagnostic plots (log-log type curve, semi-log straight line)
 - [ ] PDF report generation
