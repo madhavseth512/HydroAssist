@@ -137,16 +137,14 @@ class TestCooperJacobInputValidation:
         return pd.DataFrame({"time_s": t, "drawdown_m": s})
 
     def test_negative_Q(self):
-        inp = CalculationInput(df=self._df(), Q=-1e-3, r=50.0)
-        r = CooperJacobCalculator().calculate(inp)
-        assert not r.success
-        assert "Q must be positive" in r.error_message
+        # B3: Q guard now fires at construction time, not inside calculate()
+        with pytest.raises(ValueError, match="Q must be positive"):
+            CalculationInput(df=self._df(), Q=-1e-3, r=50.0)
 
     def test_zero_r(self):
-        inp = CalculationInput(df=self._df(), Q=1e-3, r=0.0)
-        r = CooperJacobCalculator().calculate(inp)
-        assert not r.success
-        assert "r must be positive" in r.error_message
+        # B3: r guard now fires at construction time, not inside calculate()
+        with pytest.raises(ValueError, match="r must be positive"):
+            CalculationInput(df=self._df(), Q=1e-3, r=0.0)
 
     def test_too_few_points(self):
         df = self._df(n=5)

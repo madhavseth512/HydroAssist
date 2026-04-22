@@ -109,44 +109,85 @@ class CooperJacobCalculator(BaseCalculator):
                 )
             )
 
-        # ── Pass 2: filter to u < threshold using Pass-1 estimates ────────────
-        u_all = (r ** 2 * S1) / (4.0 * T1 * time_s)
-        valid_mask = u_all < self.u_threshold
-        n_valid = int(valid_mask.sum())
-        n_excluded = len(time_s) - n_valid
+        # ── Iterative data selection: converge T,S and u-filter together ──────
+        # A fixed 2-pass is not self-consistent: Pass-2 T,S differ from Pass-1,
+        # so u recomputed on the same filtered points can shift, causing marginal
+        # violations in the post-fit check. Iterating to convergence (typically
+        # 2-3 iterations) makes the filter and the final fit self-consistent.
+        T_iter, S_iter = T1, S1
+        t_fit, s_fit = time_s, drawdown_m  # fallback: all data
+        slope, intercept = None, None
+        n_valid = len(time_s)
+        converged = False
 
-        if n_valid < MIN_VALID_POINTS:
-            notes.append(
-                f"Only {n_valid} point(s) satisfy u < {self.u_threshold} "
-                f"({n_excluded} excluded as early-time). "
-                f"Cooper-Jacob requires at least {MIN_VALID_POINTS} valid points. "
-                "Test duration may be too short — consider using Theis (1935)."
-            )
-            # Fall back to all-data fit with a warning
-            t_fit, s_fit = time_s, drawdown_m
-            used_all_data = True
+        for iteration in range(10):
+            u_iter = (r ** 2 * S_iter) / (4.0 * T_iter * time_s)
+            valid = u_iter < self.u_threshold
+            n_valid = int(valid.sum())
+
+            if n_valid < MIN_VALID_POINTS:
+                notes.append(
+                    f"Only {n_valid} point(s) satisfy u < {self.u_threshold} "
+                    f"({len(time_s) - n_valid} excluded as early-time). "
+                    f"Cooper-Jacob requires at least {MIN_VALID_POINTS} valid points. "
+                    "Using all data as fallback — Theis (1935) is more appropriate."
+                )
+                t_fit, s_fit = time_s, drawdown_m
+                n_valid = len(time_s)
+                _, _, slope, intercept = self._regress(t_fit, s_fit, Q, r)
+                break
+
+            t_fit = time_s[valid]
+            s_fit = drawdown_m[valid]
+            T_new, S_new, slope, intercept = self._regress(t_fit, s_fit, Q, r)
+
+            if T_new is None:
+                return CalculationResult(
+                    method="Cooper-Jacob (1946)", T=0.0, S=0.0,
+                    success=False,
+                    error_message=(
+                        f"Regression failed on filtered data at iteration {iteration + 1}. "
+                        "Check that late-time drawdown is increasing."
+                    )
+                )
+
+            T_change = abs(T_new - T_iter) / T_iter
+            S_change = abs(S_new - S_iter) / S_iter
+            T_iter, S_iter = T_new, S_new
+
+            if T_change < 1e-3 and S_change < 1e-3:
+                notes.append(
+                    f"Data selection converged in {iteration + 1} iteration(s): "
+                    f"{n_valid} points satisfy u < {self.u_threshold}."
+                )
+                converged = True
+                break
         else:
-            t_fit = time_s[valid_mask]
-            s_fit = drawdown_m[valid_mask]
-            used_all_data = False
-
-        if n_excluded > 0 and not used_all_data:
             notes.append(
-                f"{n_excluded} early-time point(s) excluded (u ≥ {self.u_threshold}) — "
-                "straight line fitted to late-time data only, as required by Cooper & Jacob (1946)."
+                "Data selection did not converge in 10 iterations. "
+                "Results may be sensitive to initial estimates."
             )
 
-        # ── Final regression on filtered data ─────────────────────────────────
-        T_fit, S_fit, slope, intercept = self._regress(t_fit, s_fit, Q, r)
-        if T_fit is None:
+        if slope is None or slope <= 0:
             return CalculationResult(
                 method="Cooper-Jacob (1946)", T=0.0, S=0.0,
                 success=False,
-                error_message=(
-                    "Pass-2 regression failed: slope is non-positive on filtered data. "
-                    "Check that late-time drawdown is increasing."
-                )
+                error_message="Regression failed: non-positive slope on filtered data."
             )
+
+        T_fit_raw, S_fit_raw = T_iter, S_iter
+        n_excluded = len(time_s) - n_valid
+        if n_excluded > 0 and converged:
+            notes.append(
+                f"{n_excluded} early-time point(s) excluded (u ≥ {self.u_threshold}) — "
+                "straight line fitted to late-time data only (Cooper & Jacob 1946)."
+            )
+
+        # ── Bounds check (MUST happen before post-fit u check for consistency) ─
+        # Clip before computing u so the validity note reflects the same T,S
+        # values that will be returned to the caller.
+        T_fit = float(np.clip(T_fit_raw, T_MIN, T_MAX))
+        S_fit = float(np.clip(S_fit_raw, S_MIN, S_MAX))
 
         # ── Confidence intervals ───────────────────────────────────────────────
         T_ci, S_ci = self._compute_ci(t_fit, s_fit, slope, intercept, T_fit, S_fit, Q, r, notes)
@@ -185,13 +226,9 @@ class CooperJacobCalculator(BaseCalculator):
                 "Cooper-Jacob approximation is valid for this dataset."
             )
 
-        # ── Bounds check ──────────────────────────────────────────────────────
-        T_fit = float(np.clip(T_fit, T_MIN, T_MAX))
-        S_fit = float(np.clip(S_fit, S_MIN, S_MAX))
-
         # ── Validity notes ────────────────────────────────────────────────────
         self._add_validity_notes(
-            T_fit, S_fit, r_squared, delta_s, t0, t_fit, s_fit, r, notes
+            T_fit, S_fit, r_squared, delta_s, t0, t_fit, r, notes
         )
 
         logger.info(
@@ -372,7 +409,6 @@ class CooperJacobCalculator(BaseCalculator):
         delta_s: float,
         t0: Optional[float],
         time_s: np.ndarray,
-        drawdown_m: np.ndarray,
         r: float,
         notes: list,
     ):

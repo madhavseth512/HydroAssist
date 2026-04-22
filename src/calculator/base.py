@@ -28,10 +28,35 @@ class CalculationInput:
     r: float                  # observation distance from pumping well [m]
     well_id: Optional[str] = None   # which well to analyse (None = single-well dataset)
 
+    def __post_init__(self):
+        # Runtime Q unit guard. Real pumping wells: 0.001–0.5 m³/s.
+        # Q > 1.0 m³/s almost always means m³/day was passed instead of m³/s.
+        # Theis (1935): "the same units must of course be used throughout."
+        if self.Q > 1.0:
+            raise ValueError(
+                f"Q = {self.Q} m³/s appears unrealistically large. "
+                "Q must be in m³/s, not m³/day. "
+                f"To convert: Q_si = {self.Q:.1f} / 86400 = {self.Q / 86400:.6f} m³/s."
+            )
+        if self.Q <= 0:
+            raise ValueError(f"Q must be positive, got Q = {self.Q} m³/s.")
+        if self.r <= 0:
+            raise ValueError(f"r must be positive, got r = {self.r} m.")
+
     def get_series(self) -> Tuple[np.ndarray, np.ndarray]:
         """Return (time_s, drawdown_m) arrays for the target well."""
-        if self.well_id and "well_id" in self.df.columns:
+        if self.well_id:
+            if "well_id" not in self.df.columns:
+                raise ValueError(
+                    f"well_id='{self.well_id}' was specified but the DataFrame "
+                    "has no 'well_id' column. Check the formatter output."
+                )
             sub = self.df[self.df["well_id"] == self.well_id]
+            if len(sub) == 0:
+                raise ValueError(
+                    f"well_id='{self.well_id}' not found in DataFrame. "
+                    f"Available IDs: {self.df['well_id'].unique().tolist()}"
+                )
         else:
             sub = self.df
         return sub["time_s"].to_numpy(dtype=float), sub["drawdown_m"].to_numpy(dtype=float)
@@ -76,7 +101,7 @@ class CalculationResult:
     error_message: str = ""
 
     def __post_init__(self):
-        if self.T and self.T_day == 0.0:
+        if self.T > 0 and self.T_day == 0.0:
             self.T_day = self.T * 86400.0
 
 

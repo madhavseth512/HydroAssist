@@ -39,7 +39,10 @@ T_MIN, T_MAX = 1e-9, 1.0      # [m²/s]
 S_MIN, S_MAX = 1e-9, 1e-2     # [dimensionless]
 
 # Cooper-Jacob regime threshold — from Theis eq. 3 series truncation
-CJ_U_THRESHOLD = 0.05
+# Align with Cooper-Jacob's default filter threshold (0.02, original paper).
+# Using the same value ensures the Theis validity note is consistent with
+# what CJ will actually accept when the user runs both methods.
+CJ_U_THRESHOLD = 0.02
 
 # curve_fit tolerances tightened from scipy defaults (1e-8) because T and S
 # span 4-5 orders of magnitude. Default tolerances can declare convergence
@@ -85,8 +88,11 @@ def _estimate_initial_T(time_s: np.ndarray, drawdown_m: np.ndarray,
     t_late = time_s[-n_late:]
     s_late = drawdown_m[-n_late:]
 
-    # Regime pre-check using canonical S=1e-4, T=1e-4 as order-of-magnitude proxy
-    u_approx = (r ** 2 * 1e-4) / (4.0 * 1e-4 * t_late)
+    # Regime pre-check: u = r²S/4Tt. Since T and S are unknown, use the
+    # ratio r²/4t (equivalent to T=S=1, which cancels). This is
+    # order-of-magnitude neutral and avoids the 1000× error that the
+    # canonical T=S=1e-4 proxy produces for high-transmissivity aquifers.
+    u_approx = (r ** 2) / (4.0 * t_late)
     in_cj_regime = np.all(u_approx < 0.5)
 
     if in_cj_regime and len(t_late) >= 3:
