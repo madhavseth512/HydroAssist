@@ -28,6 +28,12 @@ class CalculationInput:
     r: float                  # observation distance from pumping well [m]
     well_id: Optional[str] = None   # which well to analyse (None = single-well dataset)
 
+    # ── Papadopulos-Cooper (1967) additional geometry ─────────────────────────
+    # Unused by Theis and Cooper-Jacob; defaults are physically valid so existing
+    # code that does not pass these fields is unaffected.
+    r_w: float = 0.10   # effective radius of well screen / open hole [m]
+    r_c: float = 0.10   # radius of well casing where water level declines [m]
+
     def __post_init__(self):
         # Runtime Q unit guard. Real pumping wells: 0.001–0.5 m³/s.
         # Q > 1.0 m³/s almost always means m³/day was passed instead of m³/s.
@@ -42,6 +48,10 @@ class CalculationInput:
             raise ValueError(f"Q must be positive, got Q = {self.Q} m³/s.")
         if self.r <= 0:
             raise ValueError(f"r must be positive, got r = {self.r} m.")
+        if self.r_w <= 0:
+            raise ValueError(f"r_w must be positive, got r_w = {self.r_w} m.")
+        if self.r_c <= 0:
+            raise ValueError(f"r_c must be positive, got r_c = {self.r_c} m.")
 
     def get_series(self) -> Tuple[np.ndarray, np.ndarray]:
         """Return (time_s, drawdown_m) arrays for the target well."""

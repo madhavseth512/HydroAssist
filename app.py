@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
+from scipy.special import expn
 
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
@@ -35,9 +36,11 @@ st.markdown("""
 .main-header { font-size: 2.2rem; color: #1E88E5; font-weight: bold; }
 .subtitle    { font-size: 0.95rem; color: #666; margin-bottom: 1.5rem; }
 .result-box  { padding: 1rem; background: #f8f9fa; border-radius: 8px;
-               border-left: 4px solid #1E88E5; margin-bottom: 0.8rem; }
+               border-left: 4px solid #1E88E5; margin-bottom: 0.8rem;
+               color: #212121 !important; }
 .warn-box    { padding: 0.8rem; background: #fff8e1; border-radius: 6px;
-               border-left: 4px solid #f9a825; margin-bottom: 0.6rem; }
+               border-left: 4px solid #f9a825; margin-bottom: 0.6rem;
+               color: #212121 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,23 +78,158 @@ if "formatted_df" not in st.session_state:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def _run_calculator(df, Q_si, r, method):
+def _run_calculator(df, Q_si, r, method, r_w=0.10, r_c=0.10):
     """Run the selected calculator and return CalculationResult."""
     from src.calculator.base import CalculationInput
     from src.calculator.theis import TheisCalculator
     from src.calculator.cooper_jacob import CooperJacobCalculator
+    from src.calculator.papadopulos_cooper import PapadopulosCooperCalculator
 
-    inp = CalculationInput(df=df, Q=Q_si, r=r)
     if "Theis" in method:
+        inp = CalculationInput(df=df, Q=Q_si, r=r)
         return TheisCalculator().calculate(inp)
-    else:
+    elif "Cooper-Jacob" in method:
+        inp = CalculationInput(df=df, Q=Q_si, r=r)
         return CooperJacobCalculator().calculate(inp)
+    else:
+        # Papadopulos-Cooper: data from pumped well, r = r_w
+        inp = CalculationInput(df=df, Q=Q_si, r=r_w, r_w=r_w, r_c=r_c)
+        return PapadopulosCooperCalculator().calculate(inp)
 
 
 def _format_ci(ci, scale=86400, unit="m²/day"):
     if ci is None:
         return "not available"
     return f"[{ci[0]*scale:.2f}, {ci[1]*scale:.2f}] {unit}"
+
+
+# ── Static plot helpers (must be defined before tab layout runs) ──────────────
+
+def _theis_static_plot(result, Q, r):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    COL_OBS, COL_FIT, COL_GRID = "#1f77b4", "#d62728", "#e0e0e0"
+
+    fig = make_subplots(
+        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=("Theis (1935) — Log-Log Type Curve", "Residuals"),
+    )
+
+    t = result.time_s
+    s_obs = result.drawdown_obs
+
+    fig.add_trace(go.Scatter(
+        x=t, y=s_obs, mode="markers", name="Observed",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
+    ), row=1, col=1)
+
+    t_smooth = np.logspace(np.log10(t.min()), np.log10(t.max()), 300)
+    u_s = (r**2 * result.S) / (4.0 * result.T * t_smooth)
+    s_s = (Q / (4.0 * np.pi * result.T)) * expn(1, np.maximum(u_s, 1e-10))
+    fig.add_trace(go.Scatter(
+        x=t_smooth, y=s_s, mode="lines",
+        name=f"Theis fit  T={result.T_day:.1f} m²/day  S={result.S:.2e}",
+        line=dict(color=COL_FIT, width=2),
+    ), row=1, col=1)
+
+    if result.drawdown_fitted is not None:
+        res = s_obs - result.drawdown_fitted
+        fig.add_trace(go.Bar(
+            x=t, y=res*1000, name="Residual (mm)",
+            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
+        ), row=2, col=1)
+        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
+
+    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+
+    ci_t = f"  CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]" if result.T_ci else ""
+    fig.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", yanchor="top",
+        text=(f"<b>T</b> = {result.T_day:.2f} m²/day{ci_t}<br>"
+              f"<b>S</b> = {result.S:.2e}<br>"
+              f"<b>R²</b> = {result.r_squared:.4f}<br>"
+              f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"),
+        showarrow=False, bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
+        borderwidth=1, font=dict(size=11), row=1, col=1)
+
+    fig.update_layout(height=550, hovermode="x unified",
+                      legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
+                      margin=dict(t=60, b=40))
+    return fig
+
+
+def _cj_static_plot(result, Q, r, n_excluded):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    COL_OBS, COL_FIT, COL_EXCL, COL_GRID = "#1f77b4", "#d62728", "#aec7e8", "#e0e0e0"
+
+    fig = make_subplots(
+        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=("Cooper-Jacob (1946) — Semi-Log Straight Line", "Residuals"),
+    )
+
+    t = result.time_s
+    s_obs = result.drawdown_obs
+    s_fit = result.drawdown_fitted
+    t_excl, s_excl = t[:n_excluded], s_obs[:n_excluded]
+    t_late, s_late = t[n_excluded:], s_obs[n_excluded:]
+
+    if n_excluded > 0:
+        fig.add_trace(go.Scatter(
+            x=t_excl, y=s_excl, mode="markers",
+            name=f"Excluded early-time ({n_excluded} pts)",
+            marker=dict(color=COL_EXCL, size=7, symbol="circle-open", line=dict(width=1.5)),
+        ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=t_late, y=s_late, mode="markers", name="Observed (u < 0.02)",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+    ), row=1, col=1)
+
+    if s_fit is not None:
+        fig.add_trace(go.Scatter(
+            x=t, y=s_fit, mode="lines",
+            name=f"CJ fit  T={result.T_day:.1f} m²/day  S={result.S:.2e}",
+            line=dict(color=COL_FIT, width=2),
+        ), row=1, col=1)
+
+    t0 = (result.S * r**2) / (2.25 * result.T)
+    if t0 > 0:
+        fig.add_annotation(x=np.log10(t0), y=0, xref="x", yref="y",
+                           text=f"t₀={t0:.0f}s", showarrow=True, arrowhead=2,
+                           ax=30, ay=-30, row=1, col=1)
+
+    if s_fit is not None:
+        res = s_obs[n_excluded:] - s_fit[n_excluded:]
+        fig.add_trace(go.Bar(
+            x=t_late, y=res*1000,
+            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
+        ), row=2, col=1)
+        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
+
+    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+
+    ci_t = f"  CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]" if result.T_ci else ""
+    fig.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", yanchor="top",
+        text=(f"<b>T</b> = {result.T_day:.2f} m²/day{ci_t}<br>"
+              f"<b>S</b> = {result.S:.2e}<br>"
+              f"<b>R²</b> = {result.r_squared:.4f}<br>"
+              f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"),
+        showarrow=False, bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
+        borderwidth=1, font=dict(size=11), row=1, col=1)
+
+    fig.update_layout(height=550, hovermode="x unified",
+                      legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
+                      margin=dict(t=60, b=40))
+    return fig
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -277,8 +415,37 @@ with tab_calc:
     with col3:
         method = st.selectbox(
             "Analysis method",
-            ["Theis (1935)", "Cooper-Jacob (1946)"],
-            help="Theis: full-curve fit, all times. Cooper-Jacob: late-time semi-log line (u < 0.02).",
+            ["Theis (1935)", "Cooper-Jacob (1946)", "Papadopulos-Cooper (1967)"],
+            help=(
+                "Theis: full-curve fit, all times. "
+                "Cooper-Jacob: late-time semi-log line (u < 0.02). "
+                "Papadopulos-Cooper: large-diameter well with wellbore storage."
+            ),
+        )
+
+    # Papadopulos-Cooper — extra geometry inputs (shown only when PC selected)
+    r_w, r_c = 0.10, 0.10
+    if "Papadopulos" in method:
+        st.info(
+            "**Papadopulos-Cooper (1967):** data must be from the **pumped well** itself "
+            "(not an observation well). Enter the physical well dimensions below."
+        )
+        pc_col1, pc_col2 = st.columns(2)
+        with pc_col1:
+            r_w = st.number_input(
+                "Well screen radius r_w (m)",
+                min_value=0.01, max_value=5.0, value=0.15, step=0.01,
+                help="Effective radius of the well screen or open hole (paper: r_w)",
+            )
+        with pc_col2:
+            r_c = st.number_input(
+                "Casing radius r_c (m)",
+                min_value=0.01, max_value=5.0, value=0.10, step=0.01,
+                help="Radius of the well casing where the water level declines (paper: r_c)",
+            )
+        st.caption(
+            f"α = r_w²·S/r_c² — dimensionless storage parameter. "
+            f"r_w = {r_w} m, r_c = {r_c} m"
         )
 
     # Convert Q to m³/s
@@ -294,19 +461,24 @@ with tab_calc:
     if run_disabled:
         st.info("Upload a CSV file in Step 1 to enable analysis.")
 
+    if "Papadopulos" in method:
+        st.caption("Note: Papadopulos-Cooper integrates the well function numerically — "
+                   "fitting may take 10–30 seconds depending on dataset size.")
+
     if st.button("▶  Run Analysis", type="primary", disabled=run_disabled, use_container_width=True):
         df = st.session_state.formatted_df
         with st.spinner(f"Running {method}…"):
             try:
-                result = _run_calculator(df, Q_si, r, method)
+                result = _run_calculator(df, Q_si, r, method, r_w=r_w, r_c=r_c)
                 st.session_state.calc_result = result
-                # count excluded points for CJ plot
+                # count excluded points (CJ only)
                 n_excl = 0
-                if "Cooper" in method and result.success:
+                if "Cooper-Jacob" in method and result.success:
                     u_all = (r**2 * result.S) / (4.0 * result.T * df.time_s.values)
                     n_excl = int((u_all >= 0.02).sum())
                 st.session_state.calc_inputs = {
                     "Q": Q_si, "r": r, "method": method, "n_excluded": n_excl,
+                    "r_w": r_w, "r_c": r_c,
                 }
                 if result.success:
                     st.success("Analysis complete.")
@@ -340,27 +512,54 @@ with tab_calc:
                     for note in result.validity_notes:
                         st.markdown(f"• {note}")
 
+        inputs = st.session_state.calc_inputs
+        Q_si_r  = inputs.get("Q", Q_si)
+        r_r     = inputs.get("r", r)
+        method_r = inputs.get("method", method)
+        n_excl  = inputs.get("n_excluded", 0)
+        r_w_r   = inputs.get("r_w", 0.10)
+        r_c_r   = inputs.get("r_c", 0.10)
+
+        # ── Step 4b: PDF Report download ──────────────────────────────────────
+        st.divider()
+        st.subheader("Step 4b — Download Report")
+        if st.button("📄 Generate PDF Report", use_container_width=True):
+            from src.calculator.report import generate_pdf
+            with st.spinner("Generating PDF…"):
+                try:
+                    pdf_bytes = generate_pdf(
+                        result,
+                        Q_si_r, r_r, method_r,
+                        st.session_state.formatted_df,
+                        n_excl,
+                    )
+                    fname = (
+                        method_r.split("(")[0].strip().lower().replace(" ", "_")
+                        + "_report.pdf"
+                    )
+                    st.download_button(
+                        label="⬇ Download PDF Report",
+                        data=pdf_bytes,
+                        file_name=fname,
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    st.error(f"Failed to generate PDF: {e}")
+
         # ── Step 5: Diagnostic plots ──────────────────────────────────────────
         st.divider()
-        st.subheader("Diagnostic Plots")
-
-        inputs = st.session_state.calc_inputs
-        Q_si_r = inputs.get("Q", Q_si)
-        r_r = inputs.get("r", r)
-        method_r = inputs.get("method", method)
-        n_excl = inputs.get("n_excluded", 0)
-
+        st.subheader("Step 5 — Diagnostic Plots")
         plot_tab1, plot_tab2 = st.tabs(["📊 Fit Diagnostic", "🎛️ Manual Matching"])
 
         with plot_tab1:
-            from src.calculator.plots import theis_diagnostic, cj_diagnostic
             if "Theis" in method_r:
-                # Pass Q and r via a patched result for smooth curve generation
-                _r = result
-                _r_patched = _r   # plots.py _back_calc_Qr returns None — build curve directly
                 fig = _theis_static_plot(result, Q_si_r, r_r)
-            else:
+            elif "Cooper-Jacob" in method_r:
                 fig = _cj_static_plot(result, Q_si_r, r_r, n_excl)
+            else:
+                from src.calculator.plots import pc_diagnostic
+                fig = pc_diagnostic(result, Q_si_r, r_w_r, r_c_r)
             st.plotly_chart(fig, use_container_width=True)
 
         with plot_tab2:
@@ -404,10 +603,20 @@ with tab_calc:
                     result.T, result.S,
                     T_manual, S_manual,
                 )
-            else:
+            elif "Cooper-Jacob" in method_r:
                 fig_m, rmse_m = cj_interactive(
                     result.time_s, result.drawdown_obs,
                     Q_si_r, r_r,
+                    result.T, result.S,
+                    T_manual, S_manual,
+                )
+            else:
+                from src.calculator.plots import pc_interactive
+                st.caption("PC manual matching computes the full well function — "
+                           "allow 3–5 seconds after each slider move.")
+                fig_m, rmse_m = pc_interactive(
+                    result.time_s, result.drawdown_obs,
+                    Q_si_r, r_w_r, r_c_r,
                     result.T, result.S,
                     T_manual, S_manual,
                 )
@@ -427,133 +636,3 @@ with tab_calc:
                     f"S = {S_manual:.2e}"
                 )
 
-
-# ── Helper: build static plots with Q and r available ─────────────────────────
-
-def _theis_static_plot(result, Q, r):
-    """Build Theis log-log plot with smooth curve (Q and r available here)."""
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    COL_OBS, COL_FIT, COL_GRID = "#1f77b4", "#d62728", "#e0e0e0"
-
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=("Theis (1935) — Log-Log Type Curve", "Residuals"),
-    )
-
-    t = result.time_s
-    s_obs = result.drawdown_obs
-
-    fig.add_trace(go.Scatter(
-        x=t, y=s_obs, mode="markers", name="Observed",
-        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
-        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
-    ), row=1, col=1)
-
-    t_smooth = np.logspace(np.log10(t.min()), np.log10(t.max()), 300)
-    u_s = (r**2 * result.S) / (4.0 * result.T * t_smooth)
-    s_s = (Q / (4.0 * np.pi * result.T)) * expn(1, np.maximum(u_s, 1e-10))
-    fig.add_trace(go.Scatter(
-        x=t_smooth, y=s_s, mode="lines",
-        name=f"Theis fit  T={result.T_day:.1f} m²/day  S={result.S:.2e}",
-        line=dict(color=COL_FIT, width=2),
-    ), row=1, col=1)
-
-    if result.drawdown_fitted is not None:
-        res = s_obs - result.drawdown_fitted
-        fig.add_trace(go.Bar(
-            x=t, y=res*1000, name="Residual (mm)",
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
-
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-
-    ci_t = f"  CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]" if result.T_ci else ""
-    fig.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", yanchor="top",
-        text=(f"<b>T</b> = {result.T_day:.2f} m²/day{ci_t}<br>"
-              f"<b>S</b> = {result.S:.2e}<br>"
-              f"<b>R²</b> = {result.r_squared:.4f}<br>"
-              f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"),
-        showarrow=False, bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
-        borderwidth=1, font=dict(size=11), row=1, col=1)
-
-    fig.update_layout(height=550, hovermode="x unified",
-                      legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
-                      margin=dict(t=60, b=40))
-    return fig
-
-
-def _cj_static_plot(result, Q, r, n_excluded):
-    """Build Cooper-Jacob semi-log plot."""
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    COL_OBS, COL_FIT, COL_EXCL, COL_GRID = "#1f77b4", "#d62728", "#aec7e8", "#e0e0e0"
-
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=("Cooper-Jacob (1946) — Semi-Log Straight Line", "Residuals"),
-    )
-
-    t = result.time_s
-    s_obs = result.drawdown_obs
-    s_fit = result.drawdown_fitted
-    t_excl, s_excl = t[:n_excluded], s_obs[:n_excluded]
-    t_late, s_late = t[n_excluded:], s_obs[n_excluded:]
-
-    if n_excluded > 0:
-        fig.add_trace(go.Scatter(
-            x=t_excl, y=s_excl, mode="markers",
-            name=f"Excluded early-time ({n_excluded} pts)",
-            marker=dict(color=COL_EXCL, size=7, symbol="circle-open", line=dict(width=1.5)),
-        ), row=1, col=1)
-
-    fig.add_trace(go.Scatter(
-        x=t_late, y=s_late, mode="markers", name="Observed (u < 0.02)",
-        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
-    ), row=1, col=1)
-
-    if s_fit is not None:
-        fig.add_trace(go.Scatter(
-            x=t, y=s_fit, mode="lines",
-            name=f"CJ fit  T={result.T_day:.1f} m²/day  S={result.S:.2e}",
-            line=dict(color=COL_FIT, width=2),
-        ), row=1, col=1)
-
-    t0 = (result.S * r**2) / (2.25 * result.T)
-    if t0 > 0:
-        fig.add_annotation(x=np.log10(t0), y=0, xref="x", yref="y",
-                           text=f"t₀={t0:.0f}s", showarrow=True, arrowhead=2,
-                           ax=30, ay=-30, row=1, col=1)
-
-    if s_fit is not None:
-        res = s_obs[n_excluded:] - s_fit[n_excluded:]
-        fig.add_trace(go.Bar(
-            x=t_late, y=res*1000,
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
-
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-
-    ci_t = f"  CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]" if result.T_ci else ""
-    fig.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", yanchor="top",
-        text=(f"<b>T</b> = {result.T_day:.2f} m²/day{ci_t}<br>"
-              f"<b>S</b> = {result.S:.2e}<br>"
-              f"<b>R²</b> = {result.r_squared:.4f}<br>"
-              f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"),
-        showarrow=False, bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
-        borderwidth=1, font=dict(size=11), row=1, col=1)
-
-    fig.update_layout(height=550, hovermode="x unified",
-                      legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
-                      margin=dict(t=60, b=40))
-    return fig

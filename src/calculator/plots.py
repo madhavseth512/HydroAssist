@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from src.calculator.base import CalculationResult
+from src.calculator.papadopulos_cooper import pc_drawdown
 
 # ── Colour palette (consistent across all plots) ──────────────────────────────
 COL_OBS     = "#1f77b4"   # blue   — observed data
@@ -336,6 +337,207 @@ def cj_interactive(
         margin=dict(t=60, b=40),
     )
     return fig, rmse_mm
+
+
+# ── Papadopulos-Cooper static diagnostic plot ─────────────────────────────────
+
+def pc_diagnostic(result: CalculationResult, Q: float,
+                  r_w: float, r_c: float) -> go.Figure:
+    """
+    Log-log type curve for Papadopulos-Cooper (1967).
+
+    Shows observed data, the fitted PC curve, and a family of reference type
+    curves for adjacent α values so the analyst can visually verify which
+    curve family the data match.  Residuals in lower panel.
+    """
+    alpha_fit = (r_w ** 2 * result.S) / (r_c ** 2)
+
+    fig = make_subplots(
+        rows=2, cols=1,
+        row_heights=[0.75, 0.25],
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=(
+            f"Papadopulos-Cooper (1967) — Log-Log Type Curve  (α = {alpha_fit:.2e})",
+            "Residuals",
+        ),
+    )
+
+    t = result.time_s
+    s_obs = result.drawdown_obs
+    s_fit = result.drawdown_fitted
+
+    # Reference type curves for α ×10 and α /10
+    t_smooth = np.logspace(np.log10(t.min()), np.log10(t.max()), 120)
+    for alpha_ref, label, dash in [
+        (alpha_fit * 10, f"α×10 = {alpha_fit*10:.1e}", "dot"),
+        (alpha_fit / 10, f"α/10 = {alpha_fit/10:.1e}", "dot"),
+    ]:
+        if 1e-8 < alpha_ref < 1.0:
+            s_ref = pc_drawdown(t_smooth, result.T, result.S, Q, r_w, r_c)
+            # Recompute with varied α by adjusting a surrogate S
+            S_ref = alpha_ref * r_c ** 2 / r_w ** 2
+            if S_MIN_PLOT < S_ref < S_MAX_PLOT:
+                s_ref = pc_drawdown(t_smooth, result.T, S_ref, Q, r_w, r_c)
+                fig.add_trace(go.Scatter(
+                    x=t_smooth, y=s_ref,
+                    mode="lines",
+                    name=label,
+                    line=dict(color="#999999", width=1.2, dash=dash),
+                    hoverinfo="skip",
+                ), row=1, col=1)
+
+    # Observed data
+    fig.add_trace(go.Scatter(
+        x=t, y=s_obs,
+        mode="markers",
+        name="Observed (pumped well)",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
+    ), row=1, col=1)
+
+    # Fitted PC curve (smooth)
+    s_fitted_smooth = pc_drawdown(t_smooth, result.T, result.S, Q, r_w, r_c)
+    fig.add_trace(go.Scatter(
+        x=t_smooth, y=s_fitted_smooth,
+        mode="lines",
+        name=f"PC fit  T={result.T*86400:.1f} m²/day  S={result.S:.2e}  α={alpha_fit:.2e}",
+        line=dict(color=COL_FIT, width=2),
+    ), row=1, col=1)
+
+    # Residuals
+    if s_fit is not None:
+        residuals = s_obs - s_fit
+        fig.add_trace(go.Bar(
+            x=t, y=residuals * 1000,
+            name="Residual (mm)",
+            marker_color=[COL_FIT if v < 0 else COL_OBS for v in residuals],
+            showlegend=False,
+            hovertemplate="t = %{x:.1f} s<br>res = %{y:.2f} mm<extra></extra>",
+        ), row=2, col=1)
+        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
+
+    # Shade wellbore-storage zone (u_w/α > 1 → early time)
+    u_w_arr = (r_w ** 2 * result.S) / (4.0 * result.T * t_smooth)
+    ws_mask = u_w_arr / alpha_fit > 1.0
+    if ws_mask.any():
+        t_ws_end = float(t_smooth[ws_mask][-1]) if ws_mask.any() else t.min()
+        fig.add_vrect(
+            x0=np.log10(t.min()), x1=np.log10(t_ws_end),
+            fillcolor="rgba(255,200,100,0.12)",
+            line_width=0,
+            annotation_text="Wellbore storage zone",
+            annotation_position="top left",
+            row=1, col=1,
+        )
+
+    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
+    fig.update_xaxes(type="log", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+
+    ci_t = ""
+    if result.T_ci:
+        ci_t = f"  95% CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]"
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.99, y=0.97,
+        xanchor="right", yanchor="top",
+        text=(
+            f"<b>T</b> = {result.T*86400:.2f} m²/day{ci_t}<br>"
+            f"<b>S</b> = {result.S:.2e} (unreliable — paper p.244)<br>"
+            f"<b>α</b> = {alpha_fit:.2e}<br>"
+            f"<b>R²</b> = {result.r_squared:.4f}<br>"
+            f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"
+        ),
+        showarrow=False,
+        bgcolor="rgba(255,255,255,0.85)",
+        bordercolor="#cccccc",
+        borderwidth=1,
+        font=dict(size=11),
+        row=1, col=1,
+    )
+    fig.update_layout(
+        height=560,
+        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
+        margin=dict(t=60, b=40),
+        hovermode="x unified",
+    )
+    return fig
+
+
+# ── Papadopulos-Cooper interactive (manual matching) ──────────────────────────
+
+def pc_interactive(
+    time_s: np.ndarray,
+    drawdown_obs: np.ndarray,
+    Q: float,
+    r_w: float,
+    r_c: float,
+    T_fit: float,
+    S_fit: float,
+    T_manual: float,
+    S_manual: float,
+) -> tuple:
+    """
+    Log-log manual-matching plot for Papadopulos-Cooper.
+
+    The manual curve uses the full PC well function.  The auto-fit curve is
+    shown for comparison.  Returns (fig, rmse_mm).
+
+    Note: each curve evaluation integrates F(u_w, α) at every time point.
+    The slider resolution is coarser (60 points) to keep interaction snappy.
+    """
+    fig = go.Figure()
+
+    t_smooth = np.logspace(np.log10(time_s.min()), np.log10(time_s.max()), 60)
+
+    # Observed
+    fig.add_trace(go.Scatter(
+        x=time_s, y=drawdown_obs,
+        mode="markers",
+        name="Observed data",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
+    ))
+
+    # Automated fit
+    s_auto = pc_drawdown(t_smooth, T_fit, S_fit, Q, r_w, r_c)
+    alpha_fit = r_w ** 2 * S_fit / r_c ** 2
+    fig.add_trace(go.Scatter(
+        x=t_smooth, y=s_auto,
+        mode="lines",
+        name=f"Auto fit  T={T_fit*86400:.1f} m²/day  α={alpha_fit:.2e}",
+        line=dict(color=COL_FIT, width=2, dash="dot"),
+    ))
+
+    # Manual curve
+    s_man = pc_drawdown(t_smooth, T_manual, S_manual, Q, r_w, r_c)
+    alpha_man = r_w ** 2 * S_manual / r_c ** 2
+    fig.add_trace(go.Scatter(
+        x=t_smooth, y=s_man,
+        mode="lines",
+        name=f"Manual  T={T_manual*86400:.1f} m²/day  α={alpha_man:.2e}",
+        line=dict(color=COL_MANUAL, width=2.5),
+    ))
+
+    # RMSE on observed points
+    s_man_obs = pc_drawdown(time_s, T_manual, S_manual, Q, r_w, r_c)
+    rmse_mm = float(np.sqrt(np.mean((drawdown_obs - s_man_obs) ** 2))) * 1000
+
+    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_layout(
+        title=f"PC Manual Matching — RMSE = {rmse_mm:.2f} mm",
+        height=480,
+        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
+        hovermode="x unified",
+        margin=dict(t=60, b=40),
+    )
+    return fig, rmse_mm
+
+
+S_MIN_PLOT = 1e-10
+S_MAX_PLOT = 1e-1
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
