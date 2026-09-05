@@ -1,0 +1,244 @@
+"""End-to-end journey through the compiled LangGraph.
+
+This is the test the whole bridge exists for: a user arrives with a question,
+is steered to a method, runs a fit in the workspace, and then interrogates the
+result in chat — with state carried across every hop.
+
+The LLM and the vector store are stubbed; the calculators, the graph, the
+routing and the state reducers are all real.
+"""
+
+import json
+
+import pandas as pd
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
+
+from src.agents.method_selection import THEIS, PAPADOPULOS_COOPER
+from src.calculator.base import CalculationInput
+from src.calculator.theis import TheisCalculator
+from src.core.config import load_config
+from src.core.graph import HydroAssistChat
+
+
+# ── Stubs ─────────────────────────────────────────────────────────────────────
+
+class _ScriptedLLM:
+    """Replays a queue of responses; falls back to the last one when exhausted."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.prompts = []
+        self._i = 0
+
+    def invoke(self, prompt):
+        self.prompts.append(prompt)
+        if self._i < len(self.responses):
+            body = self.responses[self._i]
+            self._i += 1
+        else:
+            body = self.responses[-1]
+        if isinstance(body, dict):
+            body = json.dumps(body)
+        return type("Resp", (), {"content": body})()
+
+
+class _StubRetriever:
+    def __init__(self):
+        self.calls = []
+
+    def retrieve(self, query, top_k=None, metadata_filters=None):
+        self.calls.append(metadata_filters)
+        return [{
+            "content": "Cooper & Jacob (1946): the approximation is tolerable "
+                       "where u is less than about 0.02.",
+            "metadata": {"source": "Cooper-Jacob-1946", "aquifer": "confined",
+                         "method": "Cooper_Jacob_1946", "page": 3},
+            "score": 0.78,
+        }]
+
+
+def _classification(intent, aquifer="confined", method=None):
+    return {"intent": intent, "confidence": 0.9, "reasoning": "t",
+            "extracted_aquifer": aquifer, "extracted_method": method}
+
+
+@pytest.fixture
+def wired(monkeypatch):
+    """A HydroAssistChat with stubbed LLM + retriever, plus handles to both."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-used")
+
+    manager_llm = _ScriptedLLM([_classification("calculation")])
+    consultant_llm = _ScriptedLLM(["Here is my interpretation of your fit."])
+    retriever = _StubRetriever()
+
+    monkeypatch.setattr("src.agents.manager.ChatGoogleGenerativeAI",
+                        lambda **kw: manager_llm)
+    monkeypatch.setattr("src.agents.consultant.ChatGoogleGenerativeAI",
+                        lambda **kw: consultant_llm)
+    monkeypatch.setattr("src.agents.consultant.Retriever", lambda cfg: retriever)
+
+    chat = HydroAssistChat(load_config())
+    return chat, manager_llm, consultant_llm, retriever
+
+
+def _run_workspace_fit(chat, method=THEIS):
+    """Simulate exactly what the Calculator Workspace does after Run Analysis."""
+    df = pd.read_csv("tests/theis_cooper_jacob_sample.csv")
+    Q_si, r = 500 / 86400, 50.0
+    result = TheisCalculator().calculate(CalculationInput(df=df, Q=Q_si, r=r))
+
+    chat.record_calculation(
+        result.to_state_dict(),
+        {"Q": Q_si, "r": r, "method": method, "n_points": len(df)},
+    )
+    chat.confirm_method(method)
+    return result
+
+
+# ── Graph routing ─────────────────────────────────────────────────────────────
+
+class TestGraphRouting:
+
+    def test_calculation_intent_reaches_the_calculator_agent(self, wired):
+        chat, _, _, _ = wired
+        reply = chat.send_message("analyse my confined aquifer pumping test")
+
+        assert "Calculator Workspace" in reply
+        assert chat.state["user_intent"] == "calculation"
+
+    def test_consultation_intent_reaches_the_consultant(self, wired, monkeypatch):
+        chat, manager_llm, consultant_llm, _ = wired
+        manager_llm.responses = [_classification("consultation")]
+        manager_llm._i = 0
+
+        reply = chat.send_message("what does storativity mean?")
+
+        assert reply == "Here is my interpretation of your fit."
+        assert consultant_llm.prompts
+
+    def test_state_survives_across_turns(self, wired):
+        chat, manager_llm, _, _ = wired
+        chat.send_message("analyse my confined aquifer test")
+        manager_llm.responses = [_classification("consultation")]
+        manager_llm._i = 0
+        chat.send_message("and what about storativity?")
+
+        assert chat.state["aquifer_context"] == "confined"
+        assert len(chat.state["messages"]) == 4  # 2 user + 2 assistant
+
+
+# ── The full journey ──────────────────────────────────────────────────────────
+
+class TestFullJourney:
+
+    def test_chat_to_calculator_to_chat(self, wired):
+        chat, manager_llm, consultant_llm, retriever = wired
+
+        # 1. User asks for an analysis — the calculator agent asks for inputs
+        first = chat.send_message(
+            "I need to analyse a pumping test in a confined aquifer")
+
+        assert "CSV" in first
+        assert chat.state["method_suggestion"]["method"] == THEIS
+        assert chat.state["suggestion_confirmed"] is False
+
+        # 2. The workspace runs the fit and publishes the result
+        result = _run_workspace_fit(chat)
+
+        assert chat.state["suggestion_confirmed"] is True
+        assert chat.state["calculation_result"]["success"] is True
+
+        # 3. The user asks about the result — routed to the consultant, which
+        #    now sees the actual numbers
+        manager_llm.responses = [_classification("consultation")]
+        manager_llm._i = 0
+        chat.send_message("is this fit trustworthy?")
+
+        prompt = consultant_llm.prompts[-1]
+        assert "ALREADY RUN" in prompt
+        assert f"{result.T_day:.2f}" in prompt
+
+        # 4. And the aquifer filter is finally active, because a method is settled
+        assert retriever.calls[-1] == {"aquifer": "confined"}
+
+    def test_calculator_agent_reports_the_result_on_a_later_turn(self, wired):
+        chat, manager_llm, _, _ = wired
+        result = _run_workspace_fit(chat)
+
+        manager_llm.responses = [_classification("calculation")]
+        manager_llm._i = 0
+        reply = chat.send_message("what were the numbers again?")
+
+        assert f"{result.T_day:.2f}" in reply
+        assert "Theis (1935)" in reply
+
+    def test_geometry_in_the_message_steers_the_method(self, wired):
+        chat, _, _, _ = wired
+        chat.send_message(
+            "I pumped a dug well of 1.2 m diameter and logged drawdown in the "
+            "well itself — what should I use?")
+
+        assert chat.state["method_suggestion"]["method"] == PAPADOPULOS_COOPER
+        assert chat.state["selected_method"] == PAPADOPULOS_COOPER
+
+    def test_confirm_method_is_what_unlocks_filtering(self, wired):
+        chat, manager_llm, _, retriever = wired
+        manager_llm.responses = [_classification("consultation")]
+
+        chat.send_message("explain the Theis assumptions")
+        assert retriever.calls[-1] is None
+
+        chat.confirm_method(THEIS)
+        chat.send_message("and the Cooper-Jacob ones?")
+        assert retriever.calls[-1] == {"aquifer": "confined"}
+
+    def test_new_upload_clears_the_stale_result(self, wired):
+        chat, _, _, _ = wired
+        _run_workspace_fit(chat)
+        assert chat.get_context()["has_result"] is True
+
+        chat.clear_calculation()
+
+        assert chat.get_context()["has_result"] is False
+        assert chat.state["calculation_result"] == {}
+
+    def test_reset_clears_everything(self, wired):
+        chat, _, _, _ = wired
+        _run_workspace_fit(chat)
+        chat.reset()
+
+        ctx = chat.get_context()
+        assert ctx["has_result"] is False
+        assert ctx["suggestion_confirmed"] is False
+        assert ctx["method"] == ""
+        assert ctx["message_count"] == 0
+
+
+# ── Context surface used by the sidebar ───────────────────────────────────────
+
+class TestContextSurface:
+
+    def test_context_exposes_everything_the_sidebar_renders(self, wired):
+        chat, _, _, _ = wired
+        ctx = chat.get_context()
+
+        for key in ["intent", "aquifer", "method", "suggestion_confirmed",
+                    "method_suggestion", "has_result", "message_count",
+                    "retrieved_docs_count"]:
+            assert key in ctx
+
+    def test_has_result_tracks_the_recorded_calculation(self, wired):
+        chat, _, _, _ = wired
+        assert chat.get_context()["has_result"] is False
+
+        _run_workspace_fit(chat)
+        assert chat.get_context()["has_result"] is True
+
+    def test_failed_run_still_counts_as_a_result_to_discuss(self, wired):
+        chat, _, _, _ = wired
+        chat.record_calculation(
+            {"method": THEIS, "success": False, "error_message": "no fit"},
+            {"Q": 0.0058, "r": 50.0, "n_points": 12})
+
+        assert chat.get_context()["has_result"] is True
