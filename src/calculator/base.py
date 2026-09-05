@@ -24,34 +24,95 @@ class CalculationInput:
         r              meters
     """
     df: pd.DataFrame          # formatted: columns time_s, drawdown_m [, well_id]
-    Q: float                  # pumping rate  [m³/s]
-    r: float                  # observation distance from pumping well [m]
+    Q: Optional[float] = None # pumping rate [m³/s]; None only for slug tests
+    r: float = 0.0            # observation distance from pumping well [m]
     well_id: Optional[str] = None   # which well to analyse (None = single-well dataset)
 
     # ── Papadopulos-Cooper (1967) additional geometry ─────────────────────────
     # Unused by Theis and Cooper-Jacob; defaults are physically valid so existing
-    # code that does not pass these fields is unaffected.
+    # code that does not pass these fields is unaffected. These remain the
+    # authoritative scalars — `well` below is reconciled against them.
     r_w: float = 0.10   # effective radius of well screen / open hole [m]
     r_c: float = 0.10   # radius of well casing where water level declines [m]
 
+    # ── Test type and richer geometry ─────────────────────────────────────────
+    # Grouped rather than added as loose scalars, so each cluster carries its own
+    # invariants and can be reused by the several methods that need it. All
+    # optional: a method declares what it requires via `requires` on its registry
+    # entry, and validation.require_geometry reports anything missing.
+    test_type: str = "constant_rate"
+    aquifer: "AquiferGeometry" = None
+    well: "WellGeometry" = None
+    observation: "ObservationGeometry" = None
+    aquitards: tuple = ()
+    fracture: "FractureGeometry" = None
+    slug: "SlugTestGeometry" = None
+    schedule: "PumpingSchedule" = None
+
+    # Per-method scalar overrides that are not geometry, e.g. {"u_threshold": 0.05}.
+    options: dict = field(default_factory=dict)
+
     def __post_init__(self):
-        # Runtime Q unit guard. Real pumping wells: 0.001–0.5 m³/s.
-        # Q > 1.0 m³/s almost always means m³/day was passed instead of m³/s.
-        # Theis (1935): "the same units must of course be used throughout."
-        if self.Q > 1.0:
-            raise ValueError(
-                f"Q = {self.Q} m³/s appears unrealistically large. "
-                "Q must be in m³/s, not m³/day. "
-                f"To convert: Q_si = {self.Q:.1f} / 86400 = {self.Q / 86400:.6f} m³/s."
-            )
-        if self.Q <= 0:
-            raise ValueError(f"Q must be positive, got Q = {self.Q} m³/s.")
-        if self.r <= 0:
-            raise ValueError(f"r must be positive, got r = {self.r} m.")
+        from src.calculator.geometry import (
+            AquiferGeometry, ObservationGeometry, PumpingSchedule, RateStep,
+            WellGeometry,
+        )
+
+        # Well radii are validated first so their messages are reported even when
+        # a geometry group is also supplied.
         if self.r_w <= 0:
             raise ValueError(f"r_w must be positive, got r_w = {self.r_w} m.")
         if self.r_c <= 0:
             raise ValueError(f"r_c must be positive, got r_c = {self.r_c} m.")
+
+        # ── Reconcile the scalar aliases with the geometry groups ─────────────
+        # This runs BEFORE the Q and r guards, so that a caller who supplies only
+        # observation=ObservationGeometry(r=...) still passes the r check.
+        # Callers may use either form; supplying both with different values is a
+        # mistake worth catching loudly rather than silently preferring one.
+        if self.aquifer is None:
+            self.aquifer = AquiferGeometry()
+
+        if self.well is None:
+            self.well = WellGeometry(r_w=self.r_w, r_c=self.r_c)
+        elif (self.r_w, self.r_c) != (0.10, 0.10) and \
+                (self.well.r_w, self.well.r_c) != (self.r_w, self.r_c):
+            raise ValueError(
+                "Conflicting well geometry: pass either r_w/r_c or "
+                "well=WellGeometry(...), not both with different values."
+            )
+        else:
+            self.r_w, self.r_c = self.well.r_w, self.well.r_c
+
+        if self.observation is not None:
+            self.r = self.observation.r
+        elif self.r > 0:
+            self.observation = ObservationGeometry(r=self.r, well_id=self.well_id)
+
+        # A slug test has no pumping rate and no observation distance — its
+        # driving term is an initial head displacement. Every other test type
+        # keeps exactly the guards it had before.
+        if self.test_type != "slug":
+            if self.Q is None:
+                raise ValueError(
+                    "Q is required for this test type. Pass Q in m³/s."
+                )
+            # Runtime Q unit guard. Real pumping wells: 0.001–0.5 m³/s.
+            # Q > 1.0 m³/s almost always means m³/day was passed instead of m³/s.
+            # Theis (1935): "the same units must of course be used throughout."
+            if self.Q > 1.0:
+                raise ValueError(
+                    f"Q = {self.Q} m³/s appears unrealistically large. "
+                    "Q must be in m³/s, not m³/day. "
+                    f"To convert: Q_si = {self.Q:.1f} / 86400 = {self.Q / 86400:.6f} m³/s."
+                )
+            if self.Q <= 0:
+                raise ValueError(f"Q must be positive, got Q = {self.Q} m³/s.")
+            if self.r <= 0:
+                raise ValueError(f"r must be positive, got r = {self.r} m.")
+
+        if self.schedule is None and self.Q is not None:
+            self.schedule = PumpingSchedule(steps=(RateStep(0.0, self.Q),))
 
     def get_series(self) -> Tuple[np.ndarray, np.ndarray]:
         """Return (time_s, drawdown_m) arrays for the target well."""
