@@ -20,6 +20,8 @@ class AgentState(TypedDict):
         suggestion_confirmed: True once user accepts or overrides the method suggestion
         calculation_input: Merged CSV data + well parameters from the calculator workspace
         calculation_result: Computed T, S, goodness-of-fit and plot data
+        staged_series: Uploaded time/drawdown arrays, so the Manager can read the
+            flow regime off the data rather than guessing from the message
     """
     messages: Annotated[List[AnyMessage], add_messages]
     user_intent: Literal["consultation", "calculation", "clarification", "unknown"]
@@ -31,6 +33,7 @@ class AgentState(TypedDict):
     suggestion_confirmed: bool
     calculation_input: Dict
     calculation_result: Dict
+    staged_series: Dict
 
 
 def create_initial_state() -> AgentState:
@@ -45,5 +48,6 @@ def create_initial_state() -> AgentState:
         method_suggestion={},
         suggestion_confirmed=False,
         calculation_input={},
-        calculation_result={}
+        calculation_result={},
+        staged_series={}
     )

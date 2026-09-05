@@ -27,10 +27,13 @@ Selection rules, grounded in the source papers:
     silently offering Theis.
 """
 
+import logging
 import re
 from typing import Optional
 
 from src.calculator import registry
+
+logger = logging.getLogger(__name__)
 
 # ── Canonical method labels ───────────────────────────────────────────────────
 # Derived from the registry rather than duplicated, so a new calculator becomes
@@ -117,6 +120,9 @@ def suggest_method(
     aquifer_context: str = "unknown",
     selected_method: str = "",
     user_message: str = "",
+    time_s=None,
+    drawdown_m=None,
+    Q: Optional[float] = None,
 ) -> dict:
     """Decide which calculator to recommend.
 
@@ -124,6 +130,12 @@ def suggest_method(
         aquifer_context: confined | unconfined | leaky | fractured | unknown
         selected_method: method the Manager extracted from the message, if any
         user_message:    the raw user text, scanned for well-geometry cues
+        time_s, drawdown_m: the uploaded series, when one has been staged. Given
+                        these, the Bourdet derivative reads the flow regime
+                        straight off the data, which outranks every keyword
+                        heuristic below.
+        Q:              pumping rate [m³/s], used only to turn a radial plateau
+                        into an implied transmissivity for the explanation
 
     Returns a suggestion card:
         {
@@ -131,6 +143,7 @@ def suggest_method(
           "reason":     one-sentence justification shown in the UI,
           "confidence": 0.0-1.0,
           "supported":  bool — False when the aquifer type has no calculator,
+          "evidence":   optional, present when the data itself was consulted,
         }
     """
     text = user_message or ""
@@ -145,7 +158,17 @@ def suggest_method(
             "supported": True,
         }
 
-    # ── 2. Unsupported aquifer types — say so, do not silently offer Theis ────
+    # ── 2. The data outranks the prose ────────────────────────────────────────
+    # Drawdown curves for different aquifer types all look like smooth rising
+    # lines; their derivatives do not. When a series is available, reading the
+    # flow regime from it beats guessing from the words in the user's message —
+    # a user who says "dug well" may still have a dataset showing plain radial
+    # flow, and vice versa.
+    diagnosis = _diagnose_from_data(time_s, drawdown_m, Q)
+    if diagnosis is not None:
+        return diagnosis
+
+    # ── 3. Unsupported aquifer types — say so, do not silently offer Theis ────
     # Both the check and the wording come from the registry, so this claim stays
     # true as methods are added instead of going stale.
     known_aquifers = set(registry.AQUIFER_TYPES)
@@ -164,7 +187,7 @@ def suggest_method(
             "supported": False,
         }
 
-    # ── 3. Large-diameter well → Papadopulos-Cooper ───────────────────────────
+    # ── 4. Large-diameter well → Papadopulos-Cooper ───────────────────────────
     radius = extract_well_radius_m(text)
     if _LARGE_WELL_CUES.search(text) or (radius is not None
                                           and radius > LARGE_WELL_RADIUS_M):
@@ -186,7 +209,7 @@ def suggest_method(
             "supported": True,
         }
 
-    # ── 4. Late-time / straight-line framing → Cooper-Jacob ───────────────────
+    # ── 5. Late-time / straight-line framing → Cooper-Jacob ───────────────────
     if _LATE_TIME_CUES.search(text):
         return {
             "method": COOPER_JACOB,
@@ -200,7 +223,7 @@ def suggest_method(
             "supported": True,
         }
 
-    # ── 5. A supported non-confined aquifer routes to its own method ──────────
+    # ── 6. A supported non-confined aquifer routes to its own method ──────────
     # Derived from the registry, so this arm starts working for unconfined and
     # fractured the moment a calculator for them is registered.
     if aquifer_context in SUPPORTED_AQUIFERS and aquifer_context != "confined":
@@ -212,7 +235,7 @@ def suggest_method(
                 "supported": True,
             }
 
-    # ── 6. Default for a confined aquifer ─────────────────────────────────────
+    # ── 7. Default for a confined aquifer ─────────────────────────────────────
     confident = aquifer_context == "confined"
     return {
         "method": THEIS,
@@ -225,6 +248,77 @@ def suggest_method(
         ),
         "confidence": 0.75 if confident else 0.5,
         "supported": True,
+    }
+
+
+# ── Data-driven diagnosis ─────────────────────────────────────────────────────
+
+# Two thresholds, because the two outcomes carry different stakes.
+#
+# Recommending a method overrides what the user told us, so it needs real
+# confidence. Warning that the data contradicts every method we have is a much
+# cheaper claim — it commits us to nothing except caution — so a weaker reading
+# is still worth surfacing. Using one threshold for both made the warning branch
+# unreachable, since a barrier signature is deliberately reported at lower
+# confidence than a radial one.
+_RECOMMEND_CONFIDENCE_FLOOR = 0.7
+_WARN_CONFIDENCE_FLOOR = 0.5
+
+
+def _diagnose_from_data(time_s, drawdown_m, Q=None) -> Optional[dict]:
+    """Turn a Bourdet derivative reading into a suggestion card, or None.
+
+    Returns None whenever the data cannot support a confident call — too few
+    points, an ambiguous shape, or a regime whose method is not implemented —
+    so the caller falls through to the keyword rules rather than guessing.
+    """
+    if time_s is None or drawdown_m is None:
+        return None
+
+    try:
+        from src.calculator.derivative import diagnose
+        signature = diagnose(time_s, drawdown_m, Q=Q)
+    except (ValueError, TypeError) as exc:
+        # A malformed series must never break method selection.
+        logger.debug("Derivative diagnosis unavailable: %s", exc)
+        return None
+
+    implemented = [registry.get(mid) for mid in signature.suggests]
+    implemented = [spec for spec in implemented if spec is not None]
+
+    if not implemented:
+        # The derivative recognised something real — a barrier, linear flow —
+        # that has no calculator. Say so rather than silently falling through to
+        # a method whose assumptions the data has just contradicted.
+        if (signature.regime in ("barrier_or_boundary", "linear_flow")
+                and signature.confidence >= _WARN_CONFIDENCE_FLOOR):
+            return {
+                "method": "",
+                "reason": (
+                    f"{signature.evidence} No method for this behaviour is "
+                    "implemented yet, so any fit would rest on assumptions your "
+                    "data contradicts."
+                ),
+                "confidence": signature.confidence,
+                "supported": False,
+                "evidence": signature.evidence,
+            }
+        return None
+
+    if signature.confidence < _RECOMMEND_CONFIDENCE_FLOOR:
+        return None
+
+    spec = implemented[0]
+    return {
+        "method": spec.label,
+        "reason": (
+            f"{signature.evidence} That points to {spec.label}. "
+            "This reading comes from the shape of your own data rather than "
+            "from how the test was described."
+        ),
+        "confidence": signature.confidence,
+        "supported": True,
+        "evidence": signature.evidence,
     }
 
 

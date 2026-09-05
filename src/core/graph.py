@@ -231,6 +231,22 @@ class HydroAssistChat:
             f"success={result.get('success')}"
         )
 
+    def stage_series(self, time_s, drawdown_m, Q=None) -> None:
+        """Publish the uploaded series so method selection can read the data.
+
+        This is what lets the Manager recommend from the Bourdet derivative — the
+        actual shape of the user's curve — rather than from keywords in their
+        message. Arrays are kept as-is; they are never sent to the LLM, only to
+        the deterministic diagnosis.
+        """
+        self.state["staged_series"] = {
+            "time_s": time_s, "drawdown_m": drawdown_m, "Q": Q,
+        }
+        self.logger.info(f"Staged {len(time_s)} data points for diagnosis")
+
+    def clear_staged_series(self) -> None:
+        self.state["staged_series"] = {}
+
     def clear_calculation(self) -> None:
         """Drop any recorded result (e.g. after a new CSV is uploaded)."""
         self.state["calculation_result"] = {}

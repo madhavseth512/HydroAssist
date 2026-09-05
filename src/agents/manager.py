@@ -134,10 +134,17 @@ class ManagerAgent(BaseAgent):
         if not relevant:
             return
 
+        # Hand over the staged series if the workspace has one. With data the
+        # suggestion comes from the Bourdet derivative reading the actual flow
+        # regime; without it, from keyword rules on the message.
+        staged = state.get("staged_series") or {}
         suggestion = suggest_method(
             aquifer_context=aquifer,
             selected_method=method,
             user_message=user_message,
+            time_s=staged.get("time_s"),
+            drawdown_m=staged.get("drawdown_m"),
+            Q=staged.get("Q"),
         )
         state["method_suggestion"] = suggestion
 

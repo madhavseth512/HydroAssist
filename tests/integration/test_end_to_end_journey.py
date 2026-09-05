@@ -242,3 +242,106 @@ class TestContextSurface:
             {"Q": 0.0058, "r": 50.0, "n_points": 12})
 
         assert chat.get_context()["has_result"] is True
+
+
+# ── Data-driven method suggestion through the graph ───────────────────────────
+
+class TestDerivativeDrivenSuggestion:
+    """The Manager reading the flow regime off the staged series.
+
+    Before this, the suggestion came only from keywords in the user's sentence.
+    Staging the uploaded curve lets the Bourdet derivative override that, which
+    matters most when the two disagree — a user who says "confined aquifer test"
+    but whose data plainly shows leakage.
+    """
+
+    def _leaky_series(self):
+        import numpy as np
+        from src.calculator.methods.hantush_jacob import hantush_jacob_drawdown
+
+        t = np.logspace(2, 7, 60)
+        s = hantush_jacob_drawdown(t, 2.5e-3, 5e-5, 300.0, 500 / 86400, 50.0)
+        return t, s
+
+    def _radial_series(self):
+        import numpy as np
+        from scipy.special import expn
+
+        t = np.logspace(2, 6, 60)
+        u = (50.0 ** 2 * 5e-5) / (4.0 * 2.5e-3 * t)
+        s = (500 / 86400 / (4.0 * np.pi * 2.5e-3)) * expn(1, np.maximum(u, 1e-12))
+        return t, s
+
+    def test_staging_a_series_records_it_in_state(self, wired):
+        chat, _, _, _ = wired
+        t, s = self._radial_series()
+        chat.stage_series(t, s, Q=500 / 86400)
+
+        assert len(chat.state["staged_series"]["time_s"]) == 60
+
+    def test_leaky_data_steers_the_suggestion_away_from_theis(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("calculation", aquifer="confined")]
+
+        # No data staged: keyword rules give the confined default.
+        chat.send_message("analyse my confined aquifer pumping test")
+        assert chat.state["method_suggestion"]["method"] == THEIS
+
+        # Same sentence, now with the curve staged.
+        chat.reset()
+        manager_llm._i = 0
+        t, s = self._leaky_series()
+        chat.stage_series(t, s, Q=500 / 86400)
+        chat.send_message("analyse my confined aquifer pumping test")
+
+        suggestion = chat.state["method_suggestion"]
+        assert suggestion["method"] == "Hantush-Jacob (1955)"
+        assert "evidence" in suggestion
+
+    def test_radial_data_confirms_theis_with_evidence(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("calculation", aquifer="confined")]
+
+        t, s = self._radial_series()
+        chat.stage_series(t, s, Q=500 / 86400)
+        chat.send_message("analyse my pumping test")
+
+        suggestion = chat.state["method_suggestion"]
+        assert suggestion["method"] == THEIS
+        assert "radial flow" in suggestion["evidence"]
+
+    def test_the_suggestion_quotes_a_transmissivity_from_the_plateau(self, wired):
+        """An estimate that owes nothing to curve fitting, available before the
+        user has run anything."""
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("calculation", aquifer="confined")]
+
+        import numpy as np
+        from scipy.special import expn
+        t = np.logspace(3, 7, 60)
+        u = (50.0 ** 2 * 5e-5) / (4.0 * 2.5e-3 * t)
+        s = (500 / 86400 / (4.0 * np.pi * 2.5e-3)) * expn(1, np.maximum(u, 1e-12))
+
+        chat.stage_series(t, s, Q=500 / 86400)
+        chat.send_message("analyse my pumping test")
+
+        assert "216.0 m²/day" in chat.state["method_suggestion"]["reason"]
+
+    def test_clearing_the_series_restores_keyword_behaviour(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("calculation", aquifer="confined")]
+
+        t, s = self._leaky_series()
+        chat.stage_series(t, s, Q=500 / 86400)
+        chat.clear_staged_series()
+        chat.send_message("analyse my confined aquifer pumping test")
+
+        assert chat.state["method_suggestion"]["method"] == THEIS
+
+    def test_reset_clears_the_staged_series(self, wired):
+        chat, _, _, _ = wired
+        t, s = self._radial_series()
+        chat.stage_series(t, s, Q=500 / 86400)
+        chat.reset()
+
+        assert chat.state["staged_series"] == {}

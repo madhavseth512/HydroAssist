@@ -325,3 +325,145 @@ class TestSummariseResult:
 
     def test_empty_result_renders_empty(self):
         assert summarise_result({}) == ""
+
+
+# ── Rule 2: the data outranks the prose ───────────────────────────────────────
+
+class TestDataDrivenSelection:
+    """The Bourdet derivative reading the flow regime off the actual series.
+
+    This is what separates a recommender that pattern-matches the user's wording
+    from one that reads their data. The decisive case is the disagreement test:
+    a user describing a "confined aquifer test" whose curve plainly shows
+    leakage should be steered to Hantush-Jacob, not Theis.
+    """
+
+    Q, R, T, S = 500 / 86400, 50.0, 2.5e-3, 5e-5
+
+    def _theis(self, t):
+        import numpy as np
+        from scipy.special import expn
+        u = (self.R ** 2 * self.S) / (4.0 * self.T * t)
+        return (self.Q / (4.0 * np.pi * self.T)) * expn(1, np.maximum(u, 1e-12))
+
+    def _leaky(self, t, B=300.0):
+        from src.calculator.methods.hantush_jacob import hantush_jacob_drawdown
+        return hantush_jacob_drawdown(t, self.T, self.S, B, self.Q, self.R)
+
+    def test_radial_data_confirms_theis(self):
+        import numpy as np
+        t = np.logspace(2, 6, 60)
+        s = suggest_method(aquifer_context="confined", time_s=t,
+                           drawdown_m=self._theis(t), Q=self.Q)
+
+        assert s["method"] == THEIS
+        assert "radial flow" in s["reason"]
+
+    def test_the_reason_quotes_the_transmissivity_read_off_the_plateau(self):
+        """An independent T that owes nothing to curve fitting."""
+        import numpy as np
+        t = np.logspace(3, 7, 60)
+        s = suggest_method(aquifer_context="confined", time_s=t,
+                           drawdown_m=self._theis(t), Q=self.Q)
+
+        assert "216.0 m²/day" in s["reason"]
+
+    def test_leaky_data_overrides_a_confined_description(self):
+        """The case the whole feature exists for."""
+        import numpy as np
+        from src.agents.method_selection import HANTUSH_JACOB
+
+        t = np.logspace(2, 7, 60)
+        prose_only = suggest_method(
+            aquifer_context="confined",
+            user_message="here is my confined aquifer pumping test")
+        with_data = suggest_method(
+            aquifer_context="confined",
+            user_message="here is my confined aquifer pumping test",
+            time_s=t, drawdown_m=self._leaky(t), Q=self.Q)
+
+        assert prose_only["method"] == THEIS
+        assert with_data["method"] == HANTUSH_JACOB
+
+    def test_wellbore_storage_data_selects_papadopulos_cooper(self):
+        import numpy as np
+        from src.calculator.papadopulos_cooper import pc_drawdown
+
+        t = np.logspace(0, 5, 60)
+        s = pc_drawdown(t, 1e-3, 1e-4, 300 / 86400, 0.30, 0.20)
+        card = suggest_method(aquifer_context="confined", time_s=t,
+                              drawdown_m=s, Q=300 / 86400)
+
+        assert card["method"] == PAPADOPULOS_COOPER
+
+    def test_an_explicitly_named_method_still_wins(self):
+        """The user knows their own test setup; data evidence does not override
+        a direct instruction."""
+        import numpy as np
+        t = np.logspace(2, 7, 60)
+        card = suggest_method(aquifer_context="confined", selected_method="Theis",
+                              time_s=t, drawdown_m=self._leaky(t), Q=self.Q)
+
+        assert card["method"] == THEIS
+
+    def test_data_beats_a_misleading_keyword_cue(self):
+        """"dug well" would normally select Papadopulos-Cooper, but a curve with
+        no wellbore-storage signature says otherwise."""
+        import numpy as np
+        t = np.logspace(2, 6, 60)
+        card = suggest_method(aquifer_context="confined",
+                              user_message="my dug well test",
+                              time_s=t, drawdown_m=self._theis(t), Q=self.Q)
+
+        assert card["method"] == THEIS
+
+    def test_evidence_is_attached_when_the_data_was_consulted(self):
+        import numpy as np
+        t = np.logspace(2, 6, 60)
+        card = suggest_method(aquifer_context="confined", time_s=t,
+                              drawdown_m=self._theis(t), Q=self.Q)
+
+        assert "evidence" in card and card["evidence"]
+
+    def test_no_evidence_key_when_only_prose_was_used(self):
+        card = suggest_method(aquifer_context="confined",
+                              user_message="analyse my test")
+        assert "evidence" not in card
+
+    def test_unrecognisable_regime_warns_rather_than_recommending(self):
+        """A barrier has no implemented method. Falling through to Theis would
+        fit a model the data has just contradicted."""
+        import numpy as np
+        t = np.logspace(1, 5, 50)
+        card = suggest_method(aquifer_context="confined", time_s=t,
+                              drawdown_m=0.2 * np.log(t) + 3e-5 * t, Q=self.Q)
+
+        assert card["method"] == ""
+        assert card["supported"] is False
+        assert "boundary" in card["reason"]
+
+    def test_too_few_points_falls_back_to_the_keyword_rules(self):
+        import numpy as np
+        t = np.array([10.0, 20.0, 30.0])
+        card = suggest_method(aquifer_context="confined", time_s=t,
+                              drawdown_m=np.array([0.1, 0.2, 0.3]), Q=self.Q)
+
+        assert card["method"] == THEIS
+        assert "evidence" not in card
+
+    def test_malformed_series_never_breaks_selection(self):
+        """A bad upload must not take down method selection."""
+        import numpy as np
+        card = suggest_method(aquifer_context="confined",
+                              time_s=np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+                              drawdown_m=np.array([1.0, 2.0]), Q=self.Q)
+
+        assert card["method"] == THEIS
+
+    def test_missing_pumping_rate_still_diagnoses(self):
+        import numpy as np
+        t = np.logspace(2, 6, 60)
+        card = suggest_method(aquifer_context="confined", time_s=t,
+                              drawdown_m=self._theis(t))
+
+        assert card["method"] == THEIS

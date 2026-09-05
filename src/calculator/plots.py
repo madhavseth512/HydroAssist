@@ -416,3 +416,68 @@ def compute_t0(result: CalculationResult, r: float):
     if result.T > 0 and result.S > 0 and r > 0:
         return (result.S * r ** 2) / (2.25 * result.T)
     return None
+
+
+# ── Bourdet derivative diagnostic ─────────────────────────────────────────────
+
+def derivative_diagnostic(time_s, drawdown_m, Q=None, window=None) -> go.Figure:
+    """Log-log drawdown with its Bourdet derivative overlaid.
+
+    The standard modern well-test diagnostic, and the plot a hydrogeologist looks
+    at *first*. Drawdown and derivative share one axis deliberately: where the two
+    curves lie on top of each other, all the water is coming from wellbore storage,
+    which is the clearest visual signature on the whole plot.
+
+    A flat derivative marks infinite-acting radial flow, and its height is
+    Q/(4πT) — so T can be read straight off this plot without fitting anything.
+    That reference line is drawn whenever Q is known.
+    """
+    from src.calculator.derivative import DEFAULT_WINDOW, diagnose, log_derivative
+
+    t = np.asarray(time_s, dtype=float)
+    s = np.asarray(drawdown_m, dtype=float)
+    window = DEFAULT_WINDOW if window is None else window
+
+    d = log_derivative(t, s, window)
+    signature = diagnose(t, s, Q=Q, window=window)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=t, y=s, mode="markers", name="Drawdown",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open",
+                    line=dict(width=1.5)),
+        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
+    ))
+
+    # Only positive values can be shown on a log axis; a negative derivative is
+    # noise in a falling section, not signal.
+    positive = d > 0
+    fig.add_trace(go.Scatter(
+        x=t[positive], y=d[positive], mode="markers+lines",
+        name="Derivative  ds/d ln t",
+        marker=dict(color=COL_MANUAL, size=6, symbol="x"),
+        line=dict(color=COL_MANUAL, width=1.5),
+        hovertemplate="t = %{x:.1f} s<br>ds/dlnt = %{y:.4f} m<extra></extra>",
+    ))
+
+    if signature.implied_T:
+        level = Q / (4.0 * np.pi * signature.implied_T)
+        fig.add_hline(
+            y=level, line=dict(color=COL_FIT, dash="dash", width=1.5),
+            annotation_text=(
+                f"radial plateau → T = {signature.implied_T * 86400:.1f} m²/day"
+            ),
+            annotation_position="bottom right",
+        )
+
+    fig.update_xaxes(type="log", title_text="Time (s)",
+                     showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(type="log", title_text="Drawdown and derivative (m)",
+                     showgrid=True, gridcolor=COL_GRID)
+    fig.update_layout(
+        title=f"Diagnostic plot — {signature.regime.replace('_', ' ')}",
+        height=520, legend=_LEGEND_H, hovermode="x unified",
+        margin=_MARGIN_SINGLE,
+    )
+    return fig

@@ -76,6 +76,8 @@ if "formatted_df" not in st.session_state:
     st.session_state.formatted_df = None
 if "validation" not in st.session_state:
     st.session_state.validation = None   # last ValidationResult
+if "diagnosis" not in st.session_state:
+    st.session_state.diagnosis = None    # last DerivativeSignature
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -356,6 +358,7 @@ with tab_calc:
                 st.session_state.uploaded_name = uploaded.name
                 st.session_state.calc_result = None
                 st.session_state.chat.clear_calculation()
+                st.session_state.chat.clear_staged_series()
 
             raw_df = pd.read_csv(uploaded)
             # Hand the inspector the same Gemini client the agents use, so the
@@ -379,6 +382,14 @@ with tab_calc:
             df = fmt.df
             st.session_state.formatted_df = df
 
+            # Publish the series to the conversation so the Manager's method
+            # suggestion reads the actual flow regime off the derivative rather
+            # than inferring it from the words in the user's message.
+            st.session_state.chat.stage_series(
+                df.time_s.values, df.drawdown_m.values,
+                Q=st.session_state.calc_inputs.get("Q"),
+            )
+
             if fmt.conversions_applied:
                 with st.expander("Conversions applied"):
                     for c in fmt.conversions_applied:
@@ -394,6 +405,38 @@ with tab_calc:
 
             with st.expander("Preview formatted data (first 10 rows)"):
                 st.dataframe(df.head(10), use_container_width=True)
+
+            # ── Diagnostic plot, before any model is chosen ───────────────────
+            # Modern practice reads the derivative first and picks the model from
+            # its shape, rather than fitting a model chosen in advance and
+            # checking R² afterwards. So this sits in Step 1, ahead of the
+            # method dropdown.
+            with st.expander("🔍 Diagnostic plot — what does the data say?",
+                             expanded=True):
+                try:
+                    from src.calculator.derivative import diagnose
+                    from src.calculator.plots import derivative_diagnostic
+
+                    signature = diagnose(df.time_s.values, df.drawdown_m.values)
+                    st.session_state.diagnosis = signature
+
+                    st.plotly_chart(
+                        derivative_diagnostic(df.time_s.values,
+                                              df.drawdown_m.values),
+                        use_container_width=True,
+                    )
+                    st.info(f"**{signature.regime.replace('_', ' ').title()}** "
+                            f"— {signature.evidence}")
+                    for note in signature.notes:
+                        st.caption(f"• {note}")
+
+                    recommended = [_registry.get(m) for m in signature.suggests]
+                    recommended = [s.label for s in recommended if s]
+                    if recommended:
+                        st.caption("Consistent with: " + ", ".join(recommended))
+                except Exception as e:
+                    st.caption(f"Diagnostic plot unavailable: {e}")
+                    st.session_state.diagnosis = None
 
             # ── Physical plausibility + method suitability ────────────────────
             validation = DataValidator().validate(
