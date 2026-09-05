@@ -41,7 +41,10 @@ RTOL = 1e-9
 
 
 def _golden() -> dict:
-    return json.loads(GOLDEN_PATH.read_text())
+    data = json.loads(GOLDEN_PATH.read_text())
+    # Metadata about intentional re-baselines, not a method entry.
+    data.pop("_provenance", None)
+    return data
 
 
 CALCULATORS = {

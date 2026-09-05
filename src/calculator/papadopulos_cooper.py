@@ -37,14 +37,17 @@ Key equations from the paper:
 """
 
 import logging
-from math import factorial
 from typing import Optional
 
 import numpy as np
 from scipy.optimize import curve_fit
-from scipy.special import expn, kv
+from scipy.special import expn
 
 from src.calculator.base import BaseCalculator, CalculationInput, CalculationResult
+from src.calculator.laplace import stehfest_coefficients, stehfest_invert_array
+from src.calculator.laplace_solutions import (
+    papadopulos_cooper_transform, q_theis, with_wellbore_storage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,60 +66,46 @@ _STEHFEST_N = 12
 # numerically integrating the oscillatory Eq. 13 integral.  The Laplace-domain
 # formula involves only K₀ and K₁ (modified Bessel functions), which are smooth
 # and well-conditioned — no oscillation, no convergence issues.
+#
+# The machinery itself now lives in laplace.py and laplace_solutions.py, shared
+# with the leaky, unconfined and fractured methods that use the same kernel with
+# a different characteristic root. The four names below are kept as thin wrappers
+# because they are part of this module's tested surface.
+
 
 def _stehfest_v(N: int) -> np.ndarray:
-    """Precompute Stehfest V coefficients for N-term inversion (N must be even)."""
-    M = N // 2
-    V = np.zeros(N)
-    for i in range(1, N + 1):
-        s = 0.0
-        for k in range(int(np.floor((i + 1) / 2)), min(i, M) + 1):
-            s += (k ** M * factorial(2 * k) /
-                  (factorial(M - k) * factorial(k) * factorial(k - 1) *
-                   factorial(i - k) * factorial(2 * k - i)))
-        V[i - 1] = ((-1) ** (M + i)) * s
-    return V
+    """Stehfest V coefficients for an N-term inversion (N must be even)."""
+    return np.asarray(stehfest_coefficients(N), dtype=float)
 
 
 _V12 = _stehfest_v(_STEHFEST_N)   # precomputed at import time
 
 
-def _laplace_sw(p: float, Q: float, T: float, S: float,
-                r_w: float, r_c: float) -> float:
+def _laplace_sw(p, Q: float, T: float, S: float,
+                r_w: float, r_c: float):
     """Laplace transform of s_w at r = r_w — paper Eq. 10.
 
     s̄_w(p) = Q · K₀(q·r_w) / {π · p · [r_c²·p·K₀(q·r_w) + 2·r_w·T·q·K₁(q·r_w)]}
 
     where q = √(p·S/T).
 
-    This is the exact analytical Laplace-domain solution.  K₀ and K₁ are
-    scipy.special.kv(0, ·) and kv(1, ·) — modified Bessel functions of the
-    second kind, non-oscillatory and numerically stable.
+    Accepts a scalar or an array of p. K₀ and K₁ appear only in a ratio at the
+    same argument, so the exponentially scaled forms used underneath substitute
+    exactly while staying finite where the plain functions both underflow.
     """
-    q = np.sqrt(p * S / T)
-    qrw = q * r_w
-    if qrw < 1e-300:
-        return 0.0
-    K0 = float(kv(0, qrw))
-    K1 = float(kv(1, qrw))
-    denom = np.pi * p * (r_c ** 2 * p * K0 + 2.0 * r_w * T * q * K1)
-    if abs(denom) < 1e-300:
-        return 0.0
-    return Q * K0 / denom
+    out = with_wellbore_storage(p, Q, T, r_w, r_w, r_c, q_theis(p, T, S))
+    return float(out) if np.ndim(p) == 0 else out
 
 
 def _stehfest_sw(t: float, Q: float, T: float, S: float,
                  r_w: float, r_c: float) -> float:
-    """Invert s̄_w(p) → s_w(t) using the Stehfest (1970) algorithm.
+    """Invert s̄_w(p) → s_w(t) at a single time.
 
     f(t) ≈ (ln2/t) × Σᵢ₌₁ᴺ Vᵢ · F̄(i · ln2/t)
     """
-    ln2_t = np.log(2.0) / t
-    s_w = 0.0
-    for i in range(1, _STEHFEST_N + 1):
-        p_i = i * ln2_t
-        s_w += _V12[i - 1] * _laplace_sw(p_i, Q, T, S, r_w, r_c)
-    return ln2_t * s_w
+    return float(stehfest_invert_array(
+        papadopulos_cooper_transform(Q, T, S, r_w, r_c), float(t), _STEHFEST_N
+    ))
 
 
 def pc_drawdown(t_arr: np.ndarray, T: float, S: float,
@@ -126,13 +115,19 @@ def pc_drawdown(t_arr: np.ndarray, T: float, S: float,
     Implements paper Eq. 12 by inverting the Laplace-domain formula (Eq. 10)
     rather than integrating the oscillatory Eq. 13 directly.
 
+    The transform is evaluated once over the whole (n_times × N) grid rather than
+    in a Python loop per time point. That is what makes a multi-parameter fit on
+    this kernel tractable — the loop cost roughly N calls per time point, and a
+    four- to six-parameter fit needs on the order of 10^5 evaluations.
+
     Module-level so report.py and plots.py can import it for PDF plots and
     interactive matching without re-importing the whole calculator class.
     """
-    out = np.empty(len(t_arr))
-    for i, t in enumerate(t_arr):
-        out[i] = _stehfest_sw(t, Q, T, S, r_w, r_c)
-    return out
+    return stehfest_invert_array(
+        papadopulos_cooper_transform(Q, T, S, r_w, r_c),
+        np.asarray(t_arr, dtype=float),
+        _STEHFEST_N,
+    )
 
 
 # ── Calculator class ──────────────────────────────────────────────────────────

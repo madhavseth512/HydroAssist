@@ -1,4 +1,14 @@
 {
+  "_provenance": {
+    "note": "Baselines recorded before the calculator architecture refactor. Any change to these values means a step that was supposed to be a code move altered the optimisation.",
+    "rebaselined": [
+      {
+        "method": "papadopulos_cooper_1967",
+        "reason": "scipy.special.kv replaced by the exponentially scaled kve inside the wellbore-storage kernel, where K0 and K1 appear only in a ratio at the same argument so exp(-x) cancels exactly. Verified: the Laplace transform itself agrees to 2.1e-16 (one ULP) across p = 1e-6 to 5e3, and at p = 1e9 the old kv path underflowed to 0/0 and returned 0.0 while kve returns the correct 2.76e-20. The fitted T moved by 2.5e-7 relative \u2014 a one-ULP objective change amplified by the optimiser settling at a marginally different point. The new values are the more accurate ones.",
+        "step": "migration step 6 \u2014 Stehfest extraction and vectorisation"
+      }
+    ]
+  },
   "cooper_jacob_1946": {
     "S": 5.03444166099439e-05,
     "S_ci": [
@@ -22,21 +32,21 @@
     }
   },
   "papadopulos_cooper_1967": {
-    "S": 9.997416537595185e-05,
+    "S": 9.997438394595035e-05,
     "S_ci": [
-      9.740376831261129e-05,
-      0.00010254456243929242
+      9.740393035714275e-05,
+      0.00010254483753475795
     ],
-    "T": 0.000999830347644176,
+    "T": 0.0009998301593134573,
     "T_ci": [
-      0.0009976311626660281,
-      0.0010020295326223238
+      0.0009976309166929989,
+      0.0010020294019339158
     ],
-    "T_day": 86.3853420364568,
+    "T_day": 86.38532576468272,
     "method": "Papadopulos-Cooper (1967)",
     "n_validity_notes": 5,
-    "r_squared": 0.9999969237894685,
-    "rmse": 0.0022547090317404247,
+    "r_squared": 0.99999692378964,
+    "rmse": 0.0022547089688940707,
     "setup": {
       "Q": 0.003472222222222222,
       "r": 0.3,

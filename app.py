@@ -502,8 +502,8 @@ with tab_calc:
         st.info("Upload a CSV file in Step 1 to enable analysis.")
 
     if needs_well_geometry:
-        st.caption(f"Note: {spec.label} inverts the well function numerically — "
-                   "fitting may take 10–30 seconds depending on dataset size.")
+        st.caption(f"Note: {spec.label} inverts the well function numerically "
+                   "(Stehfest Laplace inversion).")
 
     if st.button("▶  Run Analysis", type="primary", disabled=run_disabled, use_container_width=True):
         df = st.session_state.formatted_df
@@ -676,9 +676,6 @@ with tab_calc:
                 S_manual = 10.0 ** log_S_manual
                 st.caption(f"S = {S_manual:.2e}")
 
-            if spec_r.data_source == _registry.PUMPED_WELL:
-                st.caption("Manual matching recomputes the full well function — "
-                           "allow 3–5 seconds after each slider move.")
             fig_m, rmse_m = spec_r.interactive_plot(
                 result, plot_ctx, T_manual, S_manual,
             )
