@@ -386,18 +386,43 @@ All plots are Plotly figures with hover data, rendered inside Streamlit.
 
 ---
 
-## 7. Unit Test Suite
+## 7. Test Suite
 
 ### 7.1 Summary
 
-| File | Classes | Tests | Runtime |
-|------|---------|-------|---------|
-| `test_theis.py` | 6 | 46 | ~2.4 s |
-| `test_cooper_jacob.py` | 3 | 20 | ~1.2 s |
-| `test_papadopulos_cooper.py` | 5 | 41 | ~4.1 s |
-| **Total** | **14** | **107** | **~7.7 s** |
+**350 tests, all passing. 66% statement coverage of `src/` (~30 s full run).**
 
-All 107 tests pass. Coverage on calculator modules: 91% (Theis), 88% (Cooper-Jacob), 91% (PC).
+Unit tests — calculators:
+
+| File | Classes | Tests | Module coverage |
+|------|---------|-------|-----------------|
+| `test_theis.py` | 6 | 46 | 91% |
+| `test_cooper_jacob.py` | 3 | 17 | 81% |
+| `test_papadopulos_cooper.py` | 5 | 41 | 91% |
+
+Unit tests — data pipeline, plotting, method selection:
+
+| File | Classes | Tests | Module coverage |
+|------|---------|-------|-----------------|
+| `test_csv_inspector.py` | 6 | 40 | 96% |
+| `test_formatter.py` | 6 | 26 | 100% |
+| `test_validator.py` | 6 | 24 | 97% |
+| `test_plots_report.py` | 8 | 34 | `plots.py` 100%, `report.py` 100% |
+| `test_method_selection.py` | 9 | 70 | 99% |
+
+Integration tests — the chat ↔ calculator bridge:
+
+| File | Classes | Tests | Scope |
+|------|---------|-------|-------|
+| `test_chat_calculator_bridge.py` | 7 | 26 | Agents with stubbed LLM + retriever |
+| `test_end_to_end_journey.py` | 5 | 12 | Full journey through the compiled LangGraph |
+| `test_app_smoke.py` | 3 | 14 | Streamlit `AppTest` — renders the real app |
+
+**Total: 298 unit + 52 integration = 350.**
+
+An earlier revision of this report claimed 107 tests with Cooper-Jacob at 20;
+the suite actually contained 104, with 17 Cooper-Jacob tests. The counts above
+were taken from a full run.
 
 ### 7.2 Theis Test Classes (46 tests)
 
@@ -414,11 +439,11 @@ All 107 tests pass. Coverage on calculator modules: 91% (Theis), 88% (Cooper-Jac
 
 **Smoke test result:** T recovered to **+0.1%**, R² = **0.9994**, RMSE = **4.8 mm**
 
-### 7.3 Cooper-Jacob Test Classes (20 tests)
+### 7.3 Cooper-Jacob Test Classes (17 tests)
 
 | Class | Tests | What it verifies |
 |-------|-------|-----------------|
-| `TestCooperJacobSmokeTest` | 13 | End-to-end: T within 5%, S within 30%, R²>0.97, early-time exclusion, CIs |
+| `TestCooperJacobSmokeTest` | 12 | End-to-end: T within 5%, S within 30%, R²>0.97, early-time exclusion, CIs |
 | `TestCooperJacobInputValidation` | 4 | Validation error paths |
 | `TestCooperJacobUThreshold` | 1 | Relaxed threshold (0.05 textbook vs 0.02 paper) gives consistent T |
 
@@ -473,11 +498,25 @@ Formatted response in chat interface
 
 ### 8.2 Knowledge Base
 
-| Source | Content | Format |
-|--------|---------|--------|
-| USGS TWI Books | Standard groundwater methods reference | PDF |
-| AQTESOLV documentation | Method metadata, applicability conditions | HTML |
-| Custom PDFs | Aquifer-type specific references | PDF |
+Built by `scripts/ingest_knowledge_source.py` from the `knowledge source/` PDF
+tree; each chunk is tagged with the aquifer type of its containing folder.
+**3,843 chunks total.**
+
+| Source | Aquifer tag | Chunks |
+|--------|-------------|--------|
+| Unconfined Aquifer papers | `unconfined` | 1,574 |
+| Confined Aquifer papers | `confined` | 613 |
+| General references | `general` | 597 |
+| Leaky Confined Aquifer papers | `leaky` | 572 |
+| Fractured Aquifer papers | `fractured` | 472 |
+| AQTESOLV method metadata | per method | 6 |
+
+Two caveats worth recording. First, `method` metadata is `multiple` for 3,837
+of the 3,843 chunks, so method-level filtering is currently ineffective —
+aquifer-level filtering is the only one that discriminates. Second, the corpus
+is dominated by unconfined-aquifer material (41%), while the calculator covers
+confined aquifers only; the knowledge base is therefore already provisioned for
+the Phase-3 unconfined methods.
 
 **Embedding model:** `sentence-transformers/all-MiniLM-L6-v2`
 **Vector store:** ChromaDB (persistent, local)
@@ -493,9 +532,40 @@ class AgentState(TypedDict):
     selected_method   : str                   # Theis | Cooper-Jacob | PC
     retrieved_docs    : List[Dict]            # Top-k retrieved chunks
     metadata_filters  : Dict                  # Applied to vector search
+    method_suggestion    : Dict               # {method, reason, confidence, supported}
     suggestion_confirmed : bool               # User approved method suggestion
-    calculation_result   : Dict              # T, S, plots
+    calculation_input    : Dict               # Q, r, method, n_points
+    calculation_result   : Dict               # T, S, CIs, R2, validity notes
 ```
+
+### 8.4 The Chat ↔ Calculator Bridge
+
+The Calculator Workspace runs outside the LangGraph — it needs a file upload and
+form state that the graph does not carry. The two halves therefore exchange
+information through three explicit seams on `HydroAssistChat`, rather than the
+workspace reaching into `AgentState` directly:
+
+| Seam | Direction | Effect |
+|------|-----------|--------|
+| `method_suggestion` (written by ManagerAgent) | chat → workspace | Suggestion card renders in the chat tab |
+| `confirm_method()` | chat → workspace | Sets `selected_method` and `suggestion_confirmed`; the workspace dropdown preselects the method, and the Consultant's aquifer metadata filter activates |
+| `record_calculation()` | workspace → chat | Publishes the fitted parameters and validity notes so the Consultant can interpret the user's own numbers |
+
+Method selection itself lives in `src/agents/method_selection.py` and is
+deliberately deterministic and LLM-free, so the reason shown to the user is
+always traceable to a stated rule:
+
+1. An explicitly named method always wins.
+2. Unconfined / leaky / fractured → no calculator; say so rather than silently
+   offering Theis.
+3. Large-diameter well (phrase cue, or a stated radius > 0.15 m) →
+   Papadopulos-Cooper, citing Theis assumption (5).
+4. Late-time / straight-line / semi-log framing → Cooper-Jacob, citing the
+   u < 0.02 criterion.
+5. Otherwise → Theis, with confidence reduced when the aquifer type is unstated.
+
+`CalculationResult.to_state_dict()` strips the numpy arrays before the result
+enters `AgentState`, keeping the conversation state JSON-serialisable.
 
 ---
 
@@ -550,8 +620,14 @@ A common user mistake is entering Q in m³/day instead of m³/s. Since real pump
 | Unit conversion pipeline | ✅ Complete |
 | Plotly interactive diagnostic plots | ✅ Complete |
 | PDF report generation | ✅ Complete |
-| 107-test unit test suite | ✅ Complete |
+| 350-test suite (66% coverage) | ✅ Complete |
 | RAG consultation chatbot (Phase 1) | ✅ Complete |
+| Data validator wired into the UI | ✅ Complete |
+| Method suggestion card (chat → calculator) | ✅ Complete |
+| Results published back to chat (calculator → chat) | ✅ Complete |
+| Consultant interprets the user's own results | ✅ Complete |
+| Streamlit UI smoke tests | ✅ Complete |
 | IIT KGP email authentication | 🔲 Deferred |
 | Theis recovery analysis (Eq. 7) | 🔲 Future |
+| Derivative diagnostics (ds/d ln t) | 🔲 Future |
 | Unconfined / leaky aquifer methods | 🔲 Future |

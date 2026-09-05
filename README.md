@@ -4,8 +4,9 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Phase](https://img.shields.io/badge/phase-2%20complete-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen.svg)]()
+[![Phase](https://img.shields.io/badge/phase-3%20in%20progress-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-350%20passing-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-66%25-green.svg)]()
 
 ---
 
@@ -15,7 +16,7 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 
 **Phase 1 — Consultant (complete)**
 - RAG-based chatbot answering questions about pumping test theory, method selection, and aquifer characterisation
-- Grounded in USGS TWI Book 3-B1 and curated AQTESOLV method metadata
+- Grounded in a curated corpus of hydrogeology papers (see Knowledge Base below) plus AQTESOLV method metadata
 - Metadata-filtered retrieval (aquifer type, method, section)
 - Intent classification and conversation routing via LangGraph
 
@@ -25,7 +26,12 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 - Outputs T (transmissivity) and S (storativity) with 95% confidence intervals
 - Interactive Plotly diagnostic plots (type curves, residuals, manual matching)
 - PDF report generation (ReportLab)
-- 107-test unit test suite covering all three calculators
+
+**Phase 3 — Integrated workflow (in progress)**
+- The consultant now suggests a method from the conversation, and the workspace follows it
+- Completed analyses flow back into the chat, so the consultant can interpret the user's own T and S
+- `DataValidator` gates which methods the workspace offers for a given dataset
+- 350-test suite (66% coverage) spanning calculators, data pipeline, plotting, agents and UI
 
 ---
 
@@ -42,9 +48,11 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 │                    LangGraph State Machine                        │
 │   ┌──────────────┐   ┌────────────────┐   ┌──────────────────┐ │
 │   │ Manager Agent│──▶│Consultant Agent│   │ Calculator Agent │ │
-│   │ (routing +   │   │ (RAG Q&A)      │   │ (orchestrator)   │ │
-│   │  suggestion) │   └────────────────┘   └──────────────────┘ │
-│   └──────────────┘                                               │
+│   │ (routing +   │   │ (RAG Q&A +     │   │ (reports results,│ │
+│   │  suggestion) │   │  result interp)│   │  requests inputs)│ │
+│   └──────────────┘   └────────────────┘   └──────────────────┘ │
+│           ▲                                        │             │
+│           └──── method_suggestion / calculation_result ─────────┘│
 └──────────────────────────┬──────────────────────────────────────┘
                            │
           ┌────────────────┼────────────────────────┐
@@ -68,8 +76,20 @@ All agents share a typed `AgentState` with these key fields:
 | `selected_method` | `str` | Method extracted from user message |
 | `method_suggestion` | `Dict` | Structured suggestion card for UI |
 | `suggestion_confirmed` | `bool` | Gates the calculator workspace |
-| `calculation_input` | `Dict` | CSV data + well parameters |
-| `calculation_result` | `Dict` | T, S, confidence intervals, plots |
+| `calculation_input` | `Dict` | Q, r, method, n_points — written by the workspace |
+| `calculation_result` | `Dict` | T, S, CIs, R², validity notes — written by the workspace, read by the consultant |
+
+### The chat ↔ calculator bridge
+
+The workspace runs outside the LangGraph (it needs a file upload and form
+inputs), so the two halves exchange state through three seams on
+`HydroAssistChat`:
+
+| Seam | Direction | Effect |
+|---|---|---|
+| `method_suggestion` | chat → workspace | Manager recommends a method; the card renders in the chat tab |
+| `confirm_method()` | chat → workspace | Sets `selected_method` + `suggestion_confirmed`; the workspace dropdown preselects it, and aquifer-filtered retrieval activates |
+| `record_calculation()` | workspace → chat | Publishes the fitted T, S and validity notes so the consultant can interpret them |
 
 ---
 
@@ -87,9 +107,10 @@ hydroassist/
 │   │   └── graph.py                # LangGraph workflow compilation
 │   ├── agents/
 │   │   ├── base.py                 # Abstract BaseAgent
-│   │   ├── manager.py              # Intent classification + routing
-│   │   ├── consultant.py           # RAG Q&A agent
-│   │   └── calculator.py           # Calculator orchestrator
+│   │   ├── manager.py              # Intent classification + routing + suggestion
+│   │   ├── consultant.py           # RAG Q&A agent (also interprets results)
+│   │   ├── calculator.py           # Reports results / requests missing inputs
+│   │   └── method_selection.py     # Deterministic method-suggestion rules
 │   ├── retrieval/
 │   │   ├── embeddings.py           # Sentence-transformers (all-MiniLM-L6-v2)
 │   │   ├── vectorstore.py          # ChromaDB manager
@@ -111,10 +132,19 @@ hydroassist/
 │   │   └── report.py               # ReportLab PDF report generation
 │   └── prompts/                    # LLM prompts for each agent
 ├── tests/
-│   └── unit/
-│       ├── test_theis.py           # 46 tests
-│       ├── test_cooper_jacob.py    # 20 tests
-│       └── test_papadopulos_cooper.py  # 41 tests
+│   ├── unit/                       # 298 tests
+│   │   ├── test_theis.py                 # 46
+│   │   ├── test_cooper_jacob.py          # 17
+│   │   ├── test_papadopulos_cooper.py    # 41
+│   │   ├── test_csv_inspector.py         # 40
+│   │   ├── test_formatter.py             # 26
+│   │   ├── test_validator.py             # 24
+│   │   ├── test_plots_report.py          # 34
+│   │   └── test_method_selection.py      # 70
+│   └── integration/                # 52 tests
+│       ├── test_chat_calculator_bridge.py  # 26
+│       ├── test_end_to_end_journey.py      # 12
+│       └── test_app_smoke.py               # 14 (Streamlit AppTest)
 └── data/
     ├── raw/                        # USGS PDFs, AQTESOLV metadata
     ├── processed/                  # Chunked documents
@@ -154,8 +184,8 @@ STEP 4 — Results
      ├── Confidence intervals + RMSE
      ├── Plotly interactive type curve + residuals panel
      ├── Validity & Interpretation (expandable notes)
-     ├── 📄 Download PDF Report
-     └── 📊 Download Results CSV
+     ├── 💬 Interpret these results in chat
+     └── 📄 Download PDF Report
 ```
 
 ### CSV Pipeline
@@ -226,22 +256,50 @@ Key implementation decisions grounded in the original paper:
 
 ---
 
-## Unit Tests
+## Tests
 
-107 tests across 14 test classes, all passing.
+350 tests, all passing; 66% statement coverage of `src/`.
 
 ```bash
-pytest tests/unit/ -v
-# 107 passed in ~7.7s
+pytest tests/ -q                 # everything (~30 s)
+pytest tests/ -q -m "not slow"   # skip the Streamlit UI smoke tests (~15 s)
 ```
 
-| File | Classes | Tests | Coverage |
-|------|---------|-------|----------|
-| `test_theis.py` | 6 | 46 | 91% |
-| `test_cooper_jacob.py` | 3 | 20 | 88% |
-| `test_papadopulos_cooper.py` | 5 | 41 | 91% |
+### Unit tests — calculators
 
-Test categories per method: well function validation, physical limits (monotonicity, linearity in Q), end-to-end smoke test, input validation (all error paths), validity notes (paper-mandated warnings).
+| File | Classes | Tests | Module coverage |
+|------|---------|-------|-----------------|
+| `test_theis.py` | 6 | 46 | `theis.py` 91% |
+| `test_cooper_jacob.py` | 3 | 17 | `cooper_jacob.py` 81% |
+| `test_papadopulos_cooper.py` | 5 | 41 | `papadopulos_cooper.py` 91% |
+
+Categories per method: well-function validation, physical limits (monotonicity,
+linearity in Q), end-to-end smoke test, input validation, paper-mandated
+validity notes.
+
+### Unit tests — data pipeline, plotting, method selection
+
+| File | Classes | Tests | Module coverage |
+|------|---------|-------|-----------------|
+| `test_csv_inspector.py` | 6 | 40 | `csv_inspector.py` 96% |
+| `test_formatter.py` | 6 | 26 | `formatter.py` 100% |
+| `test_validator.py` | 6 | 24 | `validator.py` 97% |
+| `test_plots_report.py` | 8 | 34 | `plots.py` 100%, `report.py` 100% |
+| `test_method_selection.py` | 9 | 70 | `method_selection.py` 99% |
+
+The CSV inspector's layer-3 LLM fallback is exercised with a stub LLM — no
+network access, no API key required.
+
+### Integration tests — the chat ↔ calculator bridge
+
+| File | Classes | Tests | What it covers |
+|------|---------|-------|----------------|
+| `test_chat_calculator_bridge.py` | 7 | 26 | Manager suggestion cards, Calculator agent replies, result serialisation, consultant result-context |
+| `test_end_to_end_journey.py` | 5 | 12 | Full journey through the compiled LangGraph: question → suggestion → fit → interpretation |
+| `test_app_smoke.py` | 3 | 14 | Streamlit `AppTest`: renders the real app, clicks the suggestion card, checks the workspace follows |
+
+The LLM and vector store are stubbed throughout; the calculators, graph,
+routing and state reducers are real.
 
 ### Sample Data Files
 
@@ -279,11 +337,33 @@ Get a Gemini API key at [aistudio.google.com](https://aistudio.google.com/app/ap
 
 ### 3. Ingest Knowledge Base
 
+The shipped vector store is built from the PDF corpus under `knowledge source/`,
+organised by aquifer type:
+
 ```bash
-python scripts/ingest.py --all
-# Downloads USGS TWI Book 3-B1, chunks text, populates ChromaDB
-# Takes ~5–10 minutes on first run
+python scripts/ingest_knowledge_source.py
+# Chunks every PDF under "knowledge source/", tags each chunk with the aquifer
+# type taken from its folder, and populates ChromaDB.
+# Takes ~5–10 minutes on first run.
 ```
+
+Current contents — 3,843 chunks:
+
+| Source folder | Aquifer tag | Chunks |
+|---|---|---|
+| Unconfined Aquifer | `unconfined` | 1,574 |
+| Confined Aquifer | `confined` | 613 |
+| General | `general` | 597 |
+| Leaky Confined Aquifer | `leaky` | 572 |
+| Fractured Aquifers | `fractured` | 472 |
+| AQTESOLV method metadata | per method | 6 |
+
+`scripts/ingest.py --all` is a separate path that fetches USGS TWI Book 3-B1;
+it is **not** what produced the bundled store.
+
+> **Note on the PDF corpus.** `knowledge source/` contains publisher PDFs
+> (SPE, Elsevier, AGU/Wiley). These are for local research use and should not
+> be redistributed — see *Known Issues* below.
 
 ### 4. Launch
 
@@ -348,15 +428,31 @@ llm:
 - [x] Plotly interactive diagnostic plots (type curves + residuals for all 3 methods)
 - [x] PDF report generation (ReportLab)
 - [x] Calculator workspace UI (4-step workflow)
-- [x] 107-test unit test suite
+
+### Phase 3 — Integration (In progress)
+- [x] Method suggestion card: the Manager recommends a method from the conversation
+- [x] Workspace preselects the confirmed method
+- [x] Completed analyses published back into `AgentState`
+- [x] Consultant interprets the user's own results, with citations
+- [x] `DataValidator` wired in — gates the method dropdown per dataset
+- [x] Test coverage for the data pipeline, plotting and PDF layers
+- [x] Streamlit UI smoke tests
+- [ ] Recovery analysis (Theis 1935, Eq. 7)
+- [ ] Derivative diagnostic plots (ds/d ln t)
+- [ ] Leaky confined (Hantush-Jacob 1955)
+- [ ] Unconfined (Neuman 1972 / Boulton)
 - [ ] IIT KGP email authentication (deferred)
 
-### Phase 3 — Future
-- [ ] Recovery analysis (Theis 1935, Eq. 7)
-- [ ] Derivative diagnostic plots (ds/d ln(t))
-- [ ] Unconfined and leaky aquifer methods
-- [ ] Multi-user project management
-- [ ] REST API
+---
+
+## Known Issues
+
+| Issue | Impact | Status |
+|---|---|---|
+| `knowledge source/` contains paywalled publisher PDFs tracked in git | Redistribution of copyrighted material from a public repo | **Open** — needs `git rm --cached` plus a DOI manifest |
+| `method` metadata is `multiple` for 3,837 of 3,843 chunks | Method-level retrieval filtering is ineffective | Open |
+| `canonical_method("Hantush-Jacob")` resolves to Cooper-Jacob | Shared surname; only reachable in the confined workflow, where the aquifer gate catches it first | Documented in `test_method_selection.py` |
+| `src/ingestion/`, `src/utils/citations.py`, `src/utils/metadata.py` untested | 0% coverage on the ingestion path | Open |
 
 ---
 
