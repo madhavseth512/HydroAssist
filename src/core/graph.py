@@ -196,6 +196,42 @@ class HydroAssistChat:
             "method": self.state.get("selected_method", ""),
             "suggestion_confirmed": self.state.get("suggestion_confirmed", False),
             "method_suggestion": self.state.get("method_suggestion", {}),
+            "has_result": bool(self.state.get("calculation_result")),
             "message_count": len(self.state.get("messages", [])),
             "retrieved_docs_count": len(self.state.get("retrieved_docs", []))
         }
+
+    # ── Calculator workspace bridge ───────────────────────────────────────────
+    # The workspace runs outside the graph (it needs a file upload and form
+    # inputs), so these are the two seams through which it exchanges state with
+    # the conversation. Keeping them here means the UI never reaches into the
+    # AgentState dict directly.
+
+    def confirm_method(self, method: str) -> None:
+        """Record that the user accepted (or overrode) the suggested method.
+
+        Setting `suggestion_confirmed` is what unlocks aquifer-filtered
+        retrieval in the Consultant — until a method is settled, filtering by
+        aquifer wrongly excludes relevant cross-aquifer theory.
+        """
+        self.state["selected_method"] = method
+        self.state["suggestion_confirmed"] = True
+        self.logger.info(f"Method confirmed by user: {method}")
+
+    def record_calculation(self, result: dict, calc_input: dict) -> None:
+        """Publish a completed workspace analysis into the conversation state.
+
+        `result` must be the plain-dict form of CalculationResult — numpy
+        arrays are dropped by the caller so the state stays serialisable.
+        """
+        self.state["calculation_result"] = result or {}
+        self.state["calculation_input"] = calc_input or {}
+        self.logger.info(
+            f"Recorded calculation: {result.get('method', 'unknown')} "
+            f"success={result.get('success')}"
+        )
+
+    def clear_calculation(self) -> None:
+        """Drop any recorded result (e.g. after a new CSV is uploaded)."""
+        self.state["calculation_result"] = {}
+        self.state["calculation_input"] = {}

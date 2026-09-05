@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agents.base import BaseAgent
 from src.core.state import AgentState
 from src.core.config import AppConfig
+from src.agents.method_selection import canonical_method, suggest_method
 from src.prompts.manager_prompts import (
     INTENT_CLASSIFICATION_PROMPT,
     CLARIFICATION_PROMPT,
@@ -83,8 +84,14 @@ class ManagerAgent(BaseAgent):
             state["user_intent"] = classification["intent"]
             state["aquifer_context"] = classification.get("extracted_aquifer", "unknown")
 
-            if classification.get("extracted_method"):
-                state["selected_method"] = classification["extracted_method"]
+            extracted = classification.get("extracted_method")
+            if extracted:
+                # Normalise to the canonical label the calculator dropdown uses,
+                # so "theis method" and "Theis (1935)" select the same entry.
+                state["selected_method"] = canonical_method(extracted) or extracted
+
+            # Build the method suggestion card that bridges chat → calculator.
+            self._update_method_suggestion(state, user_message)
 
             # Handle clarification and unknown intents
             if classification["intent"] == "clarification":
@@ -101,6 +108,47 @@ class ManagerAgent(BaseAgent):
             # Default to consultation on error
             state["user_intent"] = "consultation"
             return state
+
+    def _update_method_suggestion(self, state: AgentState, user_message: str):
+        """Attach a method suggestion card to state.
+
+        Runs for calculation intent, and for consultations that name a method or
+        an aquifer — the user often decides which method to run while still
+        asking theory questions, and the workspace should be primed for it.
+
+        A suggestion the user has already confirmed is left alone; overwriting it
+        on a later unrelated turn would silently change the method under them.
+        """
+        if state.get("suggestion_confirmed", False):
+            return
+
+        intent = state.get("user_intent", "unknown")
+        aquifer = state.get("aquifer_context", "unknown")
+        method = state.get("selected_method", "")
+
+        relevant = (
+            intent == "calculation"
+            or bool(method)
+            or aquifer in {"confined", "unconfined", "leaky", "fractured"}
+        )
+        if not relevant:
+            return
+
+        suggestion = suggest_method(
+            aquifer_context=aquifer,
+            selected_method=method,
+            user_message=user_message,
+        )
+        state["method_suggestion"] = suggestion
+
+        # Keep selected_method in step so the workspace preselects correctly.
+        if suggestion.get("method"):
+            state["selected_method"] = suggestion["method"]
+
+        self.logger.info(
+            f"Method suggestion: {suggestion.get('method') or 'none'} "
+            f"(confidence {suggestion.get('confidence', 0):.2f})"
+        )
 
     def _classify_intent(self, user_message: str, history: str) -> dict:
         """

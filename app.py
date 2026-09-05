@@ -7,14 +7,12 @@ Three UI modes driven by AgentState:
 """
 
 import sys
-import io
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
-from scipy.special import expn
 
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
@@ -75,6 +73,8 @@ if "calc_inputs" not in st.session_state:
     st.session_state.calc_inputs = {}     # Q, r, method, n_excluded
 if "formatted_df" not in st.session_state:
     st.session_state.formatted_df = None
+if "validation" not in st.session_state:
+    st.session_state.validation = None   # last ValidationResult
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -103,133 +103,69 @@ def _format_ci(ci, scale=86400, unit="m²/day"):
     return f"[{ci[0]*scale:.2f}, {ci[1]*scale:.2f}] {unit}"
 
 
-# ── Static plot helpers (must be defined before tab layout runs) ──────────────
-
-def _theis_static_plot(result, Q, r):
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    COL_OBS, COL_FIT, COL_GRID = "#1f77b4", "#d62728", "#e0e0e0"
-
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=("Theis (1935) — Log-Log Type Curve", "Residuals"),
-    )
-
-    t = result.time_s
-    s_obs = result.drawdown_obs
-
-    fig.add_trace(go.Scatter(
-        x=t, y=s_obs, mode="markers", name="Observed",
-        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
-        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
-    ), row=1, col=1)
-
-    t_smooth = np.logspace(np.log10(t.min()), np.log10(t.max()), 300)
-    u_s = (r**2 * result.S) / (4.0 * result.T * t_smooth)
-    s_s = (Q / (4.0 * np.pi * result.T)) * expn(1, np.maximum(u_s, 1e-10))
-    fig.add_trace(go.Scatter(
-        x=t_smooth, y=s_s, mode="lines",
-        name=f"Theis fit  T={result.T_day:.1f} m²/day  S={result.S:.2e}",
-        line=dict(color=COL_FIT, width=2),
-    ), row=1, col=1)
-
-    if result.drawdown_fitted is not None:
-        res = s_obs - result.drawdown_fitted
-        fig.add_trace(go.Bar(
-            x=t, y=res*1000, name="Residual (mm)",
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
-
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-
-    ci_t = f"  CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]" if result.T_ci else ""
-    fig.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", yanchor="top",
-        text=(f"<b>T</b> = {result.T_day:.2f} m²/day{ci_t}<br>"
-              f"<b>S</b> = {result.S:.2e}<br>"
-              f"<b>R²</b> = {result.r_squared:.4f}<br>"
-              f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"),
-        showarrow=False, bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
-        borderwidth=1, font=dict(size=11), row=1, col=1)
-
-    fig.update_layout(height=550, hovermode="x unified",
-                      legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
-                      margin=dict(t=60, b=40))
-    return fig
+ALL_METHODS = ["Theis (1935)", "Cooper-Jacob (1946)", "Papadopulos-Cooper (1967)"]
 
 
-def _cj_static_plot(result, Q, r, n_excluded):
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
+def _method_options(validation):
+    """Method dropdown contents, filtered by DataValidator's suitability check.
 
-    COL_OBS, COL_FIT, COL_EXCL, COL_GRID = "#1f77b4", "#d62728", "#aec7e8", "#e0e0e0"
+    Returns (options, gated_out). Theis is always offered — it is the
+    general-purpose full-curve method and is never excluded by the validator.
+    """
+    if validation is None or not validation.suitable_methods:
+        return list(ALL_METHODS), []
+    suitable = [m for m in ALL_METHODS if m in validation.suitable_methods]
+    if not suitable:
+        suitable = [ALL_METHODS[0]]
+    gated_out = [m for m in ALL_METHODS if m not in suitable]
+    return suitable, gated_out
 
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=("Cooper-Jacob (1946) — Semi-Log Straight Line", "Residuals"),
-    )
 
-    t = result.time_s
-    s_obs = result.drawdown_obs
-    s_fit = result.drawdown_fitted
-    t_excl, s_excl = t[:n_excluded], s_obs[:n_excluded]
-    t_late, s_late = t[n_excluded:], s_obs[n_excluded:]
+def _default_method_index(options):
+    """Preselect the method the consultant suggested in chat, if it is offered."""
+    suggested = st.session_state.chat.state.get("selected_method", "") or ""
+    if suggested:
+        for i, opt in enumerate(options):
+            if _same_method(opt, suggested):
+                return i
+    return 0
 
-    if n_excluded > 0:
-        fig.add_trace(go.Scatter(
-            x=t_excl, y=s_excl, mode="markers",
-            name=f"Excluded early-time ({n_excluded} pts)",
-            marker=dict(color=COL_EXCL, size=7, symbol="circle-open", line=dict(width=1.5)),
-        ), row=1, col=1)
 
-    fig.add_trace(go.Scatter(
-        x=t_late, y=s_late, mode="markers", name="Observed (u < 0.02)",
-        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
-    ), row=1, col=1)
+def _same_method(a: str, b: str) -> bool:
+    """Loose match between a dropdown label and a method name from the LLM.
 
-    if s_fit is not None:
-        fig.add_trace(go.Scatter(
-            x=t, y=s_fit, mode="lines",
-            name=f"CJ fit  T={result.T_day:.1f} m²/day  S={result.S:.2e}",
-            line=dict(color=COL_FIT, width=2),
-        ), row=1, col=1)
+    The Manager may return "Theis", "theis method", or "Theis (1935)"; the
+    dropdown label is always the canonical form.
+    """
+    def key(s):
+        # Drops years, punctuation and spacing: "Papadopulos-Cooper (1967)"
+        # and "papadopulos cooper" both reduce to "papadopuloscooper".
+        return "".join(ch for ch in s.lower() if ch.isalpha())
+    ka, kb = key(a), key(b)
+    if not ka or not kb:
+        return False
+    return ka.startswith(kb) or kb.startswith(ka)
 
-    t0 = (result.S * r**2) / (2.25 * result.T)
-    if t0 > 0:
-        fig.add_annotation(x=np.log10(t0), y=0, xref="x", yref="y",
-                           text=f"t₀={t0:.0f}s", showarrow=True, arrowhead=2,
-                           ax=30, ay=-30, row=1, col=1)
 
-    if s_fit is not None:
-        res = s_obs[n_excluded:] - s_fit[n_excluded:]
-        fig.add_trace(go.Bar(
-            x=t_late, y=res*1000,
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="black", width=0.8), row=2, col=1)
+@st.cache_resource
+def _inspection_llm():
+    """Gemini client for the CSVInspector's layer-3 column-mapping fallback.
 
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-
-    ci_t = f"  CI: [{result.T_ci[0]*86400:.1f}, {result.T_ci[1]*86400:.1f}]" if result.T_ci else ""
-    fig.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", yanchor="top",
-        text=(f"<b>T</b> = {result.T_day:.2f} m²/day{ci_t}<br>"
-              f"<b>S</b> = {result.S:.2e}<br>"
-              f"<b>R²</b> = {result.r_squared:.4f}<br>"
-              f"<b>RMSE</b> = {result.rmse*1000:.2f} mm"),
-        showarrow=False, bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
-        borderwidth=1, font=dict(size=11), row=1, col=1)
-
-    fig.update_layout(height=550, hovermode="x unified",
-                      legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.8)"),
-                      margin=dict(t=60, b=40))
-    return fig
+    Returns None if the LLM cannot be constructed (no API key, offline) — the
+    inspector then degrades to regex + statistical detection rather than
+    failing the upload.
+    """
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        cfg = load_config()
+        return ChatGoogleGenerativeAI(
+            model=cfg.llm.model,
+            temperature=0.0,        # deterministic column mapping
+            max_tokens=1024,
+            google_api_key=cfg.llm.api_key,
+        )
+    except Exception:
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -249,7 +185,13 @@ with st.sidebar:
     st.markdown("**Intent:**")
     st.info(context["intent"].capitalize())
     st.markdown("**Method:**")
-    st.info(context["method"] or "None detected")
+    method_line = context["method"] or "None detected"
+    if context["suggestion_confirmed"] and context["method"]:
+        method_line += "  ✅ confirmed"
+    st.info(method_line)
+
+    if context["has_result"]:
+        st.success("Analysis loaded — the consultant can discuss it.")
 
     st.divider()
     st.subheader("⚙️ Controls")
@@ -258,6 +200,7 @@ with st.sidebar:
         st.session_state.chat.reset()
         st.session_state.calc_result = None
         st.session_state.formatted_df = None
+        st.session_state.validation = None
         st.rerun()
 
     messages = st.session_state.chat.state.get("messages", [])
@@ -291,6 +234,44 @@ with tab_chat:
         role = "user" if isinstance(msg, HumanMessage) else "assistant"
         with st.chat_message(role):
             st.markdown(msg.content)
+
+    # ── Method suggestion card — the chat → calculator bridge ────────────────
+    suggestion = st.session_state.chat.state.get("method_suggestion") or {}
+    confirmed = st.session_state.chat.state.get("suggestion_confirmed", False)
+
+    if suggestion and not confirmed:
+        if not suggestion.get("supported", True) or not suggestion.get("method"):
+            st.warning(suggestion.get("reason", ""))
+        else:
+            with st.container(border=True):
+                st.markdown(
+                    f"#### 📐 Suggested method: {suggestion['method']}\n\n"
+                    f"{suggestion['reason']}"
+                )
+                st.progress(
+                    float(suggestion.get("confidence", 0.0)),
+                    text=f"Confidence {suggestion.get('confidence', 0):.0%}",
+                )
+                b1, b2 = st.columns(2)
+                if b1.button("✅ Use this method", use_container_width=True,
+                             type="primary"):
+                    st.session_state.chat.confirm_method(suggestion["method"])
+                    st.rerun()
+                override = b2.selectbox(
+                    "…or choose another", ALL_METHODS,
+                    index=ALL_METHODS.index(suggestion["method"])
+                    if suggestion["method"] in ALL_METHODS else 0,
+                    label_visibility="collapsed",
+                )
+                if b2.button("Use selected instead", use_container_width=True):
+                    st.session_state.chat.confirm_method(override)
+                    st.rerun()
+
+    elif confirmed:
+        st.success(
+            f"Method set to **{st.session_state.chat.state.get('selected_method')}** "
+            "— it is preselected in the Calculator Workspace tab."
+        )
 
     retrieved_docs = st.session_state.chat.state.get("retrieved_docs", [])
     if retrieved_docs:
@@ -353,8 +334,18 @@ with tab_calc:
             from src.data.formatter import DataFormatter
             from src.data.validator import DataValidator
 
+            # A new file invalidates any result already published to the chat,
+            # otherwise the consultant would discuss numbers from the old dataset.
+            if st.session_state.get("uploaded_name") != uploaded.name:
+                st.session_state.uploaded_name = uploaded.name
+                st.session_state.calc_result = None
+                st.session_state.chat.clear_calculation()
+
             raw_df = pd.read_csv(uploaded)
-            inspector = CSVInspector()
+            # Hand the inspector the same Gemini client the agents use, so the
+            # layer-3 LLM fallback actually fires on ambiguous column names
+            # instead of being dead code.
+            inspector = CSVInspector(llm=_inspection_llm())
             inspection = inspector.inspect(raw_df)
 
             st.success(f"Detected: time col = **{inspection.time_col}** "
@@ -388,9 +379,35 @@ with tab_calc:
             with st.expander("Preview formatted data (first 10 rows)"):
                 st.dataframe(df.head(10), use_container_width=True)
 
+            # ── Physical plausibility + method suitability ────────────────────
+            validation = DataValidator().validate(
+                df,
+                well_radius_m=st.session_state.calc_inputs.get("r"),
+                pumping_rate_m3d=st.session_state.calc_inputs.get("Q_day"),
+                well_casing_radius_m=st.session_state.calc_inputs.get("r_c"),
+            )
+            st.session_state.validation = validation
+
+            for err in validation.errors:
+                st.error(err)
+            for warn in validation.warnings:
+                st.warning(warn)
+            if validation.info:
+                with st.expander(f"Data notes ({len(validation.info)})"):
+                    for note in validation.info:
+                        st.caption(f"• {note}")
+
+            if not validation.is_usable:
+                st.error(
+                    "This dataset cannot be analysed as-is — resolve the errors "
+                    "above before running a fit."
+                )
+                st.session_state.formatted_df = None
+
         except Exception as e:
             st.error(f"Failed to process CSV: {e}")
             st.session_state.formatted_df = None
+            st.session_state.validation = None
 
     # ── Step 2: Well parameters ───────────────────────────────────────────────
     st.divider()
@@ -413,15 +430,22 @@ with tab_calc:
             help="Distance from pumping well to the observation well",
         )
     with col3:
+        method_options, gated_out = _method_options(st.session_state.validation)
         method = st.selectbox(
             "Analysis method",
-            ["Theis (1935)", "Cooper-Jacob (1946)", "Papadopulos-Cooper (1967)"],
+            method_options,
+            index=_default_method_index(method_options),
             help=(
                 "Theis: full-curve fit, all times. "
                 "Cooper-Jacob: late-time semi-log line (u < 0.02). "
                 "Papadopulos-Cooper: large-diameter well with wellbore storage."
             ),
         )
+        if gated_out:
+            st.caption(
+                "Not offered for this dataset: " + ", ".join(gated_out) +
+                " — see the data notes in Step 1."
+            )
 
     # Papadopulos-Cooper — extra geometry inputs (shown only when PC selected)
     r_w, r_c = 0.10, 0.10
@@ -479,9 +503,27 @@ with tab_calc:
                 st.session_state.calc_inputs = {
                     "Q": Q_si, "r": r, "method": method, "n_excluded": n_excl,
                     "r_w": r_w, "r_c": r_c,
+                    # Q_day and r_c feed DataValidator's method-suitability
+                    # pre-check on the next upload / rerun.
+                    "Q_day": Q_si * 86400.0,
                 }
+
+                # ── Publish the result back into the conversation ────────────
+                # This is what lets the Consultation tab discuss these numbers.
+                st.session_state.chat.record_calculation(
+                    result.to_state_dict(),
+                    {
+                        "Q": Q_si, "r": r, "method": method,
+                        "r_w": r_w, "r_c": r_c, "n_points": len(df),
+                    },
+                )
+                st.session_state.chat.confirm_method(method)
+
                 if result.success:
-                    st.success("Analysis complete.")
+                    st.success(
+                        "Analysis complete — the Consultation tab can now "
+                        "discuss these results."
+                    )
                 else:
                     st.error(f"Analysis failed: {result.error_message}")
             except Exception as e:
@@ -498,6 +540,23 @@ with tab_calc:
         m2.metric("T (m²/s)", f"{result.T:.3e}")
         m3.metric("S", f"{result.S:.2e}")
         m4.metric("R²", f"{result.r_squared:.4f}")
+
+        # ── Hand off to the consultant ────────────────────────────────────────
+        ask_col, _ = st.columns([2, 3])
+        with ask_col:
+            if st.button("💬 Interpret these results in chat",
+                         use_container_width=True):
+                with st.spinner("Asking the consultant…"):
+                    try:
+                        st.session_state.chat.send_message(
+                            "Interpret the pumping test results I just computed. "
+                            "Is the fit trustworthy, are T and S physically "
+                            "plausible for this aquifer, and what do the "
+                            "validity notes mean in practice?"
+                        )
+                        st.success("Answered in the Consultation tab.")
+                    except Exception as e:
+                        st.error(f"Consultant unavailable: {e}")
 
         col_a, col_b = st.columns(2)
         with col_a:
@@ -527,11 +586,18 @@ with tab_calc:
             from src.calculator.report import generate_pdf
             with st.spinner("Generating PDF…"):
                 try:
+                    # Papadopulos-Cooper is fitted at the pumped well, so the
+                    # radial coordinate for the report is r_w, not the
+                    # observation-well distance.
+                    is_pc = "Papadopulos" in method_r
                     pdf_bytes = generate_pdf(
                         result,
-                        Q_si_r, r_r, method_r,
+                        Q_si_r,
+                        r_w_r if is_pc else r_r,
+                        method_r,
                         st.session_state.formatted_df,
                         n_excl,
+                        r_c=r_c_r if is_pc else None,
                     )
                     fname = (
                         method_r.split("(")[0].strip().lower().replace(" ", "_")
@@ -553,12 +619,14 @@ with tab_calc:
         plot_tab1, plot_tab2 = st.tabs(["📊 Fit Diagnostic", "🎛️ Manual Matching"])
 
         with plot_tab1:
+            from src.calculator.plots import (
+                theis_diagnostic, cj_diagnostic, pc_diagnostic,
+            )
             if "Theis" in method_r:
-                fig = _theis_static_plot(result, Q_si_r, r_r)
+                fig = theis_diagnostic(result, Q_si_r, r_r)
             elif "Cooper-Jacob" in method_r:
-                fig = _cj_static_plot(result, Q_si_r, r_r, n_excl)
+                fig = cj_diagnostic(result, Q_si_r, r_r, n_excl)
             else:
-                from src.calculator.plots import pc_diagnostic
                 fig = pc_diagnostic(result, Q_si_r, r_w_r, r_c_r)
             st.plotly_chart(fig, use_container_width=True)
 

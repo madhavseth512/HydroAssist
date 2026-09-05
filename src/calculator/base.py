@@ -114,6 +114,28 @@ class CalculationResult:
         if self.T > 0 and self.T_day == 0.0:
             self.T_day = self.T * 86400.0
 
+    def to_state_dict(self) -> dict:
+        """Flatten to a plain dict for storage in the conversation AgentState.
+
+        The numpy arrays (time_s, drawdown_obs, drawdown_fitted) are dropped:
+        the chat side only needs the scalars and the notes, and keeping the
+        state JSON-serialisable avoids surprises if it is ever checkpointed,
+        exported or sent to an LLM.
+        """
+        return {
+            "method": self.method,
+            "T": float(self.T),
+            "S": float(self.S),
+            "T_day": float(self.T_day),
+            "T_ci": list(self.T_ci) if self.T_ci else None,
+            "S_ci": list(self.S_ci) if self.S_ci else None,
+            "rmse": float(self.rmse),
+            "r_squared": float(self.r_squared),
+            "validity_notes": list(self.validity_notes),
+            "success": bool(self.success),
+            "error_message": self.error_message,
+        }
+
 
 class BaseCalculator(ABC):
     """All pumping test calculators implement this interface."""

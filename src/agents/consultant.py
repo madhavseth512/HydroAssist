@@ -10,6 +10,7 @@ from src.retrieval.retriever import Retriever
 from src.prompts.consultant_prompts import (
     CONSULTANT_SYSTEM_PROMPT,
     format_retrieved_context,
+    format_analysis_context,
     NO_CONTEXT_RESPONSE
 )
 
@@ -99,8 +100,11 @@ class ConsultantAgent(BaseAgent):
             self.logger.error(f"Retrieval failed: {e}")
             retrieved_docs = []
 
-        # Check if we have enough context
-        if not retrieved_docs:
+        # Check if we have enough context.
+        # A completed analysis is itself usable context: when the user asks
+        # about their own T and S we can answer from the result even if the
+        # retriever came back empty.
+        if not retrieved_docs and not state.get("calculation_result"):
             self.logger.warning("No documents retrieved")
             state["messages"].append(AIMessage(content=NO_CONTEXT_RESPONSE))
             return state
@@ -110,8 +114,17 @@ class ConsultantAgent(BaseAgent):
 
         # Generate response
         try:
+            # Any completed workspace analysis travels with the prompt, so the
+            # consultant can answer questions about the user's own T and S
+            # rather than only about theory.
+            analysis_context = format_analysis_context(
+                state.get("calculation_result") or {},
+                state.get("calculation_input") or {},
+            )
+
             prompt = CONSULTANT_SYSTEM_PROMPT.format(
                 retrieved_context=context,
+                analysis_context=analysis_context,
                 question=question
             )
 

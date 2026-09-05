@@ -19,11 +19,57 @@ Guidelines:
 
 Context documents (retrieved from knowledge base):
 {retrieved_context}
-
+{analysis_context}
 User question:
 {question}
 
 Provide a technical but accessible answer with proper citations."""
+
+
+def format_analysis_context(result: dict, calc_input: dict = None) -> str:
+    """Format a completed calculation for the consultant prompt.
+
+    Returns an empty string when no analysis has been run, so the prompt reads
+    naturally in the pure-consultation case. When a result exists the consultant
+    can answer questions about the user's own numbers ("is this S plausible?")
+    instead of only about theory.
+    """
+    if not result:
+        return ""
+
+    if not result.get("success", False):
+        return (
+            "\nThe user's most recent analysis FAILED to converge: "
+            f"{result.get('error_message', 'unknown error')}\n"
+            "If they ask about it, help them diagnose the cause.\n"
+        )
+
+    lines = [
+        "",
+        "The user has ALREADY RUN an analysis on their own field data.",
+        "Refer to these numbers directly when the question is about their results:",
+        f"  Method:        {result.get('method', 'unknown')}",
+        f"  Transmissivity T = {result.get('T', 0):.4e} m2/s "
+        f"({result.get('T_day', 0):.2f} m2/day)",
+        f"  Storativity   S = {result.get('S', 0):.4e}",
+        f"  Goodness of fit: R2 = {result.get('r_squared', 0):.4f}, "
+        f"RMSE = {result.get('rmse', 0) * 1000:.2f} mm",
+    ]
+
+    if calc_input:
+        lines.append(
+            f"  Test setup:    Q = {calc_input.get('Q', 0) * 86400:.1f} m3/day, "
+            f"r = {calc_input.get('r', 0):.1f} m, "
+            f"n = {calc_input.get('n_points', 0)} points"
+        )
+
+    notes = result.get("validity_notes", [])
+    if notes:
+        lines.append("  Validity notes produced by the calculator:")
+        lines += [f"    - {n}" for n in notes]
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def format_retrieved_context(docs: list) -> str:
