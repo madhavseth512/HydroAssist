@@ -44,7 +44,7 @@ class TestCanonicalMethod:
         assert canonical_method("Papadopulos-Cooper (1967)") == PAPADOPULOS_COOPER
 
     @pytest.mark.parametrize("raw", [None, "", "xyz", "Neuman (1972)",
-                                     "Boulton", "Moench"])
+                                     "Moench", "Streltsova"])
     def test_unknown_or_unimplemented_returns_none(self, raw):
         """Real-but-unimplemented methods must not be silently coerced."""
         assert canonical_method(raw) is None
@@ -60,10 +60,8 @@ class TestCanonicalMethod:
         assert canonical_method("Cooper-Jacob") == COOPER_JACOB
 
     def test_canonical_labels_match_the_dropdown(self):
-        from src.agents.method_selection import HANTUSH_JACOB
-
-        assert SUPPORTED_METHODS == [THEIS, COOPER_JACOB, PAPADOPULOS_COOPER,
-                                     HANTUSH_JACOB]
+        from src.calculator import registry
+        assert SUPPORTED_METHODS == registry.labels()
 
 
 # ── Well geometry parsing ─────────────────────────────────────────────────────
@@ -129,24 +127,56 @@ class TestExplicitMethod:
 
 # ── Rule 2: unsupported aquifers ──────────────────────────────────────────────
 
-class TestUnsupportedAquifers:
+class TestAquiferRouting:
+    """Every aquifer type now has a calculator, so the "no method available"
+    branch is no longer reachable through a real aquifer name. It is kept as
+    defensive code for whenever a new type joins AQUIFER_TYPES ahead of its
+    calculator, and is exercised below by constructing that condition directly.
+    """
 
-    @pytest.mark.parametrize("aquifer", ["unconfined", "fractured"])
-    def test_no_method_offered(self, aquifer):
-        s = suggest_method(aquifer_context=aquifer)
+    @pytest.mark.parametrize("aquifer,expected_id", [
+        ("leaky", "hantush_jacob_1955"),
+        ("unconfined", "boulton_1963"),
+        ("fractured", "warren_root_1963"),
+    ])
+    def test_each_aquifer_routes_to_its_own_method(self, aquifer, expected_id):
+        from src.calculator import registry
 
-        assert s["method"] == ""
-        assert s["supported"] is False
-        assert aquifer in s["reason"]
+        card = suggest_method(aquifer_context=aquifer)
 
-    def test_reason_says_what_is_available(self):
-        s = suggest_method(aquifer_context="unconfined")
-        assert "confined" in s["reason"]
+        assert card["supported"] is True
+        assert card["method"] == registry.get(expected_id).label
 
-    def test_explicit_method_still_wins_over_aquifer_gap(self):
+    def test_the_reason_comes_from_the_registry_entry(self):
+        from src.calculator import registry
+
+        card = suggest_method(aquifer_context="unconfined")
+        assert card["reason"] == registry.get("boulton_1963").selection_rationale
+
+    def test_confined_still_defaults_to_theis(self):
+        assert suggest_method(aquifer_context="confined")["method"] == THEIS
+
+    def test_an_unregistered_aquifer_type_is_reported_not_defaulted(self):
+        """The defensive branch, exercised directly. If a fifth aquifer type is
+        added to the vocabulary before its calculator exists, users must be told
+        rather than quietly handed Theis."""
+        from src.agents import method_selection
+
+        original = method_selection.SUPPORTED_AQUIFERS
+        try:
+            method_selection.SUPPORTED_AQUIFERS = {"confined"}
+            card = suggest_method(aquifer_context="unconfined")
+
+            assert card["method"] == ""
+            assert card["supported"] is False
+            assert "unconfined" in card["reason"]
+        finally:
+            method_selection.SUPPORTED_AQUIFERS = original
+
+    def test_explicit_method_still_wins_over_aquifer_routing(self):
         """If they explicitly ask for Theis on an unconfined test, let them."""
-        s = suggest_method(aquifer_context="unconfined", selected_method="Theis")
-        assert s["method"] == THEIS
+        card = suggest_method(aquifer_context="unconfined", selected_method="Theis")
+        assert card["method"] == THEIS
 
 
 # ── Rule 3: large-diameter wells ──────────────────────────────────────────────
@@ -272,9 +302,12 @@ class TestFormatSuggestion:
         assert "Confidence" in out
 
     def test_unsupported_suggestion_renders_the_explanation_only(self):
-        out = format_suggestion(suggest_method(aquifer_context="unconfined"))
+        out = format_suggestion({
+            "method": "", "supported": False, "confidence": 0.9,
+            "reason": "No calculator is implemented for that aquifer type yet.",
+        })
 
-        assert "unconfined" in out
+        assert "No calculator" in out
         assert "Confidence" not in out
 
     def test_empty_suggestion_renders_empty(self):

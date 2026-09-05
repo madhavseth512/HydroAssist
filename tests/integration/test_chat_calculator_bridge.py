@@ -137,16 +137,17 @@ class TestManagerProducesSuggestion:
 
         assert out["selected_method"] == THEIS
 
-    def test_unsupported_aquifer_is_reported_not_silently_defaulted(self, config,
-                                                                     monkeypatch):
+    def test_unconfined_now_routes_to_its_own_method(self, config, monkeypatch):
+        """This asserted the opposite until Boulton (1963) was implemented. The
+        Manager reads registry.supported_aquifers(), so it corrected itself
+        without an edit."""
         agent, _ = _manager(config, monkeypatch,
                             _classification(aquifer="unconfined"))
         out = agent.run(_state_with("analyse my unconfined aquifer test"))
 
-        s = out["method_suggestion"]
-        assert s["supported"] is False
-        assert s["method"] == ""
-        assert "unconfined" in s["reason"]
+        suggestion = out["method_suggestion"]
+        assert suggestion["supported"] is True
+        assert suggestion["method"] == "Boulton (1963)"
 
     def test_consultation_about_a_method_still_primes_the_workspace(self, config,
                                                                      monkeypatch):

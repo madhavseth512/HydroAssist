@@ -150,6 +150,16 @@ def _hantush_jacob():
     return HantushJacobCalculator()
 
 
+def _boulton():
+    from src.calculator.methods.boulton import BoultonCalculator
+    return BoultonCalculator()
+
+
+def _warren_root():
+    from src.calculator.methods.warren_root import WarrenRootCalculator
+    return WarrenRootCalculator()
+
+
 # ── Lazy plot adapters ────────────────────────────────────────────────────────
 # Each normalises one method's plot signature onto (result, PlotContext), so the
 # UI and the PDF builder can dispatch without knowing which method they hold.
@@ -308,6 +318,60 @@ _SPECS = (
             "Hantush-Jacob (1955) accounts for vertical leakage through a "
             "confining layer, which makes drawdown level off at late time "
             "instead of growing indefinitely as Theis predicts."
+        ),
+    ),
+    MethodSpec(
+        id="boulton_1963",
+        label="Boulton (1963)",
+        year=1963,
+        authors=("Boulton, N.S.",),
+        citation=(
+            "Boulton, N.S. (1963). Analysis of data from non-equilibrium pumping "
+            "tests allowing for delayed yield from storage. Proceedings of the "
+            "Institution of Civil Engineers, 26(3), 469-482."
+        ),
+        aquifer_types=frozenset({UNCONFINED}),
+        test_types=frozenset({CONSTANT_RATE}),
+        parameters=("T", "S", "Sy", "alpha"),
+        data_source=OBSERVATION_WELL,
+        aliases=("boulton", "delayed yield"),
+        factory=_boulton,
+        ui_help=(
+            "Unconfined aquifer with delayed yield: three-segment curve as the "
+            "water table drains. Estimates T, S, specific yield and the drainage "
+            "constant."
+        ),
+        selection_rationale=(
+            "Boulton (1963) models the delayed gravity drainage that makes an "
+            "unconfined time-drawdown curve flatten in the middle before "
+            "resuming a Theis slope with the specific yield."
+        ),
+    ),
+    MethodSpec(
+        id="warren_root_1963",
+        label="Warren-Root (1963)",
+        year=1963,
+        authors=("Warren, J.E.", "Root, P.J."),
+        citation=(
+            "Warren, J.E. & Root, P.J. (1963). The behavior of naturally "
+            "fractured reservoirs. SPE Journal, 3(3), 245-255."
+        ),
+        aquifer_types=frozenset({FRACTURED}),
+        test_types=frozenset({CONSTANT_RATE}),
+        parameters=("T", "S", "omega", "lambda"),
+        data_source=OBSERVATION_WELL,
+        aliases=("warren-root", "warren root", "double porosity",
+                 "dual porosity"),
+        factory=_warren_root,
+        ui_help=(
+            "Fractured rock as two overlapping media: fractures that transmit "
+            "flow and matrix blocks that store water. Estimates T, storativity, "
+            "the storativity ratio and interporosity flow."
+        ),
+        selection_rationale=(
+            "Warren-Root (1963) models a fractured aquifer as a fracture network "
+            "fed by rock matrix blocks, producing the characteristic dip and "
+            "recovery in the derivative that single-porosity models cannot."
         ),
     ),
 )

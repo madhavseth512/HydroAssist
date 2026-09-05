@@ -56,6 +56,8 @@ class TestTableIntegrity:
             "Cooper-Jacob (1946)",
             "Papadopulos-Cooper (1967)",
             "Hantush-Jacob (1955)",
+            "Boulton (1963)",
+            "Warren-Root (1963)",
         ]
 
     @pytest.mark.parametrize("spec", R.all_specs(implemented_only=False),
@@ -158,7 +160,8 @@ class TestLookup:
         assert R.canonical_id("Papadopulos-Cooper (1967)") == "papadopulos_cooper_1967"
         assert R.canonical_id("run papadopulos cooper") == "papadopulos_cooper_1967"
 
-    @pytest.mark.parametrize("text", ["", None, "Neuman", "Boulton", "Moench", "xyz"])
+    @pytest.mark.parametrize("text", ["", None, "Neuman", "Moench",
+                                      "Streltsova", "xyz"])
     def test_canonical_id_returns_none_for_unimplemented_methods(self, text):
         """Real-but-absent methods must not be silently coerced onto a present one."""
         assert R.canonical_id(text) is None
@@ -175,17 +178,18 @@ class TestFiltering:
     def test_confined_methods(self):
         assert len(R.for_aquifer(R.CONFINED)) == 3
 
-    def test_leaky_has_hantush_jacob(self):
-        assert [s.id for s in R.for_aquifer(R.LEAKY)] == ["hantush_jacob_1955"]
+    @pytest.mark.parametrize("aquifer,expected", [
+        (R.LEAKY, "hantush_jacob_1955"),
+        (R.UNCONFINED, "boulton_1963"),
+        (R.FRACTURED, "warren_root_1963"),
+    ])
+    def test_each_non_confined_type_has_its_method(self, aquifer, expected):
+        assert [s.id for s in R.for_aquifer(aquifer)] == [expected]
 
-    @pytest.mark.parametrize("aquifer", [R.UNCONFINED, R.FRACTURED])
-    def test_no_methods_yet_for_other_aquifers(self, aquifer):
-        assert R.for_aquifer(aquifer) == []
-
-    def test_supported_aquifers_reflects_the_table(self):
-        """What lets the chat layer say honestly that unconfined has no
-        calculator — and stop saying it about leaky now that one exists."""
-        assert R.supported_aquifers() == {R.CONFINED, R.LEAKY}
+    def test_every_aquifer_type_is_now_covered(self):
+        """The coverage half of the plan's minimum-credible-alternative bar:
+        one canonical method per aquifer type."""
+        assert R.supported_aquifers() == set(R.AQUIFER_TYPES)
 
     def test_every_method_is_constant_rate_so_far(self):
         assert len(R.for_test_type(R.CONSTANT_RATE)) == len(R.all_specs())
