@@ -55,17 +55,24 @@ def generate_pdf(
     method: str,
     df: pd.DataFrame,
     n_excluded: int = 0,
+    r_c: float = None,
 ) -> bytes:
     """
     Build a PDF report for a completed pumping test analysis.
 
     Args:
-        result:     CalculationResult from Theis or Cooper-Jacob calculator
+        result:     CalculationResult from any of the three calculators
         Q_si:       Pumping rate in m³/s
-        r:          Observation well distance in m
-        method:     Method label string ("Theis (1935)" or "Cooper-Jacob (1946)")
+        r:          Observation well distance in m. For Papadopulos-Cooper this
+                    is the well screen radius r_w (data come from the pumped well).
+        method:     Method label ("Theis (1935)", "Cooper-Jacob (1946)",
+                    "Papadopulos-Cooper (1967)")
         df:         Formatted DataFrame (time_s, drawdown_m)
         n_excluded: Number of early-time points excluded (Cooper-Jacob only)
+        r_c:        Casing radius in m — REQUIRED for Papadopulos-Cooper, ignored
+                    otherwise. Without it the embedded type curve cannot be
+                    reproduced, so it falls back to r_c = r_w and the plot
+                    caption says so.
 
     Returns:
         PDF as bytes — pass directly to st.download_button
@@ -89,7 +96,7 @@ def generate_pdf(
     story += _config_section(Q_si, r, df, method, styles)
     story += _results_section(result, styles)
     story += _validity_section(result, styles)
-    story += _plot_section(result, Q_si, r, method, n_excluded, styles)
+    story += _plot_section(result, Q_si, r, method, n_excluded, styles, r_c)
     story += _data_table_section(df, styles)
     story += _footer_section(styles)
 
@@ -154,10 +161,16 @@ def _config_section(Q_si: float, r: float, df: pd.DataFrame,
     t_min_s, t_max_s = float(t.min()), float(t.max())
     log_cycles = np.log10(t_max_s / t_min_s) if t_min_s > 0 else 0
 
+    # For Papadopulos-Cooper the radial coordinate is the well screen radius,
+    # not an observation-well distance — label it accordingly.
+    r_label = ("Well screen radius r_w" if "Papadopulos" in method
+               else "Observation well distance r")
+    r_fmt = f"{r:.3f} m" if "Papadopulos" in method else f"{r:.1f} m"
+
     rows = [
         ["Parameter", "Value"],
         ["Pumping rate Q", f"{Q_si:.6f} m³/s  ({Q_si*86400:.2f} m³/day)"],
-        ["Observation well distance r", f"{r:.1f} m"],
+        [r_label, r_fmt],
         ["Number of data points", str(n_pts)],
         ["Time range", f"{t_min_s:.0f} s  –  {t_max_s:.0f} s"],
         ["Log-cycle span", f"{log_cycles:.2f} log cycles"],
@@ -202,28 +215,56 @@ def _results_section(result: CalculationResult, s: dict) -> list:
     return flowables
 
 
+# Unicode superscripts → ASCII exponent notation. Helvetica (reportlab's
+# built-in) has no glyphs for these, so an unmapped superscript renders as a
+# black box. The previous version deleted the minus sign but kept the digit,
+# which silently turned "10⁻⁵" into "10⁵" — inverting every storativity range
+# quoted in the validity notes.
+_SUPERSCRIPTS = {
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+    "⁻": "-", "⁺": "+",
+}
+
+
+def _sanitise(text: str) -> str:
+    """Escape XML metacharacters and normalise superscripts for reportlab."""
+    out = (text
+           .replace("&", "&amp;")
+           .replace("<", "&lt;")
+           .replace(">", "&gt;"))
+
+    # Rewrite runs of superscript characters as ^(...) so the exponent — and
+    # crucially its sign — survives into the PDF.
+    result_chars = []
+    run = []
+    for ch in out:
+        if ch in _SUPERSCRIPTS:
+            run.append(_SUPERSCRIPTS[ch])
+            continue
+        if run:
+            result_chars.append(f"<super>{''.join(run)}</super>")
+            run = []
+        result_chars.append(ch)
+    if run:
+        result_chars.append(f"<super>{''.join(run)}</super>")
+    return "".join(result_chars)
+
+
 def _validity_section(result: CalculationResult, s: dict) -> list:
     if not result.validity_notes:
         return []
 
     flowables = [Paragraph("Validity Assessment", s["section"])]
     for i, note in enumerate(result.validity_notes, 1):
-        # Sanitise special characters for reportlab XML parser
-        clean = (note
-                 .replace("&", "&amp;")
-                 .replace("<", "&lt;")
-                 .replace(">", "&gt;")
-                 .replace("²", "&#178;")
-                 .replace("⁰", "")
-                 .replace("⁻", "")
-                 .replace("³", "&#179;"))
-        flowables.append(Paragraph(f"{i}. {clean}", s["note"]))
+        flowables.append(Paragraph(f"{i}. {_sanitise(note)}", s["note"]))
     flowables.append(Spacer(1, 0.3*cm))
     return flowables
 
 
 def _plot_section(result: CalculationResult, Q_si: float, r: float,
-                  method: str, n_excluded: int, s: dict) -> list:
+                  method: str, n_excluded: int, s: dict,
+                  r_c: float = None) -> list:
     if result.time_s is None or result.drawdown_obs is None:
         return []
 
@@ -242,13 +283,18 @@ def _plot_section(result: CalculationResult, Q_si: float, r: float,
         )
     else:
         # Papadopulos-Cooper — r is r_w here (passed as such from app.py)
-        fig = _pc_mpl(result, Q_si, r)
+        r_c_used = r_c if r_c and r_c > 0 else r
+        fig = _pc_mpl(result, Q_si, r, r_c_used)
         caption = (
             "Figure 1. Papadopulos-Cooper (1967) log-log type curve. "
             "Blue circles: observed drawdown at pumped well. "
             "Red line: fitted PC well function. "
             "Note: S has questionable reliability (paper p. 244)."
         )
+        if not (r_c and r_c > 0):
+            caption += (
+                " Casing radius not supplied — curve drawn assuming r_c = r_w."
+            )
 
     img_buf = io.BytesIO()
     fig.savefig(img_buf, format="png", dpi=150, bbox_inches="tight")
@@ -394,25 +440,16 @@ def _theis_mpl(result: CalculationResult, Q: float, r: float) -> plt.Figure:
     return fig
 
 
-def _pc_mpl(result: CalculationResult, Q: float, r_w: float) -> plt.Figure:
-    """Log-log type curve for Papadopulos-Cooper, for PDF embedding."""
-    from src.calculator.papadopulos_cooper import pc_drawdown
+def _pc_mpl(result: CalculationResult, Q: float,
+            r_w: float, r_c: float) -> plt.Figure:
+    """Log-log type curve for Papadopulos-Cooper, for PDF embedding.
 
-    # r_w is passed as `r` from the caller (app.py sets r = r_w for PC)
-    # We need r_c too; derive from α and S if possible, else assume r_c = r_w
-    alpha_fit = None
-    for note in result.validity_notes:
-        if "α =" in note:
-            try:
-                part = note.split("α =")[1].strip().split()[0].rstrip(".")
-                alpha_fit = float(part)
-            except (IndexError, ValueError):
-                pass
-    r_c = r_w  # default: r_c = r_w
-    if alpha_fit is not None and result.S > 0:
-        r_c_sq = r_w ** 2 * result.S / alpha_fit
-        if r_c_sq > 0:
-            r_c = float(np.sqrt(r_c_sq))
+    Both well radii are passed in explicitly. An earlier version tried to
+    recover r_c by string-parsing α out of a validity note; that parse always
+    failed and silently fell back to r_c = r_w, so the PDF curve disagreed
+    with the on-screen curve whenever r_c ≠ r_w.
+    """
+    from src.calculator.papadopulos_cooper import pc_drawdown
 
     fig, (ax_main, ax_res) = plt.subplots(
         2, 1, figsize=(8, 5.5),

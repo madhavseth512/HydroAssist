@@ -23,6 +23,12 @@ COL_EXCL   = "#aec7e8"   # light blue — excluded early-time points (CJ)
 COL_MANUAL = "#ff7f0e"   # orange — manual slider curve
 COL_GRID   = "#e0e0e0"
 
+# Plausible S range for the Papadopulos-Cooper reference type curves.
+# Defined here (not at the bottom of the module) so pc_diagnostic's reference
+# curve guard reads in source order.
+S_MIN_PLOT = 1e-10
+S_MAX_PLOT = 1e-1
+
 # Horizontal legend centred below the figure — keeps the plot area clear
 _LEGEND_H = dict(
     orientation="h",
@@ -41,13 +47,23 @@ _MARGIN_SINGLE = dict(t=55, b=100, l=60, r=20)  # single-panel interactive plots
 
 # ── Theis static plot ─────────────────────────────────────────────────────────
 
-def theis_diagnostic(result: CalculationResult) -> go.Figure:
+def theis_diagnostic(result: CalculationResult, Q: float, r: float) -> go.Figure:
+    """Log-log type curve + residuals for a Theis fit.
+
+    Q [m³/s] and r [m] are the test parameters the fit was run with. They are
+    not recoverable from CalculationResult, so the caller must supply them —
+    without them the theoretical curve cannot be drawn at all.
+    """
     fig = make_subplots(
         rows=2, cols=1,
         row_heights=[0.75, 0.25],
         shared_xaxes=True,
         vertical_spacing=0.08,
-        subplot_titles=("Theis (1935) — Log-Log Type Curve", "Residuals"),
+        subplot_titles=(
+            f"Theis (1935) — Log-Log Type Curve   "
+            f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse*1000:.2f} mm)",
+            "Residuals",
+        ),
     )
 
     t      = result.time_s
@@ -61,15 +77,14 @@ def theis_diagnostic(result: CalculationResult) -> go.Figure:
     ), row=1, col=1)
 
     t_smooth = np.logspace(np.log10(t.min()), np.log10(t.max()), 300)
-    Q, r = _back_calc_Qr(result)
-    if Q and r:
-        u_s = (r**2 * result.S) / (4.0 * result.T * t_smooth)
-        s_s = (Q / (4.0 * np.pi * result.T)) * expn(1, np.maximum(u_s, 1e-10))
-        fig.add_trace(go.Scatter(
-            x=t_smooth, y=s_s, mode="lines", name="Theis fit",
-            line=dict(color=COL_FIT, width=2),
-            hovertemplate="t = %{x:.1f} s<br>s_fit = %{y:.4f} m<extra></extra>",
-        ), row=1, col=1)
+    u_s = (r**2 * result.S) / (4.0 * result.T * t_smooth)
+    s_s = (Q / (4.0 * np.pi * result.T)) * expn(1, np.maximum(u_s, 1e-10))
+    fig.add_trace(go.Scatter(
+        x=t_smooth, y=s_s, mode="lines",
+        name=f"Theis fit  (T = {result.T_day:.1f} m²/day, S = {result.S:.2e})",
+        line=dict(color=COL_FIT, width=2),
+        hovertemplate="t = %{x:.1f} s<br>s_fit = %{y:.4f} m<extra></extra>",
+    ), row=1, col=1)
 
     if s_fit is not None:
         res = s_obs - s_fit
@@ -91,13 +106,23 @@ def theis_diagnostic(result: CalculationResult) -> go.Figure:
 
 # ── Cooper-Jacob static plot ──────────────────────────────────────────────────
 
-def cj_diagnostic(result: CalculationResult, n_excluded: int = 0) -> go.Figure:
+def cj_diagnostic(result: CalculationResult, Q: float, r: float,
+                  n_excluded: int = 0) -> go.Figure:
+    """Semi-log straight line + residuals for a Cooper-Jacob fit.
+
+    Q [m³/s] and r [m] are the test parameters the fit was run with; r is
+    needed to place the t₀ intercept marker (paper Eq. 9).
+    """
     fig = make_subplots(
         rows=2, cols=1,
         row_heights=[0.75, 0.25],
         shared_xaxes=True,
         vertical_spacing=0.08,
-        subplot_titles=("Cooper-Jacob (1946) — Semi-Log Straight Line", "Residuals"),
+        subplot_titles=(
+            f"Cooper-Jacob (1946) — Semi-Log Straight Line   "
+            f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse*1000:.2f} mm)",
+            "Residuals",
+        ),
     )
 
     t     = result.time_s
@@ -123,12 +148,14 @@ def cj_diagnostic(result: CalculationResult, n_excluded: int = 0) -> go.Figure:
 
     if s_fit is not None:
         fig.add_trace(go.Scatter(
-            x=t, y=s_fit, mode="lines", name="CJ fit",
+            x=t, y=s_fit, mode="lines",
+            name=f"CJ fit  (T = {result.T_day:.1f} m²/day, S = {result.S:.2e})",
             line=dict(color=COL_FIT, width=2),
             hovertemplate="t = %{x:.1f} s<br>s_fit = %{y:.4f} m<extra></extra>",
         ), row=1, col=1)
 
-    t0 = _compute_t0(result)
+    # t₀ — zero-drawdown intercept, inverted from paper Eq. 9: S = 2.25·T·t₀/r²
+    t0 = compute_t0(result, r)
     if t0 and t0 > 0:
         fig.add_vline(
             x=np.log10(t0), line=dict(color="grey", dash="dash", width=1),
@@ -375,17 +402,17 @@ def pc_interactive(
     return fig, rmse_mm
 
 
-S_MIN_PLOT = 1e-10
-S_MAX_PLOT = 1e-1
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _back_calc_Qr(result: CalculationResult):
-    return None, None
+def compute_t0(result: CalculationResult, r: float):
+    """Zero-drawdown time intercept t₀ [s] for a Cooper-Jacob fit.
 
+    Inverts Cooper & Jacob (1946) equation 9:
+        S = 2.25 · T · t₀ / r²   →   t₀ = S · r² / (2.25 · T)
 
-def _compute_t0(result: CalculationResult):
-    if result.T > 0 and result.S > 0:
-        return None
+    Returns None when T, S or r are non-physical (a failed fit), so callers
+    can simply skip the marker.
+    """
+    if result.T > 0 and result.S > 0 and r > 0:
+        return (result.S * r ** 2) / (2.25 * result.T)
     return None

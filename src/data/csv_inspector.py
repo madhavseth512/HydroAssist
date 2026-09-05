@@ -24,12 +24,21 @@ _WELL_ID_PATTERNS = re.compile(
     r"(well|borehole|obs|monitoring|^mw|site|^id$|^name$)", re.IGNORECASE
 )
 
-# Use lookahead/lookbehind to match unit tokens separated by word boundaries OR underscores/parens
-_UNIT_SECONDS = re.compile(r"(?<![a-zA-Z])(sec|second|secs)(?![a-zA-Z])", re.IGNORECASE)
-_UNIT_MINUTES = re.compile(r"(?<![a-zA-Z])(min|minute|mins)(?![a-zA-Z])", re.IGNORECASE)
-_UNIT_HOURS   = re.compile(r"(?<![a-zA-Z])(hr|hour|hrs)(?![a-zA-Z])", re.IGNORECASE)
-_UNIT_FEET    = re.compile(r"(?<![a-zA-Z])(ft|feet|foot)(?![a-zA-Z])", re.IGNORECASE)
-_UNIT_METERS  = re.compile(r"(?<![a-zA-Z])(meter|metre|_m\b|\(m\))", re.IGNORECASE)
+# Unit tokens are delimited by anything that is not a letter — underscores,
+# spaces, parentheses or the string boundary. The alternations list the LONGEST
+# spelling first: Python's regex tries alternatives in order, and a shorter
+# prefix that fails the trailing lookahead would otherwise abort the match
+# ("min" inside "minutes" fails `(?![a-zA-Z])`, so "minutes" must come first).
+#
+# Single-letter forms ("s", "m") are included because `time_s` / `drawdown_m`
+# is the canonical schema this project emits and ships as sample data. The
+# earlier `_m\b` alternative could never fire — its `(?<![a-zA-Z])` lookbehind
+# was evaluated against the letter preceding the underscore.
+_UNIT_SECONDS = re.compile(r"(?<![a-zA-Z])(seconds|second|secs|sec|s)(?![a-zA-Z])", re.IGNORECASE)
+_UNIT_MINUTES = re.compile(r"(?<![a-zA-Z])(minutes|minute|mins|min)(?![a-zA-Z])", re.IGNORECASE)
+_UNIT_HOURS   = re.compile(r"(?<![a-zA-Z])(hours|hour|hrs|hr|h)(?![a-zA-Z])", re.IGNORECASE)
+_UNIT_FEET    = re.compile(r"(?<![a-zA-Z])(feet|foot|ft)(?![a-zA-Z])", re.IGNORECASE)
+_UNIT_METERS  = re.compile(r"(?<![a-zA-Z])(meters|metres|meter|metre|m)(?![a-zA-Z])", re.IGNORECASE)
 
 
 @dataclass

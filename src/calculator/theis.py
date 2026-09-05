@@ -328,7 +328,7 @@ class TheisCalculator(BaseCalculator):
                 )
 
         # Cooper-Jacob validity check — correct direction:
-        # large t → small u → u < 0.05 → CJ valid (Theis eq. 3 truncation)
+        # large t → small u → u < CJ_U_THRESHOLD → CJ valid (Theis eq. 3 truncation)
         n_late = max(1, len(time_s) // 3)  # Fix #6: max(1,...) prevents -0 slice bug
         u_late = (r ** 2 * S) / (4.0 * T * time_s[-n_late:])
         if np.all(u_late < CJ_U_THRESHOLD):
@@ -339,7 +339,7 @@ class TheisCalculator(BaseCalculator):
             )
         else:
             notes.append(
-                "u < 0.05 not satisfied throughout — Theis full-curve fitting "
+                f"u < {CJ_U_THRESHOLD} not satisfied throughout — Theis full-curve fitting "
                 "is the appropriate method for this dataset."
             )
 

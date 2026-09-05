@@ -334,8 +334,6 @@ class PapadopulosCooperCalculator(BaseCalculator):
             )
 
         # Early-time straight-line check (wellbore storage dominated)
-        t_ws_limit = Q * time_s / (np.pi * r_c ** 2)
-        s_obs = None  # Not passed here; check via u_w
         if n_ws > len(time_s) * 0.8:
             notes.append(
                 "WARNING: Most data appear to be in the wellbore-storage-dominated "

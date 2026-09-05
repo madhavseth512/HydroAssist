@@ -52,8 +52,11 @@ class Retriever:
         start_time = time.time()
 
         # Use config defaults if not specified
-        top_k = top_k or self.config.retrieval.top_k
-        similarity_threshold = similarity_threshold or self.config.retrieval.similarity_threshold
+        # `is None` rather than `or`: an explicit threshold of 0.0 is a valid
+        # request for "no filtering" and must not fall back to the config value.
+        top_k = self.config.retrieval.top_k if top_k is None else top_k
+        if similarity_threshold is None:
+            similarity_threshold = self.config.retrieval.similarity_threshold
 
         logger.info(f"Retrieving top-{top_k} documents for query: '{query[:100]}...'")
         if metadata_filters:
