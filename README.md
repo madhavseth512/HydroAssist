@@ -4,9 +4,10 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Phase](https://img.shields.io/badge/phase-3%20in%20progress-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-350%20passing-brightgreen.svg)]()
-[![Coverage](https://img.shields.io/badge/coverage-66%25-green.svg)]()
+[![Phase](https://img.shields.io/badge/phase-4%20in%20progress-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-795%20passing-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-75%25-green.svg)]()
+[![Methods](https://img.shields.io/badge/methods-6%20across%204%20aquifer%20types-blue.svg)]()
 
 ---
 
@@ -27,11 +28,17 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 - Interactive Plotly diagnostic plots (type curves, residuals, manual matching)
 - PDF report generation (ReportLab)
 
-**Phase 3 — Integrated workflow (in progress)**
-- The consultant now suggests a method from the conversation, and the workspace follows it
+**Phase 3 — Integrated workflow (complete)**
+- The consultant suggests a method from the conversation, and the workspace follows it
 - Completed analyses flow back into the chat, so the consultant can interpret the user's own T and S
 - `DataValidator` gates which methods the workspace offers for a given dataset
-- 350-test suite (66% coverage) spanning calculators, data pipeline, plotting, agents and UI
+
+**Phase 4 — Extensible calculator architecture (in progress)**
+- Refactored so a new method is a transfer function plus a parameter spec, not a new module
+- **All four aquifer types covered**: confined, leaky, unconfined, fractured
+- Shared Stehfest Laplace engine, vectorised — Papadopulos-Cooper fitting went from 10–30 s to 0.04 s
+- **Bourdet log-derivative**, which reads the flow regime off the data and drives method selection
+- 795-test suite (75% coverage)
 
 ---
 
@@ -124,11 +131,25 @@ hydroassist/
 │   │   ├── formatter.py            # Unit conversion → standard schema
 │   │   └── validator.py            # Physical plausibility + method suitability
 │   ├── calculator/
-│   │   ├── base.py                 # CalculationInput / CalculationResult / BaseCalculator
+│   │   ├── registry.py             # THE method table — one entry per method
+│   │   ├── base.py                 # CalculationInput / CalculationResult
+│   │   ├── geometry.py             # Aquifer, well, aquitard, fracture, schedule
+│   │   ├── parameters.py           # FittedParameter — value, CI, reliability
+│   │   ├── fitting.py              # curve_fit, CIs, bound detection, AIC/AICc
+│   │   ├── validation.py           # Shared input checks
+│   │   ├── rules.py                # Validity rules as data
+│   │   ├── templates.py            # CurveFitCalculator — the fixed eight steps
+│   │   ├── laplace.py              # Vectorised Stehfest inversion
+│   │   ├── laplace_solutions.py    # Shared kernel + one q(p) per method family
+│   │   ├── derivative.py           # Bourdet derivative + flow-regime diagnosis
 │   │   ├── theis.py                # Theis (1935)
 │   │   ├── cooper_jacob.py         # Cooper-Jacob (1946)
-│   │   ├── papadopulos_cooper.py   # Papadopulos-Cooper (1967) — Stehfest inversion
-│   │   ├── plots.py                # Plotly interactive diagnostic plots
+│   │   ├── papadopulos_cooper.py   # Papadopulos-Cooper (1967)
+│   │   ├── methods/
+│   │   │   ├── hantush_jacob.py    # Hantush-Jacob (1955) — leaky
+│   │   │   ├── boulton.py          # Boulton (1963) — unconfined
+│   │   │   └── warren_root.py      # Warren-Root (1963) — fractured
+│   │   ├── plots.py                # Plotly diagnostic plots
 │   │   └── report.py               # ReportLab PDF report generation
 │   └── prompts/                    # LLM prompts for each agent
 ├── tests/
@@ -155,13 +176,50 @@ hydroassist/
 
 ## Phase 2 — Calculator
 
-### Supported Methods (Confined Aquifer)
+### Supported Methods
 
-| Method | Reference | Valid When | Key Output |
+| Method | Aquifer | Estimates | Valid when |
 |---|---|---|---|
-| **Theis** | Theis (1935) | All times, homogeneous confined aquifer | T reliable; S reliable |
-| **Cooper-Jacob** | Cooper & Jacob (1946) | u < 0.02 (paper threshold) | T reliable; S via t₀ extrapolation |
-| **Papadopulos-Cooper** | Papadopulos & Cooper (1967) | Large-diameter wells with wellbore storage | T reliable; S order-of-magnitude only |
+| **Theis** (1935) | confined | T, S | All times; the general full-curve method |
+| **Cooper-Jacob** (1946) | confined | T, S | u < 0.02 — late-time straight line (paper p. 3) |
+| **Papadopulos-Cooper** (1967) | confined | T, S | Large-diameter well; data from the pumped well |
+| **Hantush-Jacob** (1955) | leaky | T, S, B | Vertical leakage through an aquitard with no storage of its own |
+| **Boulton** (1963) | unconfined | T, S, S_y, α | Delayed gravity drainage from the water table |
+| **Warren-Root** (1963) | fractured | T, S, ω, λ | Double porosity — fractures transmit, matrix stores |
+
+Every method must pass three acceptance gates before it is merged:
+
+1. **An exact analytical limit** it collapses to when its extra physics is
+   switched off — Hantush-Jacob → Theis as leakage vanishes, Boulton → Theis with
+   S + S_y as drainage becomes instantaneous, Warren-Root → Theis as all storage
+   moves into the fractures, Papadopulos-Cooper → Theis as the casing radius
+   shrinks. All computed in closed form, so none depends on a transcribed table.
+2. **Round-trip recovery** of known parameters from synthetic noisy data.
+3. **Physics invariants** — positivity, monotonicity, linearity in Q, the correct
+   direction of response to each parameter.
+
+### Diagnostic-first workflow
+
+The **Bourdet log-derivative** (`ds/d ln t`) is computed as soon as a CSV is
+uploaded, before any method is chosen — which is the order modern well-test
+practice actually works in. Drawdown curves for different aquifer types all look
+like smooth rising lines; their derivatives do not:
+
+| Derivative shape | Flow regime | Method |
+|---|---|---|
+| Flat | Infinite-acting radial | Theis, Cooper-Jacob |
+| Unit slope, early, lying on the drawdown | Wellbore storage | Papadopulos-Cooper |
+| Falls and stays low | Leakage or recharge boundary | Hantush-Jacob |
+| Dips then recovers | Double porosity | Warren-Root |
+| Two plateaus with a dip between | Delayed yield | Boulton |
+| Doubles at late time | No-flow boundary | *not implemented* |
+| Half slope | Linear flow to a vertical fracture | *not implemented* |
+
+On a radial plateau the derivative height is exactly `Q/(4πT)`, so **T can be read
+off the plot without fitting anything** — the implementation recovers it to 0.001%
+on synthetic data. That reading also drives `suggest_method`: a user who describes
+a "confined aquifer test" over a curve that plainly shows leakage is steered to
+Hantush-Jacob rather than Theis.
 
 ### Four-Step Workflow
 
@@ -258,48 +316,69 @@ Key implementation decisions grounded in the original paper:
 
 ## Tests
 
-350 tests, all passing; 66% statement coverage of `src/`.
+795 tests, all passing; 75% statement coverage of `src/`.
 
 ```bash
-pytest tests/ -q                 # everything (~30 s)
-pytest tests/ -q -m "not slow"   # skip the Streamlit UI smoke tests (~15 s)
+pytest tests/ -q                 # everything (~33 s)
+pytest tests/ -q -m "not slow"   # skip the Streamlit UI smoke tests
 ```
 
-### Unit tests — calculators
+Run through `python -m pytest` if the venv's `.exe` shims carry a stale path.
 
-| File | Classes | Tests | Module coverage |
-|------|---------|-------|-----------------|
-| `test_theis.py` | 6 | 46 | `theis.py` 91% |
-| `test_cooper_jacob.py` | 3 | 17 | `cooper_jacob.py` 81% |
-| `test_papadopulos_cooper.py` | 5 | 41 | `papadopulos_cooper.py` 91% |
+### Calculators
 
-Categories per method: well-function validation, physical limits (monotonicity,
-linearity in Q), end-to-end smoke test, input validation, paper-mandated
-validity notes.
+| File | Tests | Module coverage |
+|------|-------|-----------------|
+| `test_theis.py` | 46 | `theis.py` 91% |
+| `test_papadopulos_cooper.py` | 41 | `papadopulos_cooper.py` 91% |
+| `test_hantush_jacob.py` | 38 | `hantush_jacob.py` 97% |
+| `test_boulton_warren_root.py` | 38 | `boulton.py` 98%, `warren_root.py` 98% |
+| `test_cooper_jacob.py` | 17 | `cooper_jacob.py` 81% |
+| `test_golden_regression.py` | 20 | pins the shipped fits to 1e-9 |
 
-### Unit tests — data pipeline, plotting, method selection
+### Shared machinery
 
-| File | Classes | Tests | Module coverage |
-|------|---------|-------|-----------------|
-| `test_csv_inspector.py` | 6 | 40 | `csv_inspector.py` 96% |
-| `test_formatter.py` | 6 | 26 | `formatter.py` 100% |
-| `test_validator.py` | 6 | 24 | `validator.py` 97% |
-| `test_plots_report.py` | 8 | 34 | `plots.py` 100%, `report.py` 100% |
-| `test_method_selection.py` | 9 | 70 | `method_selection.py` 99% |
+| File | Tests | Covers |
+|------|-------|--------|
+| `test_registry.py` | 70 | Method table integrity, alias resolution, import weight |
+| `test_laplace.py` | 47 | Inverter against known transform pairs; every analytical limit |
+| `test_fitting.py` | 42 | `fit_curve`, CIs, bound detection, AIC/AICc, log-scale |
+| `test_validation_rules.py` | 44 | Shared input checks and the validity-rule library |
+| `test_parameters.py` | 32 | Bidirectional `CalculationResult` reconciliation |
+| `test_geometry.py` | 65 | Geometry invariants and backward compatibility |
+| `test_derivative.py` | 29 | Bourdet derivative and flow-regime diagnosis |
 
-The CSV inspector's layer-3 LLM fallback is exercised with a stub LLM — no
-network access, no API key required.
+### Data pipeline, plotting, method selection
 
-### Integration tests — the chat ↔ calculator bridge
+| File | Tests |
+|------|-------|
+| `test_method_selection.py` | 84 |
+| `test_csv_inspector.py` | 40 |
+| `test_plots_report.py` | 34 |
+| `test_formatter.py` | 26 |
+| `test_validator.py` | 24 |
 
-| File | Classes | Tests | What it covers |
-|------|---------|-------|----------------|
-| `test_chat_calculator_bridge.py` | 7 | 26 | Manager suggestion cards, Calculator agent replies, result serialisation, consultant result-context |
-| `test_end_to_end_journey.py` | 5 | 12 | Full journey through the compiled LangGraph: question → suggestion → fit → interpretation |
-| `test_app_smoke.py` | 3 | 14 | Streamlit `AppTest`: renders the real app, clicks the suggestion card, checks the workspace follows |
+### Integration
 
-The LLM and vector store are stubbed throughout; the calculators, graph,
-routing and state reducers are real.
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test_chat_calculator_bridge.py` | 26 | Agents with stubbed LLM + retriever |
+| `test_end_to_end_journey.py` | 18 | Full journey through the compiled LangGraph |
+| `test_app_smoke.py` | 14 | Streamlit `AppTest` — renders the real app |
+
+No test needs a network connection or an API key. The LLM and vector store are
+stubbed; the calculators, graph, routing and state reducers are real.
+
+### Golden-fit regression
+
+`tests/fixtures/golden_fits.json` pins the exact T, S, RMSE and confidence
+intervals the original three calculators produced before the architecture
+refactor, at 1e-9 relative tolerance. Steps of the migration that are supposed to
+be pure code moves must reproduce them; a change means the optimisation moved, not
+just the code. The one intentional re-baseline — Papadopulos-Cooper, when
+`scipy.special.kv` was replaced by the exponentially scaled `kve` — is recorded in
+the fixture's `_provenance` block with the evidence for why the new values are the
+more accurate ones.
 
 ### Sample Data Files
 
@@ -429,7 +508,7 @@ llm:
 - [x] PDF report generation (ReportLab)
 - [x] Calculator workspace UI (4-step workflow)
 
-### Phase 3 — Integration (In progress)
+### Phase 3 — Integration (Complete)
 - [x] Method suggestion card: the Manager recommends a method from the conversation
 - [x] Workspace preselects the confirmed method
 - [x] Completed analyses published back into `AgentState`
@@ -437,10 +516,29 @@ llm:
 - [x] `DataValidator` wired in — gates the method dropdown per dataset
 - [x] Test coverage for the data pipeline, plotting and PDF layers
 - [x] Streamlit UI smoke tests
-- [ ] Recovery analysis (Theis 1935, Eq. 7)
-- [ ] Derivative diagnostic plots (ds/d ln t)
-- [ ] Leaky confined (Hantush-Jacob 1955)
-- [ ] Unconfined (Neuman 1972 / Boulton)
+
+### Phase 4 — Extensible architecture and domain increment (In progress)
+- [x] Method registry — one declarative table replacing ten hardcoded call sites
+- [x] Golden-fit regression baseline, enforced at 1e-9
+- [x] Shared fitting machinery: `ParameterSpec`, CIs, bound detection, AIC/AICc
+- [x] Log-scale fitting, without which multi-parameter methods do not converge
+- [x] Parameter-correlation diagnostic for non-unique fits
+- [x] `CalculationResult` carries a variable-length parameter set
+- [x] Geometry dataclasses — aquifer, well, aquitard, fracture, pumping schedule
+- [x] Stehfest inverter extracted and **vectorised** (PC fitting 10–30 s → 0.04 s)
+- [x] `CurveFitCalculator` template — a new method is a model plus a spec
+- [x] **Hantush-Jacob (1955)** — leaky
+- [x] **Boulton (1963)** — unconfined
+- [x] **Warren-Root (1963)** — fractured
+- [x] **Bourdet log-derivative** driving data-based method selection
+- [ ] Theis, Cooper-Jacob and Papadopulos-Cooper ported onto the template
+- [ ] Recovery analysis (Theis 1935 Eq. 7 / Agarwal equivalent time)
+- [ ] Step-drawdown (Birsoy-Summers 1980)
+- [ ] Neuman (1974) unconfined — needs a transcendental root series
+- [ ] Forward simulation / test design
+- [ ] Slug tests — a different input shape, and Stehfest is the wrong inverter
+- [ ] Cloud deployment (Docker; AWS ECS Fargate if approved)
+- [ ] Practitioner data model: projects, named wells, logger import
 - [ ] IIT KGP email authentication (deferred)
 
 ---
@@ -451,7 +549,9 @@ llm:
 |---|---|---|
 | `knowledge source/` contains paywalled publisher PDFs tracked in git | Redistribution of copyrighted material from a public repo | **Open** — needs `git rm --cached` plus a DOI manifest |
 | `method` metadata is `multiple` for 3,837 of 3,843 chunks | Method-level retrieval filtering is ineffective | Open |
-| `canonical_method("Hantush-Jacob")` resolves to Cooper-Jacob | Shared surname; only reachable in the confined workflow, where the aquifer gate catches it first | Documented in `test_method_selection.py` |
+| ~~`canonical_method("Hantush-Jacob")` resolves to Cooper-Jacob~~ | Shared surname | **Fixed** — implementing the method resolved it; the longer alias now wins |
+| Agarwal (recovery) and one other PDF are image-only scans | They contributed **zero** chunks to the knowledge base; the recovery paper is effectively absent | Open — needs OCR or a public-domain substitute |
+| Stehfest loses relative accuracy on decaying functions | Fine for drawdown, which grows; wrong for slug-test head recovery, which decays | Documented in `laplace.py`; slug tests will need de Hoog |
 | `src/ingestion/`, `src/utils/citations.py`, `src/utils/metadata.py` untested | 0% coverage on the ingestion path | Open |
 
 ---
