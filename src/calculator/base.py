@@ -85,8 +85,13 @@ class CalculationResult:
     method: str
 
     # ── Primary outputs ───────────────────────────────────────────────────────
-    T: float                           # transmissivity  [m²/s]
-    S: float                           # storativity     [dimensionless]
+    # Defaulted rather than required: a method that estimates something other
+    # than T and S (Warren-Root fits omega and lambda; Moench fits K and Ss)
+    # populates `parameters` instead and leaves these to be projected from it.
+    # Positional construction, CalculationResult("Theis (1935)", 2.5e-3, 5e-5),
+    # is unaffected.
+    T: float = 0.0                     # transmissivity  [m²/s]
+    S: float = 0.0                     # storativity     [dimensionless]
     T_day: float = 0.0                 # transmissivity  [m²/day]  = T × 86400
 
     # ── Uncertainty ───────────────────────────────────────────────────────────
@@ -110,9 +115,77 @@ class CalculationResult:
     success: bool = True
     error_message: str = ""
 
+    # ── Generalised results ───────────────────────────────────────────────────
+    # Methods beyond the original three estimate more than two parameters:
+    # Neuman (1974) fits T, S, Sy and beta; Moench (1984) fits six. `parameters`
+    # is the general store; the T/S fields above remain the view of it that the
+    # existing UI, plots and report read.
+    method_id: str = ""                             # registry key
+    parameters: list = field(default_factory=list)  # list[FittedParameter]
+    gof: Optional[object] = None                    # GoodnessOfFit
+    diagnostics: dict = field(default_factory=dict) # alpha, t0, n_excluded, u_max…
+    curves: dict = field(default_factory=dict)      # derivative, smooth curves…
+    findings: list = field(default_factory=list)    # list[ValidityFinding]
+
     def __post_init__(self):
+        # Reconciliation runs in both directions so old and new writers coexist.
+        #
+        # Legacy writer — the three original calculators pass T= and S=. Build the
+        # parameter list from them, so anything reading `parameters` works today.
+        if not self.parameters and self.success and (self.T > 0 or self.S > 0):
+            from src.calculator.parameters import storativity, transmissivity
+            self.parameters = [
+                transmissivity(self.T, ci=self.T_ci),
+                storativity(self.S, ci=self.S_ci),
+            ]
+        # New writer — a method that builds `parameters` directly. Project T and S
+        # back onto the scalar fields, which is what keeps every existing
+        # `result.T` / `result.S` / `result.T_day` call site working unchanged.
+        elif self.parameters:
+            if (p := self.get("T")) is not None:
+                self.T, self.T_ci = p.value, p.ci
+            if (p := self.get("S")) is not None:
+                self.S, self.S_ci = p.value, p.ci
+
         if self.T > 0 and self.T_day == 0.0:
             self.T_day = self.T * 86400.0
+
+        # Mirror the goodness-of-fit object onto the legacy scalars.
+        if self.gof is not None:
+            self.rmse = self.gof.rmse
+            self.r_squared = self.gof.r_squared
+
+        # Structured findings render down to the flat note list the UI and PDF
+        # already consume, so a method can emit either.
+        if self.findings and not self.validity_notes:
+            self.validity_notes = [f.text for f in self.findings]
+
+    # ── Parameter access ──────────────────────────────────────────────────────
+
+    def get(self, name: str):
+        """The named FittedParameter, or None."""
+        for p in self.parameters:
+            if p.name == name:
+                return p
+        return None
+
+    def value(self, name: str, default: float = 0.0) -> float:
+        p = self.get(name)
+        return p.value if p is not None else default
+
+    @property
+    def parameter_names(self) -> list:
+        return [p.name for p in self.parameters]
+
+    @property
+    def unreliable(self) -> list:
+        """Parameters the method itself says not to trust — e.g. storativity from
+        Papadopulos-Cooper, which the paper (p. 244) puts at order-of-magnitude."""
+        return [p for p in self.parameters if not p.reliable]
+
+    @property
+    def at_bounds(self) -> list:
+        return [p for p in self.parameters if p.at_bound]
 
     def to_state_dict(self) -> dict:
         """Flatten to a plain dict for storage in the conversation AgentState.
@@ -122,7 +195,7 @@ class CalculationResult:
         state JSON-serialisable avoids surprises if it is ever checkpointed,
         exported or sent to an LLM.
         """
-        return {
+        payload = {
             "method": self.method,
             "T": float(self.T),
             "S": float(self.S),
@@ -135,6 +208,15 @@ class CalculationResult:
             "success": bool(self.success),
             "error_message": self.error_message,
         }
+        # Additive only — every key above is unchanged, so existing consumers
+        # (the consultant prompt, summarise_result, the chat bridge) are unaffected.
+        payload["method_id"] = self.method_id
+        payload["parameters"] = [p.to_dict() for p in self.parameters]
+        payload["diagnostics"] = {
+            k: float(v) for k, v in self.diagnostics.items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)
+        }
+        return payload
 
 
 class BaseCalculator(ABC):
