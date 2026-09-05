@@ -49,19 +49,21 @@ class TestCanonicalMethod:
         """Real-but-unimplemented methods must not be silently coerced."""
         assert canonical_method(raw) is None
 
-    def test_hantush_jacob_matches_cooper_jacob_by_surname(self):
-        """Known limitation: the bare surname 'Jacob' is shared.
+    def test_hantush_jacob_no_longer_collides_with_cooper_jacob(self):
+        """Both names contain 'Jacob'. Previously "Hantush-Jacob" resolved to
+        Cooper-Jacob, which was recorded as a known limitation; implementing the
+        method resolved it, because the longer alias now wins."""
+        from src.agents.method_selection import HANTUSH_JACOB
 
-        Hantush-Jacob (1955) is a leaky-aquifer method with no calculator here,
-        so this only ever mis-selects within the confined workflow — and the
-        aquifer gate catches the leaky case before this rule is reached.
-        """
-        assert canonical_method("Hantush-Jacob") == COOPER_JACOB
-        assert suggest_method(aquifer_context="leaky",
-                              selected_method="Hantush-Jacob")["method"] == COOPER_JACOB
+        assert canonical_method("Hantush-Jacob") == HANTUSH_JACOB
+        assert canonical_method("hantush jacob 1955") == HANTUSH_JACOB
+        assert canonical_method("Cooper-Jacob") == COOPER_JACOB
 
     def test_canonical_labels_match_the_dropdown(self):
-        assert SUPPORTED_METHODS == [THEIS, COOPER_JACOB, PAPADOPULOS_COOPER]
+        from src.agents.method_selection import HANTUSH_JACOB
+
+        assert SUPPORTED_METHODS == [THEIS, COOPER_JACOB, PAPADOPULOS_COOPER,
+                                     HANTUSH_JACOB]
 
 
 # ── Well geometry parsing ─────────────────────────────────────────────────────
@@ -129,7 +131,7 @@ class TestExplicitMethod:
 
 class TestUnsupportedAquifers:
 
-    @pytest.mark.parametrize("aquifer", ["unconfined", "leaky", "fractured"])
+    @pytest.mark.parametrize("aquifer", ["unconfined", "fractured"])
     def test_no_method_offered(self, aquifer):
         s = suggest_method(aquifer_context=aquifer)
 
@@ -270,9 +272,9 @@ class TestFormatSuggestion:
         assert "Confidence" in out
 
     def test_unsupported_suggestion_renders_the_explanation_only(self):
-        out = format_suggestion(suggest_method(aquifer_context="leaky"))
+        out = format_suggestion(suggest_method(aquifer_context="unconfined"))
 
-        assert "leaky" in out
+        assert "unconfined" in out
         assert "Confidence" not in out
 
     def test_empty_suggestion_renders_empty(self):

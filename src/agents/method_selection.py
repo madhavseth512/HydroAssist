@@ -19,9 +19,12 @@ Selection rules, grounded in the source papers:
     drawdown.
   * An explicit late-time / straight-line / semi-log framing
     → Cooper-Jacob (1946), valid where u < 0.02 (paper p. 3).
+  * A leaky aquifer → Hantush-Jacob (1955), which is the only method registered
+    for that type. This arm is registry-driven, so it extends to unconfined and
+    fractured automatically once those calculators exist.
   * Otherwise, confined aquifer → Theis (1935), the general full-curve method.
-  * Unconfined, leaky and fractured aquifers have no implemented calculator yet;
-    the suggestion says so explicitly rather than silently offering Theis.
+  * Aquifer types with no implemented calculator say so explicitly rather than
+    silently offering Theis.
 """
 
 import re
@@ -37,6 +40,7 @@ from src.calculator import registry
 THEIS = registry.REGISTRY["theis_1935"].label
 COOPER_JACOB = registry.REGISTRY["cooper_jacob_1946"].label
 PAPADOPULOS_COOPER = registry.REGISTRY["papadopulos_cooper_1967"].label
+HANTUSH_JACOB = registry.REGISTRY["hantush_jacob_1955"].label
 
 SUPPORTED_METHODS = registry.labels()
 
@@ -196,7 +200,19 @@ def suggest_method(
             "supported": True,
         }
 
-    # ── 5. Default for a confined aquifer ─────────────────────────────────────
+    # ── 5. A supported non-confined aquifer routes to its own method ──────────
+    # Derived from the registry, so this arm starts working for unconfined and
+    # fractured the moment a calculator for them is registered.
+    if aquifer_context in SUPPORTED_AQUIFERS and aquifer_context != "confined":
+        for spec in registry.for_aquifer(aquifer_context):
+            return {
+                "method": spec.label,
+                "reason": spec.selection_rationale,
+                "confidence": 0.8,
+                "supported": True,
+            }
+
+    # ── 6. Default for a confined aquifer ─────────────────────────────────────
     confident = aquifer_context == "confined"
     return {
         "method": THEIS,

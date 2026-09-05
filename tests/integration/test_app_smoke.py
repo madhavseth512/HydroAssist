@@ -63,9 +63,11 @@ class TestAppBoots:
         assert any("Step 2" in h for h in headings)
         assert any("Step 3" in h for h in headings)
 
-    def test_all_three_methods_offered_before_any_upload(self, app):
+    def test_every_registered_method_is_offered_before_any_upload(self, app):
+        from src.calculator import registry
+
         method_box = next(s for s in app.selectbox if s.label == "Analysis method")
-        assert list(method_box.options) == [THEIS, COOPER_JACOB, PAPADOPULOS_COOPER]
+        assert list(method_box.options) == registry.labels()
 
     def test_pumping_rate_units_offered(self, app):
         q_box = next(s for s in app.selectbox if s.label == "Q unit")

@@ -31,16 +31,31 @@ class TestTableIntegrity:
         for key, spec in R.REGISTRY.items():
             assert key == spec.id
 
-    def test_display_order_is_chronological(self):
-        years = [s.year for s in R.all_specs(implemented_only=False)]
-        assert years == sorted(years)
+    def test_display_order_groups_by_aquifer_then_year(self):
+        """Dropdown order: all the confined methods, then leaky, and so on, each
+        group chronological. Grouping beats a global date sort because a user
+        picks an aquifer type first."""
+        seen_groups, years_in_group, previous = [], [], None
+
+        for spec in R.all_specs(implemented_only=False):
+            group = sorted(spec.aquifer_types)[0]
+            if group != previous:
+                assert group not in seen_groups, (
+                    f"{group} methods are split across the table")
+                seen_groups.append(group)
+                years_in_group = []
+                previous = group
+            years_in_group.append(spec.year)
+            assert years_in_group == sorted(years_in_group), (
+                f"{group} methods are not in chronological order")
 
     def test_current_methods_and_order(self):
-        """Load-bearing: test_method_selection asserts this exact list and order."""
+        """Load-bearing: the dropdown and several tests depend on this order."""
         assert R.labels() == [
             "Theis (1935)",
             "Cooper-Jacob (1946)",
             "Papadopulos-Cooper (1967)",
+            "Hantush-Jacob (1955)",
         ]
 
     @pytest.mark.parametrize("spec", R.all_specs(implemented_only=False),
@@ -143,7 +158,7 @@ class TestLookup:
         assert R.canonical_id("Papadopulos-Cooper (1967)") == "papadopulos_cooper_1967"
         assert R.canonical_id("run papadopulos cooper") == "papadopulos_cooper_1967"
 
-    @pytest.mark.parametrize("text", ["", None, "Neuman", "Hantush", "Boulton", "xyz"])
+    @pytest.mark.parametrize("text", ["", None, "Neuman", "Boulton", "Moench", "xyz"])
     def test_canonical_id_returns_none_for_unimplemented_methods(self, text):
         """Real-but-absent methods must not be silently coerced onto a present one."""
         assert R.canonical_id(text) is None
@@ -157,19 +172,23 @@ class TestLookup:
 
 class TestFiltering:
 
-    def test_all_three_methods_are_confined(self):
+    def test_confined_methods(self):
         assert len(R.for_aquifer(R.CONFINED)) == 3
 
-    @pytest.mark.parametrize("aquifer", [R.LEAKY, R.UNCONFINED, R.FRACTURED])
+    def test_leaky_has_hantush_jacob(self):
+        assert [s.id for s in R.for_aquifer(R.LEAKY)] == ["hantush_jacob_1955"]
+
+    @pytest.mark.parametrize("aquifer", [R.UNCONFINED, R.FRACTURED])
     def test_no_methods_yet_for_other_aquifers(self, aquifer):
         assert R.for_aquifer(aquifer) == []
 
-    def test_supported_aquifers_is_confined_only(self):
-        """What lets the chat layer say honestly that unconfined has no calculator."""
-        assert R.supported_aquifers() == {R.CONFINED}
+    def test_supported_aquifers_reflects_the_table(self):
+        """What lets the chat layer say honestly that unconfined has no
+        calculator — and stop saying it about leaky now that one exists."""
+        assert R.supported_aquifers() == {R.CONFINED, R.LEAKY}
 
-    def test_all_three_are_constant_rate(self):
-        assert len(R.for_test_type(R.CONSTANT_RATE)) == 3
+    def test_every_method_is_constant_rate_so_far(self):
+        assert len(R.for_test_type(R.CONSTANT_RATE)) == len(R.all_specs())
 
     @pytest.mark.parametrize("test_type", [R.RECOVERY, R.STEP_DRAWDOWN, R.SLUG])
     def test_no_methods_yet_for_other_test_types(self, test_type):

@@ -145,6 +145,11 @@ def _papadopulos_cooper():
     return PapadopulosCooperCalculator()
 
 
+def _hantush_jacob():
+    from src.calculator.methods.hantush_jacob import HantushJacobCalculator
+    return HantushJacobCalculator()
+
+
 # ── Lazy plot adapters ────────────────────────────────────────────────────────
 # Each normalises one method's plot signature onto (result, PlotContext), so the
 # UI and the PDF builder can dispatch without knowing which method they hold.
@@ -278,6 +283,31 @@ _SPECS = (
             "Papadopulos-Cooper (1967) accounts for wellbore storage in a "
             "large-diameter well, which Theis assumption (5) — a well of "
             "infinitesimal diameter — does not."
+        ),
+    ),
+    MethodSpec(
+        id="hantush_jacob_1955",
+        label="Hantush-Jacob (1955)",
+        year=1955,
+        authors=("Hantush, M.S.", "Jacob, C.E."),
+        citation=(
+            "Hantush, M.S. & Jacob, C.E. (1955). Non-steady radial flow in an "
+            "infinite leaky aquifer. Transactions AGU, 36(1), 95-100."
+        ),
+        aquifer_types=frozenset({LEAKY}),
+        test_types=frozenset({CONSTANT_RATE}),
+        parameters=("T", "S", "B"),
+        data_source=OBSERVATION_WELL,
+        aliases=("hantush-jacob", "hantush jacob", "hantush"),
+        factory=_hantush_jacob,
+        ui_help=(
+            "Leaky confined aquifer: drawdown stabilises as water leaks through "
+            "the aquitard. Estimates T, S and the leakage factor B."
+        ),
+        selection_rationale=(
+            "Hantush-Jacob (1955) accounts for vertical leakage through a "
+            "confining layer, which makes drawdown level off at late time "
+            "instead of growing indefinitely as Theis predicts."
         ),
     ),
 )
