@@ -27,15 +27,22 @@ Selection rules, grounded in the source papers:
 import re
 from typing import Optional
 
-# ── Canonical method labels (must match the calculator dropdown exactly) ──────
-THEIS = "Theis (1935)"
-COOPER_JACOB = "Cooper-Jacob (1946)"
-PAPADOPULOS_COOPER = "Papadopulos-Cooper (1967)"
+from src.calculator import registry
 
-SUPPORTED_METHODS = [THEIS, COOPER_JACOB, PAPADOPULOS_COOPER]
+# ── Canonical method labels ───────────────────────────────────────────────────
+# Derived from the registry rather than duplicated, so a new calculator becomes
+# selectable here the moment it is registered. These names are kept as module
+# constants because they read far better at the call sites below than
+# registry.get("theis_1935").label would.
+THEIS = registry.REGISTRY["theis_1935"].label
+COOPER_JACOB = registry.REGISTRY["cooper_jacob_1946"].label
+PAPADOPULOS_COOPER = registry.REGISTRY["papadopulos_cooper_1967"].label
 
-# Aquifer types with an implemented calculator
-SUPPORTED_AQUIFERS = {"confined"}
+SUPPORTED_METHODS = registry.labels()
+
+# Aquifer types with an implemented calculator. Derived, so when the first leaky
+# method lands, rule 2 below stops declaring leaky unsupported on its own.
+SUPPORTED_AQUIFERS = registry.supported_aquifers()
 
 # Theis (1935) assumption (5) is a well of infinitesimal diameter. A casing
 # radius beyond this makes wellbore storage non-negligible; DataValidator uses
@@ -65,25 +72,17 @@ _DIMENSION = re.compile(
 
 _TO_METRES = {"m": 1.0, "metre": 1.0, "meter": 1.0, "cm": 0.01, "mm": 0.001}
 
-_METHOD_ALIASES = [
-    (PAPADOPULOS_COOPER, re.compile(r"papadopul", re.IGNORECASE)),
-    (COOPER_JACOB, re.compile(r"cooper[\s\-_]*jacob|jacob", re.IGNORECASE)),
-    (THEIS, re.compile(r"theis", re.IGNORECASE)),
-]
-
 
 def canonical_method(name: Optional[str]) -> Optional[str]:
     """Map a free-form method name onto a canonical label, or None.
 
-    Papadopulos-Cooper is tested before Cooper-Jacob: both contain "Cooper",
-    and the more specific name must win.
+    Delegates to the registry, which matches aliases longest-first so that the
+    more specific "Papadopulos-Cooper" beats the "cooper" it shares with
+    "Cooper-Jacob". Methods that are real but not implemented — Neuman,
+    Boulton, Moench — resolve to None rather than being coerced onto a
+    present one.
     """
-    if not name:
-        return None
-    for canonical, pattern in _METHOD_ALIASES:
-        if pattern.search(name):
-            return canonical
-    return None
+    return registry.canonical_label(name)
 
 
 def extract_well_radius_m(text: str) -> Optional[float]:
@@ -143,13 +142,18 @@ def suggest_method(
         }
 
     # ── 2. Unsupported aquifer types — say so, do not silently offer Theis ────
-    if aquifer_context in {"unconfined", "leaky", "fractured"}:
+    # Both the check and the wording come from the registry, so this claim stays
+    # true as methods are added instead of going stale.
+    known_aquifers = set(registry.AQUIFER_TYPES)
+    if aquifer_context in known_aquifers - SUPPORTED_AQUIFERS:
+        covered = sorted(SUPPORTED_AQUIFERS)
+        available = ", ".join(registry.labels())
         return {
             "method": "",
             "reason": (
                 f"No calculator is implemented for {aquifer_context} aquifers yet — "
-                "the workspace currently covers confined aquifers only "
-                "(Theis, Cooper-Jacob, Papadopulos-Cooper). "
+                f"the workspace currently covers {' and '.join(covered)} aquifers only "
+                f"({available}). "
                 "I can still explain the appropriate method and its assumptions."
             ),
             "confidence": 0.9,

@@ -163,9 +163,12 @@ def _config_section(Q_si: float, r: float, df: pd.DataFrame,
 
     # For Papadopulos-Cooper the radial coordinate is the well screen radius,
     # not an observation-well distance — label it accordingly.
-    r_label = ("Well screen radius r_w" if "Papadopulos" in method
-               else "Observation well distance r")
-    r_fmt = f"{r:.3f} m" if "Papadopulos" in method else f"{r:.1f} m"
+    from src.calculator import registry
+
+    spec = registry.get(method)
+    at_well = spec is not None and spec.data_source == registry.PUMPED_WELL
+    r_label = "Well screen radius r_w" if at_well else "Observation well distance r"
+    r_fmt = f"{r:.3f} m" if at_well else f"{r:.1f} m"
 
     rows = [
         ["Parameter", "Value"],
@@ -262,39 +265,55 @@ def _validity_section(result: CalculationResult, s: dict) -> list:
     return flowables
 
 
+# Figure captions, keyed by registry method id. Kept here rather than in the
+# registry because they describe this specific PDF figure, not the method.
+_FIGURE_CAPTIONS = {
+    "theis_1935": (
+        "Theis (1935) log-log type curve. "
+        "Blue circles: observed drawdown. Red line: fitted Theis curve."
+    ),
+    "cooper_jacob_1946": (
+        "Cooper-Jacob (1946) semi-log straight line. "
+        "Blue circles: valid late-time data (u < 0.02). "
+        "Grey crosses: excluded early-time points. Red line: fitted straight line."
+    ),
+    "papadopulos_cooper_1967": (
+        "Papadopulos-Cooper (1967) log-log type curve. "
+        "Blue circles: observed drawdown at pumped well. "
+        "Red line: fitted PC well function. "
+        "Note: S has questionable reliability (paper p. 244)."
+    ),
+}
+
+
 def _plot_section(result: CalculationResult, Q_si: float, r: float,
                   method: str, n_excluded: int, s: dict,
                   r_c: float = None) -> list:
     if result.time_s is None or result.drawdown_obs is None:
         return []
 
-    if "Theis" in method:
-        fig = _theis_mpl(result, Q_si, r)
-        caption = (
-            "Figure 1. Theis (1935) log-log type curve. "
-            "Blue circles: observed drawdown. Red line: fitted Theis curve."
-        )
-    elif "Cooper-Jacob" in method:
-        fig = _cj_mpl(result, n_excluded)
-        caption = (
-            "Figure 1. Cooper-Jacob (1946) semi-log straight line. "
-            "Blue circles: valid late-time data (u < 0.02). "
-            "Grey crosses: excluded early-time points. Red line: fitted straight line."
-        )
-    else:
-        # Papadopulos-Cooper — r is r_w here (passed as such from app.py)
-        r_c_used = r_c if r_c and r_c > 0 else r
-        fig = _pc_mpl(result, Q_si, r, r_c_used)
-        caption = (
-            "Figure 1. Papadopulos-Cooper (1967) log-log type curve. "
-            "Blue circles: observed drawdown at pumped well. "
-            "Red line: fitted PC well function. "
-            "Note: S has questionable reliability (paper p. 244)."
-        )
-        if not (r_c and r_c > 0):
-            caption += (
-                " Casing radius not supplied — curve drawn assuming r_c = r_w."
-            )
+    from src.calculator import registry
+
+    spec = registry.get(method)
+    if spec is None:
+        return []
+
+    # For a method fitted at the pumped well, `r` is the screen radius r_w and
+    # the casing radius is a separate input; otherwise `r` is a distance.
+    at_well = spec.data_source == registry.PUMPED_WELL
+    r_c_used = (r_c if r_c and r_c > 0 else r) if at_well else r_c
+
+    ctx = registry.PlotContext(
+        Q=Q_si,
+        r=r,
+        r_w=r,
+        r_c=r_c_used,
+        n_excluded=n_excluded,
+    )
+    fig = spec.report_plot(result, ctx)
+    caption = f"Figure 1. {_FIGURE_CAPTIONS[spec.id]}"
+    if at_well and not (r_c and r_c > 0):
+        caption += " Casing radius not supplied — curve drawn assuming r_c = r_w."
 
     img_buf = io.BytesIO()
     fig.savefig(img_buf, format="png", dpi=150, bbox_inches="tight")

@@ -53,6 +53,23 @@ EITHER = "either"
 
 
 @dataclass(frozen=True)
+class PlotContext:
+    """The test parameters a plot needs, in one shape for every method.
+
+    The underlying plot functions take different arguments — Theis needs Q and r,
+    Cooper-Jacob also needs the excluded-point count, Papadopulos-Cooper needs the
+    two well radii instead of a distance. Passing this single object lets the
+    registry dispatch them uniformly; each adapter picks out what its method uses.
+    """
+
+    Q: float                    # pumping rate [m^3/s]
+    r: float = 0.0              # observation distance [m]
+    r_w: float = 0.10           # well screen radius [m]
+    r_c: float = 0.10           # casing radius [m]
+    n_excluded: int = 0         # early-time points dropped by the u-filter (CJ)
+
+
+@dataclass(frozen=True)
 class MethodSpec:
     """Everything the rest of the app needs to know about one analysis method.
 
@@ -86,6 +103,12 @@ class MethodSpec:
 
     # Lazy — each does a local import so this module stays stdlib-only.
     factory: Optional[Callable] = None
+
+    # Plot adapters, all taking (result, PlotContext). Lazy for the same reason.
+    diagnostic_plot: Optional[Callable] = None   # -> plotly Figure
+    report_plot: Optional[Callable] = None       # -> matplotlib Figure, for the PDF
+    # Manual-matching plot: (result, ctx, T_manual, S_manual) -> (Figure, rmse_mm)
+    interactive_plot: Optional[Callable] = None
 
     ui_help: str = ""
     selection_rationale: str = ""
@@ -122,6 +145,59 @@ def _papadopulos_cooper():
     return PapadopulosCooperCalculator()
 
 
+# ── Lazy plot adapters ────────────────────────────────────────────────────────
+# Each normalises one method's plot signature onto (result, PlotContext), so the
+# UI and the PDF builder can dispatch without knowing which method they hold.
+
+def _theis_diagnostic(result, ctx):
+    from src.calculator.plots import theis_diagnostic
+    return theis_diagnostic(result, ctx.Q, ctx.r)
+
+
+def _cj_diagnostic(result, ctx):
+    from src.calculator.plots import cj_diagnostic
+    return cj_diagnostic(result, ctx.Q, ctx.r, ctx.n_excluded)
+
+
+def _pc_diagnostic(result, ctx):
+    from src.calculator.plots import pc_diagnostic
+    return pc_diagnostic(result, ctx.Q, ctx.r_w, ctx.r_c)
+
+
+def _theis_interactive(result, ctx, T_manual, S_manual):
+    from src.calculator.plots import theis_interactive
+    return theis_interactive(result.time_s, result.drawdown_obs, ctx.Q, ctx.r,
+                             result.T, result.S, T_manual, S_manual)
+
+
+def _cj_interactive(result, ctx, T_manual, S_manual):
+    from src.calculator.plots import cj_interactive
+    return cj_interactive(result.time_s, result.drawdown_obs, ctx.Q, ctx.r,
+                          result.T, result.S, T_manual, S_manual)
+
+
+def _pc_interactive(result, ctx, T_manual, S_manual):
+    from src.calculator.plots import pc_interactive
+    return pc_interactive(result.time_s, result.drawdown_obs,
+                          ctx.Q, ctx.r_w, ctx.r_c,
+                          result.T, result.S, T_manual, S_manual)
+
+
+def _theis_report_plot(result, ctx):
+    from src.calculator.report import _theis_mpl
+    return _theis_mpl(result, ctx.Q, ctx.r)
+
+
+def _cj_report_plot(result, ctx):
+    from src.calculator.report import _cj_mpl
+    return _cj_mpl(result, ctx.n_excluded)
+
+
+def _pc_report_plot(result, ctx):
+    from src.calculator.report import _pc_mpl
+    return _pc_mpl(result, ctx.Q, ctx.r_w, ctx.r_c)
+
+
 # ── The table ─────────────────────────────────────────────────────────────────
 # Insertion order is the display order, and it is load-bearing: an existing test
 # asserts the supported-method list equals [Theis, Cooper-Jacob, Papadopulos-Cooper]
@@ -144,6 +220,9 @@ _SPECS = (
         data_source=OBSERVATION_WELL,
         aliases=("theis",),
         factory=_theis,
+        diagnostic_plot=_theis_diagnostic,
+        interactive_plot=_theis_interactive,
+        report_plot=_theis_report_plot,
         ui_help="Full-curve type-curve fit. Valid at all times; the general default.",
         selection_rationale=(
             "Theis (1935) is the general full-curve method for a confined aquifer "
@@ -166,6 +245,9 @@ _SPECS = (
         data_source=OBSERVATION_WELL,
         aliases=("cooper-jacob", "cooper jacob", "cooper_jacob", "jacob"),
         factory=_cooper_jacob,
+        diagnostic_plot=_cj_diagnostic,
+        interactive_plot=_cj_interactive,
+        report_plot=_cj_report_plot,
         ui_help="Late-time semi-log straight line, valid where u < 0.02.",
         selection_rationale=(
             "Cooper-Jacob (1946) fits a line to s vs log t where u < 0.02 "
@@ -187,6 +269,9 @@ _SPECS = (
         data_source=PUMPED_WELL,
         aliases=("papadopulos-cooper", "papadopulos cooper", "papadopulos"),
         factory=_papadopulos_cooper,
+        diagnostic_plot=_pc_diagnostic,
+        interactive_plot=_pc_interactive,
+        report_plot=_pc_report_plot,
         requires=("well.r_w", "well.r_c"),
         ui_help="Large-diameter well with wellbore storage; data from the pumped well.",
         selection_rationale=(

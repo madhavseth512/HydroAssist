@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.core.graph import HydroAssistChat
 from src.core.config import load_config
+from src.calculator import registry as _registry
 from langchain_core.messages import HumanMessage, AIMessage
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -79,22 +80,23 @@ if "validation" not in st.session_state:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _run_calculator(df, Q_si, r, method, r_w=0.10, r_c=0.10):
-    """Run the selected calculator and return CalculationResult."""
-    from src.calculator.base import CalculationInput
-    from src.calculator.theis import TheisCalculator
-    from src.calculator.cooper_jacob import CooperJacobCalculator
-    from src.calculator.papadopulos_cooper import PapadopulosCooperCalculator
+    """Run the selected calculator and return CalculationResult.
 
-    if "Theis" in method:
-        inp = CalculationInput(df=df, Q=Q_si, r=r)
-        return TheisCalculator().calculate(inp)
-    elif "Cooper-Jacob" in method:
-        inp = CalculationInput(df=df, Q=Q_si, r=r)
-        return CooperJacobCalculator().calculate(inp)
-    else:
-        # Papadopulos-Cooper: data from pumped well, r = r_w
+    Which calculator to build, and whether the radial coordinate is an
+    observation distance or the well screen radius, both come from the method's
+    registry entry rather than from string matching on the label.
+    """
+    from src.calculator.base import CalculationInput
+
+    spec = _registry.require(method)
+
+    if spec.data_source == _registry.PUMPED_WELL:
+        # Fitted at the well face, so r is the screen radius, not a distance.
         inp = CalculationInput(df=df, Q=Q_si, r=r_w, r_w=r_w, r_c=r_c)
-        return PapadopulosCooperCalculator().calculate(inp)
+    else:
+        inp = CalculationInput(df=df, Q=Q_si, r=r)
+
+    return spec.build().calculate(inp)
 
 
 def _format_ci(ci, scale=86400, unit="m²/day"):
@@ -103,7 +105,7 @@ def _format_ci(ci, scale=86400, unit="m²/day"):
     return f"[{ci[0]*scale:.2f}, {ci[1]*scale:.2f}] {unit}"
 
 
-ALL_METHODS = ["Theis (1935)", "Cooper-Jacob (1946)", "Papadopulos-Cooper (1967)"]
+ALL_METHODS = _registry.labels()
 
 
 def _method_options(validation):
@@ -119,6 +121,20 @@ def _method_options(validation):
         suitable = [ALL_METHODS[0]]
     gated_out = [m for m in ALL_METHODS if m not in suitable]
     return suitable, gated_out
+
+
+def _method_help(options):
+    """Tooltip for the method dropdown, assembled from each method's registry entry.
+
+    Written once in the registry rather than as a hardcoded sentence here, so a new
+    method arrives with its own explanation instead of silently having none.
+    """
+    lines = []
+    for label in options:
+        spec = _registry.get(label)
+        if spec and spec.ui_help:
+            lines.append(f"{spec.label}: {spec.ui_help}")
+    return "\n\n".join(lines)
 
 
 def _default_method_index(options):
@@ -435,11 +451,7 @@ with tab_calc:
             "Analysis method",
             method_options,
             index=_default_method_index(method_options),
-            help=(
-                "Theis: full-curve fit, all times. "
-                "Cooper-Jacob: late-time semi-log line (u < 0.02). "
-                "Papadopulos-Cooper: large-diameter well with wellbore storage."
-            ),
+            help=_method_help(method_options),
         )
         if gated_out:
             st.caption(
@@ -447,11 +459,15 @@ with tab_calc:
                 " — see the data notes in Step 1."
             )
 
-    # Papadopulos-Cooper — extra geometry inputs (shown only when PC selected)
+    # Extra well geometry, shown for methods fitted at the pumped well face.
+    # Driven by the registry's data_source rather than by the method's name.
+    spec = _registry.require(method)
+    needs_well_geometry = spec.data_source == _registry.PUMPED_WELL
+
     r_w, r_c = 0.10, 0.10
-    if "Papadopulos" in method:
+    if needs_well_geometry:
         st.info(
-            "**Papadopulos-Cooper (1967):** data must be from the **pumped well** itself "
+            f"**{spec.label}:** data must be from the **pumped well** itself "
             "(not an observation well). Enter the physical well dimensions below."
         )
         pc_col1, pc_col2 = st.columns(2)
@@ -485,8 +501,8 @@ with tab_calc:
     if run_disabled:
         st.info("Upload a CSV file in Step 1 to enable analysis.")
 
-    if "Papadopulos" in method:
-        st.caption("Note: Papadopulos-Cooper integrates the well function numerically — "
+    if needs_well_geometry:
+        st.caption(f"Note: {spec.label} inverts the well function numerically — "
                    "fitting may take 10–30 seconds depending on dataset size.")
 
     if st.button("▶  Run Analysis", type="primary", disabled=run_disabled, use_container_width=True):
@@ -497,7 +513,7 @@ with tab_calc:
                 st.session_state.calc_result = result
                 # count excluded points (CJ only)
                 n_excl = 0
-                if "Cooper-Jacob" in method and result.success:
+                if spec.id == "cooper_jacob_1946" and result.success:
                     u_all = (r**2 * result.S) / (4.0 * result.T * df.time_s.values)
                     n_excl = int((u_all >= 0.02).sum())
                 st.session_state.calc_inputs = {
@@ -589,15 +605,15 @@ with tab_calc:
                     # Papadopulos-Cooper is fitted at the pumped well, so the
                     # radial coordinate for the report is r_w, not the
                     # observation-well distance.
-                    is_pc = "Papadopulos" in method_r
+                    at_well = spec_r.data_source == _registry.PUMPED_WELL
                     pdf_bytes = generate_pdf(
                         result,
                         Q_si_r,
-                        r_w_r if is_pc else r_r,
+                        r_w_r if at_well else r_r,
                         method_r,
                         st.session_state.formatted_df,
                         n_excl,
-                        r_c=r_c_r if is_pc else None,
+                        r_c=r_c_r if at_well else None,
                     )
                     fname = (
                         method_r.split("(")[0].strip().lower().replace(" ", "_")
@@ -618,23 +634,19 @@ with tab_calc:
         st.subheader("Step 5 — Diagnostic Plots")
         plot_tab1, plot_tab2 = st.tabs(["📊 Fit Diagnostic", "🎛️ Manual Matching"])
 
+        # One context object serves every plot for this result.
+        plot_ctx = _registry.PlotContext(
+            Q=Q_si_r, r=r_r, r_w=r_w_r, r_c=r_c_r, n_excluded=n_excl,
+        )
+        spec_r = _registry.require(method_r)
+
         with plot_tab1:
-            from src.calculator.plots import (
-                theis_diagnostic, cj_diagnostic, pc_diagnostic,
-            )
-            if "Theis" in method_r:
-                fig = theis_diagnostic(result, Q_si_r, r_r)
-            elif "Cooper-Jacob" in method_r:
-                fig = cj_diagnostic(result, Q_si_r, r_r, n_excl)
-            else:
-                fig = pc_diagnostic(result, Q_si_r, r_w_r, r_c_r)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(spec_r.diagnostic_plot(result, plot_ctx),
+                            use_container_width=True)
 
         with plot_tab2:
             st.markdown("**Adjust T and S with the sliders — the curve updates in real time.**")
             st.markdown("Match the orange curve to the observed data, then compare with the automated fit (red dashed).")
-
-            from src.calculator.plots import theis_interactive, cj_interactive
 
             log_T_min, log_T_max = -7.0, 0.0   # 1e-7 to 1.0 m²/s
             log_S_min, log_S_max = -7.0, -2.0  # 1e-7 to 1e-2
@@ -664,30 +676,12 @@ with tab_calc:
                 S_manual = 10.0 ** log_S_manual
                 st.caption(f"S = {S_manual:.2e}")
 
-            if "Theis" in method_r:
-                fig_m, rmse_m = theis_interactive(
-                    result.time_s, result.drawdown_obs,
-                    Q_si_r, r_r,
-                    result.T, result.S,
-                    T_manual, S_manual,
-                )
-            elif "Cooper-Jacob" in method_r:
-                fig_m, rmse_m = cj_interactive(
-                    result.time_s, result.drawdown_obs,
-                    Q_si_r, r_r,
-                    result.T, result.S,
-                    T_manual, S_manual,
-                )
-            else:
-                from src.calculator.plots import pc_interactive
-                st.caption("PC manual matching computes the full well function — "
+            if spec_r.data_source == _registry.PUMPED_WELL:
+                st.caption("Manual matching recomputes the full well function — "
                            "allow 3–5 seconds after each slider move.")
-                fig_m, rmse_m = pc_interactive(
-                    result.time_s, result.drawdown_obs,
-                    Q_si_r, r_w_r, r_c_r,
-                    result.T, result.S,
-                    T_manual, S_manual,
-                )
+            fig_m, rmse_m = spec_r.interactive_plot(
+                result, plot_ctx, T_manual, S_manual,
+            )
 
             st.plotly_chart(fig_m, use_container_width=True)
 

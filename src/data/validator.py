@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from src.calculator import registry
+
 logger = logging.getLogger(__name__)
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -32,8 +34,9 @@ class DataValidator:
     The suitable_methods list pre-filters which calculator methods to offer.
     """
 
-    # All confined aquifer methods supported in Phase 2
-    ALL_METHODS = ["Theis (1935)", "Cooper-Jacob (1946)", "Papadopulos-Cooper (1967)"]
+    # Every implemented method, from the single source of truth. A method
+    # becomes offerable here as soon as it is registered — no edit needed.
+    ALL_METHODS = registry.labels()
 
     def validate(
         self,
@@ -147,7 +150,12 @@ class DataValidator:
         Cooper-Jacob requires u < 0.05 at late time.
         Papadopulos-Cooper requires additional well geometry input — always listed as optional.
         """
-        suitable = ["Theis (1935)"]
+        theis = registry.REGISTRY["theis_1935"]
+        cooper_jacob = registry.REGISTRY["cooper_jacob_1946"]
+        papadopulos = registry.REGISTRY["papadopulos_cooper_1967"]
+
+        # Theis is the general full-curve method and is never excluded.
+        suitable = [theis.label]
 
         # Well diameter check — Theis (1935) assumption (5): "infinitesimal diameter well".
         # Theis notes the error is "apparently always insignificant" for standard wells,
@@ -155,25 +163,27 @@ class DataValidator:
         if well_casing_radius_m and well_casing_radius_m > 0.15:
             info.append(
                 f"Well casing radius {well_casing_radius_m}m is non-negligible. "
-                "Theis (1935) assumption (5) requires an infinitesimal-diameter well. "
-                "Papadopulos-Cooper (1967) is recommended for large-diameter wells "
+                f"{theis.label} assumption (5) requires an infinitesimal-diameter well. "
+                f"{papadopulos.label} is recommended for large-diameter wells "
                 "where wellbore storage effects are significant."
             )
 
         # Rough Cooper-Jacob pre-check using late-time data and rough S/T estimate
         cj_likely = self._cooper_jacob_feasible(df, r, Q)
         if cj_likely:
-            suitable.append("Cooper-Jacob (1946)")
+            suitable.append(cooper_jacob.label)
         else:
             info.append(
-                "Cooper-Jacob pre-check: u may not be < 0.05 for all late-time points. "
-                "The method will validate this after fitting — it may still be usable."
+                f"{cooper_jacob.label} pre-check: u may not be < 0.05 for all "
+                "late-time points. The method will validate this after fitting — "
+                "it may still be usable."
             )
 
-        # Papadopulos-Cooper is always available but requires extra inputs
-        suitable.append("Papadopulos-Cooper (1967)")
+        # Papadopulos-Cooper is always available but requires extra geometry,
+        # which the registry records as its `requires` paths.
+        suitable.append(papadopulos.label)
         info.append(
-            "Papadopulos-Cooper (1967) requires well casing radius (rc) and "
+            f"{papadopulos.label} requires well casing radius (rc) and "
             "screen radius (rw) — enter these in the calculator form."
         )
 
