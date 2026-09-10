@@ -359,6 +359,20 @@ class StraightLineCalculator(BaseCalculator):
     def validity_rules(self) -> list:
         return [bound_hit_rule()]
 
+    def validate_inputs(self, inputs: CalculationInput) -> Optional[str]:
+        """Checks on the raw series. The shared ones by default; a recovery
+        method replaces them, because its residual drawdown may legitimately dip
+        below zero once the water level is back at static."""
+        return validate_series(inputs, min_points=self.min_points)
+
+    def prepare_series(self, inputs: CalculationInput, time_s: np.ndarray,
+                       drawdown_m: np.ndarray) -> tuple:
+        """(time, drawdown, notes) the line is analysed in. As given by default;
+        a recovery method converts the clock to time since pumping stopped and
+        drops the pumping phase. Raise ValueError with a user-facing message
+        when nothing usable remains."""
+        return time_s, drawdown_m, []
+
     def extra_validate(self, inputs: CalculationInput) -> Optional[str]:
         return None
 
@@ -371,15 +385,16 @@ class StraightLineCalculator(BaseCalculator):
 
     # ── Shared helpers ────────────────────────────────────────────────────────
 
-    def abscissa(self, time_s: np.ndarray) -> np.ndarray:
-        """The x axis of the straight-line plot. log10(t) for drawdown methods;
-        a recovery method would override this with log10(t/t')."""
+    def abscissa(self, inputs: CalculationInput, time_s: np.ndarray) -> np.ndarray:
+        """The x axis of the straight-line plot: log10(t) for drawdown methods,
+        log10(t/t') for recovery — which is why it sees the inputs."""
         return np.log10(time_s)
 
-    def fit_line(self, time_s: np.ndarray, drawdown_m: np.ndarray) -> LineFit:
+    def fit_line(self, inputs: CalculationInput, time_s: np.ndarray,
+                 drawdown_m: np.ndarray) -> LineFit:
         time_s = np.asarray(time_s, dtype=float)
         drawdown_m = np.asarray(drawdown_m, dtype=float)
-        x = self.abscissa(time_s)
+        x = self.abscissa(inputs, time_s)
         slope, intercept = np.polyfit(x, drawdown_m, 1)
         return LineFit(float(slope), float(intercept), x, drawdown_m, time_s)
 
@@ -392,13 +407,17 @@ class StraightLineCalculator(BaseCalculator):
             return CalculationResult(method=label, method_id=self.method_id,
                                      success=False, error_message=message)
 
-        error = (validate_series(inputs, min_points=self.min_points)
+        error = (self.validate_inputs(inputs)
                  or require_geometry(inputs, self.requires, label)
                  or self.extra_validate(inputs))
         if error:
             return failed(error)
 
-        time_s, drawdown_m = inputs.get_series()
+        try:
+            time_s, drawdown_m, preparation_notes = self.prepare_series(
+                inputs, *inputs.get_series())
+        except ValueError as exc:
+            return failed(str(exc))
 
         selection = self.select_points(inputs, time_s, drawdown_m)
         if selection.error:
@@ -410,7 +429,7 @@ class StraightLineCalculator(BaseCalculator):
 
         # Always refitted on the final selection, so the parameters, the plotted
         # line and the goodness of fit describe one and the same line.
-        line = self.fit_line(time_s[mask], drawdown_m[mask])
+        line = self.fit_line(inputs, time_s[mask], drawdown_m[mask])
         raw = self.line_to_parameters(inputs, line)
         if raw is None:
             return failed(self.line_failure_message)
@@ -435,8 +454,10 @@ class StraightLineCalculator(BaseCalculator):
         # Selection and interval notes first, then the rules — the order a
         # reader needs them: which data were used, how certain the numbers are,
         # then what they mean.
-        findings = [ValidityFinding("point_selection", "info", note)
-                    for note in selection.notes]
+        findings = [ValidityFinding("series_preparation", "info", note)
+                    for note in preparation_notes]
+        findings += [ValidityFinding("point_selection", "info", note)
+                     for note in selection.notes]
         findings += [ValidityFinding("interval_unavailable", "warning", note)
                      for note in interval_notes]
         findings += run_rules(self.validity_rules(), RuleContext(
@@ -481,6 +502,6 @@ class StraightLineCalculator(BaseCalculator):
             r_squared=gof.r_squared,
             time_s=time_s,
             drawdown_obs=drawdown_m,
-            drawdown_fitted=line.predict(self.abscissa(time_s)),
+            drawdown_fitted=line.predict(self.abscissa(inputs, time_s)),
             success=True,
         )

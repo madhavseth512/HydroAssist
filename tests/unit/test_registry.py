@@ -53,6 +53,7 @@ class TestTableIntegrity:
         """Load-bearing: the dropdown and several tests depend on this order."""
         assert R.labels() == [
             "Theis (1935)",
+            "Theis Recovery (1935)",
             "Cooper-Jacob (1946)",
             "Papadopulos-Cooper (1967)",
             "Hantush-Jacob (1955)",
@@ -176,7 +177,7 @@ class TestLookup:
 class TestFiltering:
 
     def test_confined_methods(self):
-        assert len(R.for_aquifer(R.CONFINED)) == 3
+        assert len(R.for_aquifer(R.CONFINED)) == 4
 
     @pytest.mark.parametrize("aquifer,expected", [
         (R.LEAKY, "hantush_jacob_1955"),
@@ -191,10 +192,13 @@ class TestFiltering:
         one canonical method per aquifer type."""
         assert R.supported_aquifers() == set(R.AQUIFER_TYPES)
 
-    def test_every_method_is_constant_rate_so_far(self):
-        assert len(R.for_test_type(R.CONSTANT_RATE)) == len(R.all_specs())
+    def test_every_method_but_recovery_is_constant_rate(self):
+        assert len(R.for_test_type(R.CONSTANT_RATE)) == len(R.all_specs()) - 1
 
-    @pytest.mark.parametrize("test_type", [R.RECOVERY, R.STEP_DRAWDOWN, R.SLUG])
+    def test_recovery_has_its_own_method(self):
+        assert [s.id for s in R.for_test_type(R.RECOVERY)] == ["theis_recovery_1935"]
+
+    @pytest.mark.parametrize("test_type", [R.STEP_DRAWDOWN, R.SLUG])
     def test_no_methods_yet_for_other_test_types(self, test_type):
         assert R.for_test_type(test_type) == []
 

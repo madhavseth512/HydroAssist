@@ -116,6 +116,14 @@ def extract_well_radius_m(text: str) -> Optional[float]:
     return max(radii) if radii else None
 
 
+# Words that mean the data are a recovery record rather than pumping drawdown.
+_RECOVERY_CUES = re.compile(
+    r"\brecovery\b|residual drawdown|"
+    r"pump(?:ing)?\s+(?:was\s+)?(?:stopped|switched off|shut off|turned off)",
+    re.IGNORECASE,
+)
+
+
 def suggest_method(
     aquifer_context: str = "unknown",
     selected_method: str = "",
@@ -157,6 +165,20 @@ def suggest_method(
             "confidence": 0.95,
             "supported": True,
         }
+
+    # ── 1b. Recovery data → the recovery method ───────────────────────────────
+    # Ahead of the data-driven diagnosis, which reads a pumping-phase derivative:
+    # a recovery record, with drawdown falling, would be misread by it.
+    if _RECOVERY_CUES.search(text):
+        recovery = registry.for_test_type(registry.RECOVERY)
+        if recovery:
+            return {
+                "method": recovery[0].label,
+                "reason": (recovery[0].selection_rationale + " Choose the Recovery "
+                           "test type in Step 2 and enter how long the well pumped."),
+                "confidence": 0.85,
+                "supported": True,
+            }
 
     # ── 2. The data outranks the prose ────────────────────────────────────────
     # Drawdown curves for different aquifer types all look like smooth rising
@@ -335,6 +357,13 @@ def format_suggestion(suggestion: dict) -> str:
     )
 
 
+def _reports_S(result: dict) -> bool:
+    """Whether the method estimated S. A recovery analysis gives only S/S', so
+    printing its S field (0.0) would state a storativity nobody measured."""
+    params = result.get("parameters")
+    return not params or any(p.get("name") == "S" for p in params)
+
+
 def summarise_result(result: dict, calc_input: dict = None) -> str:
     """Render a completed calculation as chat markdown.
 
@@ -354,7 +383,8 @@ def summarise_result(result: dict, calc_input: dict = None) -> str:
         "",
         f"- **T** = {result.get('T_day', 0):.2f} m²/day "
         f"({result.get('T', 0):.3e} m²/s)",
-        f"- **S** = {result.get('S', 0):.2e}",
+        (f"- **S** = {result.get('S', 0):.2e}" if _reports_S(result)
+         else "- **S** — not determined by this method"),
         f"- **R²** = {result.get('r_squared', 0):.4f}, "
         f"RMSE = {result.get('rmse', 0) * 1000:.2f} mm",
     ]

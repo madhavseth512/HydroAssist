@@ -134,7 +134,7 @@ class CooperJacobCalculator(StraightLineCalculator):
         threshold = self._threshold(inputs)
         r = inputs.r
 
-        first = self.line_to_parameters(inputs, self.fit_line(time_s, drawdown_m))
+        first = self.line_to_parameters(inputs, self.fit_line(inputs, time_s, drawdown_m))
         if first is None:
             return Selection(error=(
                 "Pass-1 regression failed: slope is non-positive. "
@@ -161,7 +161,7 @@ class CooperJacobCalculator(StraightLineCalculator):
                 break
 
             params = self.line_to_parameters(
-                inputs, self.fit_line(time_s[valid], drawdown_m[valid]))
+                inputs, self.fit_line(inputs, time_s[valid], drawdown_m[valid]))
             if params is None:
                 return Selection(error=(
                     f"Regression failed on filtered data at iteration {iteration + 1}. "

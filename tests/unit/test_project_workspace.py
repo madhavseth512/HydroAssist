@@ -18,7 +18,8 @@ from src.calculator.methods.hantush_jacob import (
 from src.calculator.theis import TheisCalculator
 from src.project.model import Readings, TestSetup
 from src.project.workspace import (
-    BOUNDS, DEFAULTS, KEY_Q, KEY_Q_UNIT, KEY_R, KEY_RC, KEY_RW, Q_UNITS,
+    BOUNDS, DEFAULTS, KEY_CLOCK, KEY_Q, KEY_Q_UNIT, KEY_R, KEY_RC, KEY_RW,
+    KEY_TEST_TYPE, KEY_TP, Q_UNITS,
     comparison_frame, inputs_from_setup, new_project, project_summary,
     q_to_si, setup_from_inputs, setup_from_run, stale_count,
 )
@@ -47,7 +48,8 @@ class TestFormRoundTrip:
 
     def test_a_setup_reproduces_the_form_that_made_it(self):
         form = {KEY_Q: 12.5, KEY_Q_UNIT: "L/s", KEY_R: 35.0,
-                KEY_RW: 0.3, KEY_RC: 0.2}
+                KEY_RW: 0.3, KEY_RC: 0.2, KEY_TEST_TYPE: "recovery",
+                KEY_TP: 12.0, KEY_CLOCK: "since_start"}
         assert inputs_from_setup(setup_from_inputs(form)) == form
 
     def test_the_entered_unit_is_kept_not_converted(self):

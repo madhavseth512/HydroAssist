@@ -638,3 +638,113 @@ def generic_interactive(result: CalculationResult, forward,
         height=480, legend=_LEGEND_H, hovermode="x unified", margin=_MARGIN_SINGLE,
     )
     return fig, rmse_mm
+
+
+# ── Recovery ──────────────────────────────────────────────────────────────────
+
+def _recovery_line(result, x, T=None, Q=None):
+    """The recovery straight line at t/t' = x. With T and Q, the slope is the one
+    that T implies and the intercept is held at the fitted S/S'."""
+    ratio_0 = result.value("S_ratio", 1.0)
+    if T is None:
+        slope = result.diagnostics.get("slope_m_per_log_cycle", 0.0)
+    else:
+        slope = (2.303 * Q) / (4.0 * np.pi * T)
+    return slope * (np.log10(x) - np.log10(ratio_0))
+
+
+def recovery_diagnostic(result: CalculationResult) -> go.Figure:
+    """Residual drawdown against t/t' on a semi-log plot — the Theis recovery
+    plot. The fitted line should reach s' = 0 near t/t' = 1."""
+    from src.calculator.methods.theis_recovery import plot_axis
+
+    ratio, fitted = plot_axis(result)
+    s_obs = np.asarray(result.drawdown_obs, dtype=float)
+    s_fit = np.asarray(result.drawdown_fitted, dtype=float)
+    t_p_h = result.diagnostics.get("pumping_duration_s", 0.0) / 3600.0
+
+    fig = make_subplots(
+        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=(
+            f"{result.method} — Residual Drawdown vs t/t′   (t_p = {t_p_h:.2f} h, "
+            f"R² = {result.r_squared:.4f}, RMSE = {result.rmse * 1000:.2f} mm)",
+            "Residuals (readings used in the fit)",
+        ),
+    )
+    fig.add_trace(go.Scatter(
+        x=ratio[fitted], y=s_obs[fitted], mode="markers", name="Used in the fit",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+        hovertemplate="t/t′ = %{x:.3g}<br>s′ = %{y:.4f} m<extra></extra>",
+    ), row=1, col=1)
+    if (~fitted).any():
+        fig.add_trace(go.Scatter(
+            x=ratio[~fitted], y=s_obs[~fitted], mode="markers",
+            name="Early recovery (not fitted)",
+            marker=dict(color="#888888", size=6, symbol="x"),
+            hovertemplate="t/t′ = %{x:.3g}<br>s′ = %{y:.4f} m<extra></extra>",
+        ), row=1, col=1)
+
+    x_line = np.logspace(0, np.log10(max(float(ratio.max()), 1.0001)), 120)
+    fig.add_trace(go.Scatter(
+        x=x_line, y=_recovery_line(result, x_line), mode="lines",
+        name=f"Recovery line  ({_parameter_summary(result)})",
+        line=dict(color=COL_FIT, width=2),
+    ), row=1, col=1)
+    fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dot"), row=1, col=1)
+
+    res = s_obs[fitted] - s_fit[fitted]
+    fig.add_trace(go.Bar(
+        x=ratio[fitted], y=res * 1000, name="Residual (mm)",
+        marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
+    ), row=2, col=1)
+    fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+
+    fig.update_xaxes(type="log", title_text="t/t′  (time since pumping started ÷ "
+                     "time since it stopped)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(title_text="Residual drawdown s′ (m)", showgrid=True,
+                     gridcolor=COL_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID,
+                     row=2, col=1)
+    fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL,
+                      hovermode="x unified")
+    return fig
+
+
+def recovery_interactive(result: CalculationResult, Q: float,
+                         T_manual: float) -> tuple:
+    """Manual matching on the recovery plot. Only T moves — it sets the slope;
+    the intercept stays at the fitted S/S'. RMSE is over the fitted readings,
+    the same basis as the automatic fit's."""
+    from src.calculator.methods.theis_recovery import plot_axis
+
+    ratio, fitted = plot_axis(result)
+    s_obs = np.asarray(result.drawdown_obs, dtype=float)
+    x_line = np.logspace(0, np.log10(max(float(ratio.max()), 1.0001)), 120)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=ratio, y=s_obs, mode="markers", name="Observed",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+    ))
+    fig.add_trace(go.Scatter(
+        x=x_line, y=_recovery_line(result, x_line, result.T, Q), mode="lines",
+        name=f"Auto fit  ({_parameter_summary(result)})",
+        line=dict(color=COL_FIT, width=2, dash="dot"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=x_line, y=_recovery_line(result, x_line, T_manual, Q), mode="lines",
+        name=f"Manual  (T = {T_manual * 86400:.1f} m²/day; S/S′ held at its fit)",
+        line=dict(color=COL_MANUAL, width=2.5),
+    ))
+    manual = _recovery_line(result, ratio[fitted], T_manual, Q)
+    rmse_mm = float(np.sqrt(np.mean((s_obs[fitted] - manual) ** 2))) * 1000
+
+    fig.update_xaxes(type="log", title_text="t/t′", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(title_text="Residual drawdown s′ (m)", showgrid=True,
+                     gridcolor=COL_GRID)
+    fig.update_layout(
+        title=f"{result.method} Manual Matching — RMSE = {rmse_mm:.2f} mm",
+        height=480, legend=_LEGEND_H, hovermode="x unified", margin=_MARGIN_SINGLE,
+    )
+    return fig, rmse_mm

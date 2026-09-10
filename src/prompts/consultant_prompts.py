@@ -51,7 +51,10 @@ def format_analysis_context(result: dict, calc_input: dict = None) -> str:
         f"  Method:        {result.get('method', 'unknown')}",
         f"  Transmissivity T = {result.get('T', 0):.4e} m2/s "
         f"({result.get('T_day', 0):.2f} m2/day)",
-        f"  Storativity   S = {result.get('S', 0):.4e}",
+        (f"  Storativity   S = {result.get('S', 0):.4e}"
+         if not result.get("parameters")
+         or any(p.get("name") == "S" for p in result["parameters"])
+         else "  Storativity   S = not determined by this method"),
         f"  Goodness of fit: R2 = {result.get('r_squared', 0):.4f}, "
         f"RMSE = {result.get('rmse', 0) * 1000:.2f} mm",
     ]

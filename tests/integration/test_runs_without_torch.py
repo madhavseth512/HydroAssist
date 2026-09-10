@@ -99,6 +99,12 @@ class TestTheAppWorksWithoutTorch:
                 kw = dict(df=df, Q=500 / 86400, r=50.0)
                 if spec.data_source == registry.PUMPED_WELL:
                     kw.update(r=0.30, r_w=0.30, r_c=0.20)
+                if registry.RECOVERY in spec.test_types:
+                    from src.calculator.geometry import PumpingSchedule, RateStep
+                    kw.update(df=pd.read_csv("tests/theis_recovery_sample.csv"),
+                              test_type=registry.RECOVERY,
+                              schedule=PumpingSchedule(steps=(
+                                  RateStep(0.0, 500 / 86400), RateStep(86400.0, 0.0))))
                 ok += spec.build().calculate(CalculationInput(**kw)).success
             print(ok, len(registry.all_specs()))
         """)

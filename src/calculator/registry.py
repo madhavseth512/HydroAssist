@@ -186,6 +186,11 @@ def _warren_root():
     return WarrenRootCalculator()
 
 
+def _theis_recovery():
+    from src.calculator.methods.theis_recovery import TheisRecoveryCalculator
+    return TheisRecoveryCalculator()
+
+
 # ── Lazy plot adapters ────────────────────────────────────────────────────────
 # Each normalises one method's plot signature onto (result, PlotContext), so the
 # UI and the PDF builder can dispatch without knowing which method they hold.
@@ -239,6 +244,22 @@ def _pc_report_plot(result, ctx):
     return _pc_mpl(result, ctx.Q, ctx.r_w, ctx.r_c)
 
 
+def _recovery_diagnostic(result, ctx):
+    from src.calculator.plots import recovery_diagnostic
+    return recovery_diagnostic(result)
+
+
+def _recovery_interactive(result, ctx, T_manual, S_manual):
+    # S is not a recovery parameter, so the S slider is not shown for it.
+    from src.calculator.plots import recovery_interactive
+    return recovery_interactive(result, ctx.Q, T_manual)
+
+
+def _recovery_report_plot(result, ctx):
+    from src.calculator.report import _recovery_mpl
+    return _recovery_mpl(result)
+
+
 # ── The table ─────────────────────────────────────────────────────────────────
 # Insertion order is the display order, and it is load-bearing: an existing test
 # asserts the supported-method list equals [Theis, Cooper-Jacob, Papadopulos-Cooper]
@@ -268,6 +289,34 @@ _SPECS = (
         selection_rationale=(
             "Theis (1935) is the general full-curve method for a confined aquifer "
             "and uses every data point, so it is the safe default."
+        ),
+    ),
+    MethodSpec(
+        id="theis_recovery_1935",
+        label="Theis Recovery (1935)",
+        year=1935,
+        authors=("Theis, C.V.",),
+        citation=(
+            "Theis, C.V. (1935). The relation between the lowering of the "
+            "piezometric surface and the rate and duration of discharge of a well "
+            "using ground-water storage. Transactions AGU, 16, 519-524 "
+            "(recovery method, equation 7)."
+        ),
+        aquifer_types=frozenset({CONFINED}),
+        test_types=frozenset({RECOVERY}),
+        parameters=("T", "S_ratio"),
+        data_source=EITHER,
+        aliases=("theis recovery", "theis-recovery", "recovery method"),
+        factory=_theis_recovery,
+        diagnostic_plot=_recovery_diagnostic,
+        interactive_plot=_recovery_interactive,
+        report_plot=_recovery_report_plot,
+        ui_help=("Residual drawdown against log(t/t′) after the pump is switched "
+                 "off. Gives T and the ratio S/S′, not S."),
+        selection_rationale=(
+            "Theis (1935) recovery fits residual drawdown against log(t/t′) once "
+            "the pump is switched off (equation 7). It gives T free of pump-rate "
+            "fluctuations, but storativity only as the ratio S/S′."
         ),
     ),
     MethodSpec(

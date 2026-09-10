@@ -44,6 +44,7 @@ class DataValidator:
         well_radius_m: float = None,
         pumping_rate_m3d: float = None,
         well_casing_radius_m: float = None,
+        test_type: str = registry.CONSTANT_RATE,
     ) -> ValidationResult:
         """
         Validate a formatted DataFrame (columns: time_s, drawdown_m[, well_id]).
@@ -71,14 +72,18 @@ class DataValidator:
 
             errors  += self._check_min_points(sub, label)
             warnings += self._check_monotonic_time(sub, label)
-            warnings += self._check_negative_drawdown(sub, label)
+            # Falling and even slightly negative drawdown is exactly what a
+            # recovery record shows, so these two checks are for pumping data.
+            if test_type != registry.RECOVERY:
+                warnings += self._check_negative_drawdown(sub, label)
             warnings += self._check_log_cycle_span(sub, label)
-            info     += self._check_drawdown_trend(sub, label)
+            if test_type != registry.RECOVERY:
+                info += self._check_drawdown_trend(sub, label)
 
         is_usable = len(errors) == 0
         suitable  = self._suggest_methods(
             df, well_radius_m, pumping_rate_m3d,
-            well_casing_radius_m, warnings, info
+            well_casing_radius_m, warnings, info, test_type,
         )
 
         return ValidationResult(
@@ -143,6 +148,7 @@ class DataValidator:
         well_casing_radius_m: float,
         warnings: list,
         info: list,
+        test_type: str = registry.CONSTANT_RATE,
     ) -> list:
         """
         Return the list of methods that are plausibly valid given the data.
@@ -150,6 +156,11 @@ class DataValidator:
         Cooper-Jacob requires u < 0.05 at late time.
         Papadopulos-Cooper requires additional well geometry input — always listed as optional.
         """
+        if test_type != registry.CONSTANT_RATE:
+            # Only this test type's methods apply, and none of the checks below
+            # (Cooper-Jacob's late-time u, the casing-radius caveat) concern them.
+            return [spec.label for spec in registry.for_test_type(test_type)]
+
         theis = registry.REGISTRY["theis_1935"]
         cooper_jacob = registry.REGISTRY["cooper_jacob_1946"]
         papadopulos = registry.REGISTRY["papadopulos_cooper_1967"]
@@ -186,6 +197,14 @@ class DataValidator:
             f"{papadopulos.label} requires well casing radius (rc) and "
             "screen radius (rw) — enter these in the calculator form."
         )
+
+        # Every other constant-rate method: the validator has no evidence against
+        # them, so they are offered. Returning only the three above hid
+        # Hantush-Jacob, Boulton and Warren-Root from the dropdown the moment a
+        # file was uploaded.
+        for spec in registry.for_test_type(registry.CONSTANT_RATE):
+            if spec.label not in suitable and spec.id != cooper_jacob.id:
+                suitable.append(spec.label)
 
         return suitable
 

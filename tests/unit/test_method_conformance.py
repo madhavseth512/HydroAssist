@@ -30,8 +30,20 @@ SPECS = registry.all_specs()
 
 
 def _fit(spec):
-    """Fit the method to the bundled sample appropriate to its data source."""
-    if spec.data_source == registry.PUMPED_WELL:
+    """Fit the method to the bundled sample appropriate to its test type and
+    data source."""
+    if registry.RECOVERY in spec.test_types:
+        from src.calculator.geometry import PumpingSchedule, RateStep
+
+        # Same aquifer and rate as the constant-rate sample, 24 h of pumping.
+        df = pd.read_csv("tests/theis_recovery_sample.csv")
+        inputs = CalculationInput(
+            df=df, Q=Q_OBS, r=R_OBS, test_type=registry.RECOVERY,
+            schedule=PumpingSchedule(steps=(RateStep(0.0, Q_OBS),
+                                            RateStep(86400.0, 0.0))),
+        )
+        ctx = registry.PlotContext(Q=Q_OBS, r=R_OBS)
+    elif spec.data_source == registry.PUMPED_WELL:
         df = pd.read_csv("tests/papadopulos_cooper_sample.csv")
         inputs = CalculationInput(df=df, Q=Q_PW, r=R_W, r_w=R_W, r_c=R_C)
         ctx = registry.PlotContext(Q=Q_PW, r=R_W, r_w=R_W, r_c=R_C)

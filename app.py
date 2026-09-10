@@ -46,25 +46,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Cached resources ──────────────────────────────────────────────────────────
-@st.cache_resource
-def load_chat_system(_hash=None):
+# ── The conversation, one per session ─────────────────────────────────────────
+# Deliberately NOT st.cache_resource. HydroAssistChat holds the conversation
+# itself — messages, the method suggestion, the recorded calculation — and a
+# cached object is shared by every session in the process, so on a hosted
+# deployment every visitor would read and write one conversation. The expensive
+# parts it builds on are already shared safely at process level: the embedding
+# model is a singleton and the vector store is a read-only snapshot.
+def load_chat_system():
     try:
-        config = load_config()
-        return HydroAssistChat(config), None
+        return HydroAssistChat(load_config()), None
     except Exception as e:
         return None, str(e)
 
 
-def _config_hash():
-    p = Path("configs/default.yaml")
-    import hashlib
-    return hashlib.md5(p.read_bytes()).hexdigest() if p.exists() else "default"
-
-
 # ── Session state init ────────────────────────────────────────────────────────
 if "chat" not in st.session_state:
-    chat, err = load_chat_system(_hash=_config_hash())
+    chat, err = load_chat_system()
     if err:
         st.error(f"Failed to initialise HydroAssist: {err}")
         st.stop()
@@ -96,7 +94,9 @@ for _key, _default in _ws.DEFAULTS.items():
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def _run_calculator(df, Q_si, r, method, r_w=0.10, r_c=0.10):
+def _run_calculator(df, Q_si, r, method, r_w=0.10, r_c=0.10,
+                    test_type=_registry.CONSTANT_RATE, t_p_s=None,
+                    clock="since_stop"):
     """Run the selected calculator and return CalculationResult.
 
     Which calculator to build, and whether the radial coordinate is an
@@ -104,14 +104,24 @@ def _run_calculator(df, Q_si, r, method, r_w=0.10, r_c=0.10):
     registry entry rather than from string matching on the label.
     """
     from src.calculator.base import CalculationInput
+    from src.calculator.geometry import PumpingSchedule, RateStep
 
     spec = _registry.require(method)
 
+    extra = {}
+    if test_type == _registry.RECOVERY:
+        # The pump ran at Q for t_p, then stopped: a schedule ending at zero.
+        extra = dict(
+            test_type=test_type,
+            schedule=PumpingSchedule(steps=(RateStep(0.0, Q_si), RateStep(t_p_s, 0.0))),
+            options={"recovery_clock": clock},
+        )
+
     if spec.data_source == _registry.PUMPED_WELL:
         # Fitted at the well face, so r is the screen radius, not a distance.
-        inp = CalculationInput(df=df, Q=Q_si, r=r_w, r_w=r_w, r_c=r_c)
+        inp = CalculationInput(df=df, Q=Q_si, r=r_w, r_w=r_w, r_c=r_c, **extra)
     else:
-        inp = CalculationInput(df=df, Q=Q_si, r=r)
+        inp = CalculationInput(df=df, Q=Q_si, r=r, **extra)
 
     return spec.build().calculate(inp)
 
@@ -125,18 +135,20 @@ def _format_ci(ci, scale=86400, unit="m²/day"):
 ALL_METHODS = _registry.labels()
 
 
-def _method_options(validation):
-    """Method dropdown contents, filtered by DataValidator's suitability check.
+def _method_options(validation, test_type=_registry.CONSTANT_RATE):
+    """Method dropdown contents: the registry's methods for this test type,
+    filtered by DataValidator's suitability check.
 
-    Returns (options, gated_out). Theis is always offered — it is the
-    general-purpose full-curve method and is never excluded by the validator.
+    Returns (options, gated_out). The first method for the test type is always
+    offered, so the dropdown is never empty.
     """
+    for_type = [spec.label for spec in _registry.for_test_type(test_type)]
     if validation is None or not validation.suitable_methods:
-        return list(ALL_METHODS), []
-    suitable = [m for m in ALL_METHODS if m in validation.suitable_methods]
+        return for_type, []
+    suitable = [m for m in for_type if m in validation.suitable_methods]
     if not suitable:
-        suitable = [ALL_METHODS[0]]
-    gated_out = [m for m in ALL_METHODS if m not in suitable]
+        suitable = for_type[:1]
+    gated_out = [m for m in for_type if m not in suitable]
     return suitable, gated_out
 
 
@@ -288,6 +300,7 @@ def _render_prepared_data(df):
         well_radius_m=st.session_state.calc_inputs.get("r"),
         pumping_rate_m3d=st.session_state.calc_inputs.get("Q_day"),
         well_casing_radius_m=st.session_state.calc_inputs.get("r_c"),
+        test_type=st.session_state.get(_ws.KEY_TEST_TYPE, _registry.CONSTANT_RATE),
     )
     st.session_state.validation = validation
     for err in validation.errors:
@@ -616,6 +629,14 @@ with tab_calc:
     st.divider()
     st.subheader("Step 2 — Well Parameters")
 
+    # The kind of test decides which methods apply and what else must be entered.
+    test_type = st.selectbox(
+        "Test type", list(_ws.TEST_TYPE_LABELS), key=_ws.KEY_TEST_TYPE,
+        format_func=_ws.TEST_TYPE_LABELS.get,
+        help=("Constant-rate: drawdown while the well pumps. Recovery: the water "
+              "level rising back after the pump is switched off."),
+    )
+
     col1, col2, col3 = st.columns(3)
     with col1:
         # Keyed (values come from session state) so a reopened project or a
@@ -635,7 +656,8 @@ with tab_calc:
             help="Distance from pumping well to the observation well",
         )
     with col3:
-        method_options, gated_out = _method_options(st.session_state.validation)
+        method_options, gated_out = _method_options(st.session_state.validation,
+                                                    test_type)
         method = st.selectbox(
             "Analysis method",
             method_options,
@@ -677,6 +699,26 @@ with tab_calc:
             f"r_w = {r_w} m, r_c = {r_c} m"
         )
 
+    # Recovery needs to know when the pump stopped, and which clock the time
+    # column keeps.
+    t_p_s, clock = None, _ws.DEFAULTS[_ws.KEY_CLOCK]
+    if test_type == _registry.RECOVERY:
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            t_p_hours = st.number_input(
+                "Pumping duration before shut-down t_p (hours)",
+                min_value=0.01, max_value=10000.0, step=0.5, key=_ws.KEY_TP,
+                help="How long the well pumped at Q before it was switched off.",
+            )
+            t_p_s = t_p_hours * 3600.0
+        with rc2:
+            clock = st.radio(
+                "The time column counts", list(_ws.CLOCK_LABELS), key=_ws.KEY_CLOCK,
+                format_func=_ws.CLOCK_LABELS.get,
+                help=("Loggers usually keep one clock for the whole test; manual "
+                      "recovery readings usually restart it at shut-down."),
+            )
+
     # Convert Q to m³/s
     Q_si = _ws.q_to_si(Q_input, Q_unit)
     st.caption(f"Q = {Q_si:.6f} m³/s")
@@ -701,13 +743,13 @@ with tab_calc:
         df = st.session_state.formatted_df
         with st.spinner(f"Running {method}…"):
             try:
-                result = _run_calculator(df, Q_si, r, method, r_w=r_w, r_c=r_c)
+                result = _run_calculator(df, Q_si, r, method, r_w=r_w, r_c=r_c,
+                                         test_type=test_type, t_p_s=t_p_s,
+                                         clock=clock)
                 st.session_state.calc_result = result
-                # count excluded points (CJ only)
-                n_excl = 0
-                if spec.id == "cooper_jacob_1946" and result.success:
-                    u_all = (r**2 * result.S) / (4.0 * result.T * df.time_s.values)
-                    n_excl = int((u_all >= 0.02).sum())
+                # Points a straight-line method left out, as it reports them.
+                n_excl = (int(result.diagnostics.get("n_excluded", 0))
+                          if result.success else 0)
                 st.session_state.calc_inputs = {
                     "Q": Q_si, "r": r, "method": method, "n_excluded": n_excl,
                     "r_w": r_w, "r_c": r_c,
@@ -716,6 +758,8 @@ with tab_calc:
                     "Q_day": Q_si * 86400.0,
                     # Kept so a saved analysis records Q as it was entered.
                     "Q_entered": Q_input, "Q_unit": Q_unit,
+                    "test_type": test_type, "t_p_s": t_p_s,
+                    "recovery_clock": clock,
                 }
 
                 # ── Publish the result back into the conversation ────────────
@@ -748,7 +792,11 @@ with tab_calc:
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("T (m²/day)", f"{result.T_day:.2f}")
         m2.metric("T (m²/s)", f"{result.T:.3e}")
-        m3.metric("S", f"{result.S:.2e}")
+        if result.get("S") is not None:
+            m3.metric("S", f"{result.S:.2e}")
+        else:
+            m3.metric("S", "not determined",
+                      help="This method does not estimate storativity.")
         m4.metric("R²", f"{result.r_squared:.4f}")
 
         # Methods beyond the original three estimate more than T and S —
@@ -802,9 +850,11 @@ with tab_calc:
 
         col_a, col_b = st.columns(2)
         with col_a:
+            s_ci_line = (f'<b>S 95% CI:</b> {_format_ci(result.S_ci, scale=1, unit="")}<br>'
+                         if result.get("S") is not None else "")
             st.markdown('<div class="result-box">'
                         f'<b>T 95% CI:</b> {_format_ci(result.T_ci)}<br>'
-                        f'<b>S 95% CI:</b> {_format_ci(result.S_ci, scale=1, unit="")}<br>'
+                        + s_ci_line +
                         f'<b>RMSE:</b> {result.rmse*1000:.2f} mm'
                         '</div>', unsafe_allow_html=True)
         with col_b:
@@ -916,16 +966,21 @@ with tab_calc:
                 st.caption(f"T = {T_manual:.3e} m²/s = {T_manual*86400:.2f} m²/day")
 
             with sc2:
-                log_S_manual = st.slider(
-                    "log₁₀(S)  [dimensionless]",
-                    min_value=log_S_min, max_value=log_S_max,
-                    value=float(np.log10(max(result.S, 1e-7))),
-                    step=0.05,
-                    format="%.2f",
-                    help="Slide to adjust storativity",
-                )
-                S_manual = 10.0 ** log_S_manual
-                st.caption(f"S = {S_manual:.2e}")
+                if "S" in spec_r.parameters:
+                    log_S_manual = st.slider(
+                        "log₁₀(S)  [dimensionless]",
+                        min_value=log_S_min, max_value=log_S_max,
+                        value=float(np.log10(max(result.S, 1e-7))),
+                        step=0.05,
+                        format="%.2f",
+                        help="Slide to adjust storativity",
+                    )
+                    S_manual = 10.0 ** log_S_manual
+                    st.caption(f"S = {S_manual:.2e}")
+                else:
+                    S_manual = result.S
+                    st.caption(f"{spec_r.label} does not estimate S, so only T "
+                               "is adjusted.")
 
             fig_m, rmse_m = spec_r.interactive_plot(
                 result, plot_ctx, T_manual, S_manual,

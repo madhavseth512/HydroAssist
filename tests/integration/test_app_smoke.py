@@ -69,11 +69,14 @@ class TestAppBoots:
         assert any("Step 2" in h for h in headings)
         assert any("Step 3" in h for h in headings)
 
-    def test_every_registered_method_is_offered_before_any_upload(self, app):
+    def test_every_constant_rate_method_is_offered_before_any_upload(self, app):
+        """The default test type is constant-rate; recovery methods appear only
+        when the Recovery test type is chosen."""
         from src.calculator import registry
 
         method_box = next(s for s in app.selectbox if s.label == "Analysis method")
-        assert list(method_box.options) == registry.labels()
+        assert list(method_box.options) == [
+            s.label for s in registry.for_test_type(registry.CONSTANT_RATE)]
 
     def test_pumping_rate_units_offered(self, app):
         q_box = next(s for s in app.selectbox if s.label == "Q unit")
@@ -87,6 +90,24 @@ class TestAppBoots:
 
 
 # ── The suggestion card (chat → calculator) ───────────────────────────────────
+
+class TestSessionsAreIsolated:
+    """Two visitors must never share a conversation. The chat object used to be
+    st.cache_resource'd, so a method confirmed in one session hid the suggestion
+    card in every other session in the process — and on a hosted deployment,
+    every visitor would have shared one chat history."""
+
+    def test_each_session_gets_its_own_chat(self):
+        first, second = _fresh(), _fresh()
+        assert first.session_state.chat is not second.session_state.chat
+
+    def test_confirming_a_method_in_one_session_does_not_leak(self):
+        first = _fresh()
+        first.session_state.chat.confirm_method(COOPER_JACOB)
+
+        second = _fresh()
+        assert not second.session_state.chat.state.get("suggestion_confirmed")
+
 
 class TestSuggestionCard:
 

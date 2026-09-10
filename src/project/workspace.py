@@ -20,14 +20,27 @@ KEY_Q_UNIT = "q_unit"
 KEY_R = "r_input"
 KEY_RW = "rw_input"
 KEY_RC = "rc_input"
+KEY_TEST_TYPE = "test_type"
+KEY_TP = "tp_hours"
+KEY_CLOCK = "recovery_clock"
+
+TEST_TYPE_LABELS = {
+    "constant_rate": "Constant-rate pumping",
+    "recovery": "Recovery (after the pump stops)",
+}
+CLOCK_LABELS = {
+    "since_stop": "Time since pumping stopped (t′)",
+    "since_start": "Time since pumping started (t)",
+}
 
 DEFAULTS = {KEY_Q: 500.0, KEY_Q_UNIT: "m³/day", KEY_R: 50.0,
-            KEY_RW: 0.15, KEY_RC: 0.10}
+            KEY_RW: 0.15, KEY_RC: 0.10,
+            KEY_TEST_TYPE: "constant_rate", KEY_TP: 24.0, KEY_CLOCK: "since_stop"}
 
 # The min/max each widget declares. A reopened value outside them would make
 # Streamlit raise when the widget renders, so values are clamped on the way in.
 BOUNDS = {KEY_Q: (0.0001, 100000.0), KEY_R: (0.1, 5000.0),
-          KEY_RW: (0.01, 5.0), KEY_RC: (0.01, 5.0)}
+          KEY_RW: (0.01, 5.0), KEY_RC: (0.01, 5.0), KEY_TP: (0.01, 10000.0)}
 
 
 def q_to_si(value: float, unit: str) -> float:
@@ -49,11 +62,17 @@ def setup_from_inputs(values: Mapping) -> TestSetup:
     the well-radius inputs whenever the method does not need them."""
     unit = values.get(KEY_Q_UNIT, DEFAULTS[KEY_Q_UNIT])
     q = float(values.get(KEY_Q, DEFAULTS[KEY_Q]))
+    test_type = values.get(KEY_TEST_TYPE, DEFAULTS[KEY_TEST_TYPE])
     return TestSetup(
         Q_m3s=q_to_si(q, unit), Q_entered=q, Q_unit=unit,
         r_m=float(values.get(KEY_R, DEFAULTS[KEY_R])),
         r_w_m=float(values.get(KEY_RW, DEFAULTS[KEY_RW])),
         r_c_m=float(values.get(KEY_RC, DEFAULTS[KEY_RC])),
+        test_type=test_type,
+        # Only meaningful for a recovery test; stored in seconds.
+        t_p_s=(float(values.get(KEY_TP, DEFAULTS[KEY_TP])) * 3600.0
+               if test_type == "recovery" else None),
+        recovery_clock=values.get(KEY_CLOCK, DEFAULTS[KEY_CLOCK]),
     )
 
 
@@ -71,6 +90,9 @@ def setup_from_run(calc_inputs: Mapping) -> TestSetup:
         r_m=float(calc_inputs.get("r", DEFAULTS[KEY_R])),
         r_w_m=float(calc_inputs.get("r_w", DEFAULTS[KEY_RW])),
         r_c_m=float(calc_inputs.get("r_c", DEFAULTS[KEY_RC])),
+        test_type=calc_inputs.get("test_type", DEFAULTS[KEY_TEST_TYPE]),
+        t_p_s=calc_inputs.get("t_p_s"),
+        recovery_clock=calc_inputs.get("recovery_clock", DEFAULTS[KEY_CLOCK]),
     )
 
 
@@ -90,6 +112,12 @@ def inputs_from_setup(setup: TestSetup) -> dict:
         KEY_R: _clamp(KEY_R, setup.r_m),
         KEY_RW: _clamp(KEY_RW, setup.r_w_m),
         KEY_RC: _clamp(KEY_RC, setup.r_c_m),
+        KEY_TEST_TYPE: (setup.test_type if setup.test_type in TEST_TYPE_LABELS
+                        else DEFAULTS[KEY_TEST_TYPE]),
+        KEY_TP: (_clamp(KEY_TP, setup.t_p_s / 3600.0) if setup.t_p_s
+                 else DEFAULTS[KEY_TP]),
+        KEY_CLOCK: (setup.recovery_clock if setup.recovery_clock in CLOCK_LABELS
+                    else DEFAULTS[KEY_CLOCK]),
     }
 
 

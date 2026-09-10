@@ -212,6 +212,7 @@ def _config_section(Q_si: float, r: float, df: pd.DataFrame,
 _PARAMETER_NAMES = {
     "T": "Transmissivity T",
     "S": "Storativity S",
+    "S_ratio": "Storage ratio S/S'",
     "Sy": "Specific yield Sy",
     "B": "Leakage factor B",
     "r_over_B": "r/B",
@@ -664,6 +665,55 @@ def _cj_mpl(result: CalculationResult, n_excluded: int) -> plt.Figure:
 
 
 # ── Generic report figure, for any method ─────────────────────────────────────
+
+def _recovery_mpl(result: CalculationResult) -> plt.Figure:
+    """Residual drawdown against t/t' — the Theis recovery plot."""
+    from src.calculator.methods.theis_recovery import plot_axis
+
+    ratio, fitted = plot_axis(result)
+    s_obs = np.asarray(result.drawdown_obs, dtype=float)
+    s_fit = np.asarray(result.drawdown_fitted, dtype=float)
+    slope = result.diagnostics.get("slope_m_per_log_cycle", 0.0)
+    ratio_0 = result.value("S_ratio", 1.0)
+    t_p_h = result.diagnostics.get("pumping_duration_s", 0.0) / 3600.0
+
+    fig, (ax_main, ax_res) = plt.subplots(
+        2, 1, figsize=(8, 5.5), gridspec_kw={"height_ratios": [3, 1]}, sharex=True,
+    )
+    ax_main.scatter(ratio[fitted], s_obs[fitted], s=18, color="#1f77b4",
+                    facecolors="none", linewidths=1.2, label="Used in the fit",
+                    zorder=3)
+    if (~fitted).any():
+        ax_main.scatter(ratio[~fitted], s_obs[~fitted], s=14, color="#999999",
+                        marker="x", label="Early recovery (not fitted)", zorder=2)
+    x_line = np.logspace(0, np.log10(max(float(ratio.max()), 1.0001)), 120)
+    ax_main.plot(x_line, slope * (np.log10(x_line) - np.log10(ratio_0)),
+                 color="#d62728", lw=1.8,
+                 label=f"Recovery line  T={result.T_day:.1f} m²/day  "
+                       f"S/S'={ratio_0:.2f}")
+    ax_main.axhline(0, color="black", lw=0.6, ls=":")
+
+    res = (s_obs[fitted] - s_fit[fitted]) * 1000
+    ax_res.bar(ratio[fitted], res,
+               color=["#d62728" if v < 0 else "#1f77b4" for v in res],
+               width=ratio[fitted] * 0.04, align="center")
+    ax_res.axhline(0, color="black", lw=0.8)
+    ax_res.set_ylabel("Res. (mm)", fontsize=8)
+
+    ax_main.set_xscale("log")
+    ax_main.set_ylabel("Residual drawdown s' (m)", fontsize=9)
+    ax_main.legend(fontsize=8, framealpha=0.9)
+    ax_main.grid(True, which="both", color="#e0e0e0", linewidth=0.5)
+    ax_main.set_title(
+        f"{result.method}  |  t_p = {t_p_h:.2f} h  |  R² = {result.r_squared:.4f}  "
+        f"|  RMSE = {result.rmse*1000:.2f} mm", fontsize=10)
+    ax_res.set_xscale("log")
+    ax_res.set_xlabel("t/t' (time since pumping started / time since it stopped)",
+                      fontsize=9)
+    ax_res.grid(True, which="both", color="#e0e0e0", linewidth=0.5)
+    fig.tight_layout(h_pad=0.5)
+    return fig
+
 
 def _generic_report_plot_fallback(result, ctx):
     return _generic_mpl(result)

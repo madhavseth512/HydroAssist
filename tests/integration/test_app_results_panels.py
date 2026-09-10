@@ -38,7 +38,17 @@ EXTRA_SYMBOL = {
 
 
 def _app_with_result(spec):
-    if spec.data_source == registry.PUMPED_WELL:
+    if registry.RECOVERY in spec.test_types:
+        from src.calculator.geometry import PumpingSchedule, RateStep
+
+        df = pd.read_csv("tests/theis_recovery_sample.csv")
+        result = spec.build().calculate(CalculationInput(
+            df=df, Q=Q_OBS, r=R_OBS, test_type=registry.RECOVERY,
+            schedule=PumpingSchedule(steps=(RateStep(0.0, Q_OBS),
+                                            RateStep(86400.0, 0.0)))))
+        inputs = {"Q": Q_OBS, "r": R_OBS, "r_w": 0.10, "r_c": 0.10,
+                  "test_type": registry.RECOVERY, "t_p_s": 86400.0}
+    elif spec.data_source == registry.PUMPED_WELL:
         df = pd.read_csv("tests/papadopulos_cooper_sample.csv")
         result = spec.build().calculate(
             CalculationInput(df=df, Q=Q_PW, r=R_W, r_w=R_W, r_c=R_C))

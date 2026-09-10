@@ -37,7 +37,9 @@ import numpy as np
 import pandas as pd
 
 SCHEMA = "hydroassist.project"
-SCHEMA_VERSION = 1
+# 2: TestSetup gains test_type, t_p_s and recovery_clock for recovery tests.
+# Version-1 files open unchanged; the new fields default to a constant-rate test.
+SCHEMA_VERSION = 2
 FILE_SUFFIX = ".hydroassist.json"
 
 # A project file is parsed from an upload, so bound what we are willing to read.
@@ -78,6 +80,11 @@ def _sanitise(obj):
     if isinstance(obj, float):
         return _finite_or_none(obj)
     return obj
+
+
+def _estimates(result: dict, name: str) -> bool:
+    params = result.get("parameters")
+    return not params or any(p.get("name") == name for p in params)
 
 
 # ── Building blocks ───────────────────────────────────────────────────────────
@@ -156,6 +163,12 @@ class TestSetup:
     r_m: float = 50.0
     r_w_m: float = 0.10
     r_c_m: float = 0.10
+
+    # Recovery tests: how long the well pumped before shut-down, and whether the
+    # time column counts from the start or the end of pumping.
+    test_type: str = "constant_rate"
+    t_p_s: Optional[float] = None
+    recovery_clock: str = "since_stop"
 
 
 @dataclass
@@ -255,7 +268,9 @@ class PumpingTest:
                 "method": a.method_label,
                 "n_params": a.n_params,
                 "T_m2_per_day": a.result.get("T_day"),
-                "S": a.result.get("S"),
+                # None rather than the 0.0 placeholder when the method did not
+                # estimate S — recovery gives only S/S'.
+                "S": a.result.get("S") if _estimates(a.result, "S") else None,
                 "r_squared": a.result.get("r_squared"),
                 "aicc": a.aicc,
                 "delta_aicc": (a.aicc - best) if a.aicc is not None else None,
