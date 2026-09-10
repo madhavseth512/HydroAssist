@@ -277,7 +277,47 @@ class CalculationResult:
             k: float(v) for k, v in self.diagnostics.items()
             if isinstance(v, (int, float)) and not isinstance(v, bool)
         }
+        payload["gof"] = self._gof_summary()
         return payload
+
+    def _gof_summary(self) -> Optional[dict]:
+        """Goodness of fit including the information criteria, for comparing
+        models on the same data.
+
+        Methods built on the fitting template supply `gof` directly. The three
+        original calculators do not, so it is computed here from the observed and
+        fitted series, counting only estimated parameters (derived ones such as
+        r/B are not free). Computed over every observed point, which is what makes
+        AICc comparable across methods: Cooper-Jacob fits only late-time data, so
+        its whole-record AICc correctly reflects that it describes less of the
+        test than a full-curve fit does.
+        """
+        gof = self.gof
+        basis = "fit"
+        if gof is None:
+            if (not self.success or self.drawdown_obs is None
+                    or self.drawdown_fitted is None):
+                return None
+            from src.calculator.fitting import goodness_of_fit
+
+            n_free = len([p for p in self.parameters if p.estimated]) or 2
+            gof = goodness_of_fit(self.drawdown_obs, self.drawdown_fitted, n_free)
+            basis = "all_points"
+
+        def finite(x):
+            x = float(x)
+            return x if np.isfinite(x) else None
+
+        return {
+            "n_points": int(gof.n_points),
+            "n_params": int(gof.n_params),
+            "rmse": finite(gof.rmse),
+            "r_squared": finite(gof.r_squared),
+            "adjusted_r_squared": finite(gof.adjusted_r_squared),
+            "aic": finite(gof.aic),
+            "aicc": finite(gof.aicc),
+            "basis": basis,
+        }
 
 
 class BaseCalculator(ABC):
