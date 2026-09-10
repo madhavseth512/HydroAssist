@@ -56,6 +56,8 @@ def generate_pdf(
     df: pd.DataFrame,
     n_excluded: int = 0,
     r_c: float = None,
+    project_info=None,
+    test_label: str = "",
 ) -> bytes:
     """
     Build a PDF report for a completed pumping test analysis.
@@ -73,6 +75,11 @@ def generate_pdf(
                     otherwise. Without it the embedded type curve cannot be
                     reproduced, so it falls back to r_c = r_w and the plot
                     caption says so.
+        project_info: Optional ProjectInfo (client, project number, location,
+                    test date, analyst). The report is a client deliverable, so
+                    when a project is open its identifying details head page one.
+        test_label: Optional name of the test within the project, e.g.
+                    "PW-1 constant rate".
 
     Returns:
         PDF as bytes — pass directly to st.download_button
@@ -93,12 +100,13 @@ def generate_pdf(
     story = []
 
     story += _header_section(method, styles)
+    story += _project_section(project_info, test_label, styles)
     story += _config_section(Q_si, r, df, method, styles)
     story += _results_section(result, styles)
     story += _validity_section(result, styles)
     story += _plot_section(result, Q_si, r, method, n_excluded, styles, r_c)
     story += _data_table_section(df, styles)
-    story += _footer_section(styles)
+    story += _footer_section(method, styles)
 
     doc.build(story)
     return buf.getvalue()
@@ -144,11 +152,24 @@ def _build_styles() -> dict:
 
 # ── Section builders ──────────────────────────────────────────────────────────
 
+def _aquifer_phrase(method: str) -> str:
+    """The aquifer type(s) the method is for, from its registry entry."""
+    from src.calculator import registry
+
+    spec = registry.get(method)
+    if spec is None or not spec.aquifer_types:
+        return ""
+    return " / ".join(sorted(spec.aquifer_types)).title() + " "
+
+
 def _header_section(method: str, s: dict) -> list:
     now = datetime.now().strftime("%Y-%m-%d  %H:%M")
     return [
         Paragraph("HydroAssist", s["title"]),
-        Paragraph("Confined Aquifer Pumping Test Analysis", s["subtitle"]),
+        # Was hardcoded "Confined Aquifer..." — wrong once leaky, unconfined and
+        # fractured methods existed. Derived from the method's registry entry.
+        Paragraph(f"{_aquifer_phrase(method)}Aquifer Pumping Test Analysis",
+                  s["subtitle"]),
         Paragraph(f"Method: <b>{method}</b>  |  Generated: {now}", s["subtitle"]),
         HRFlowable(width=USABLE_W, thickness=2, color=BLUE, spaceAfter=10),
     ]
@@ -186,27 +207,65 @@ def _config_section(Q_si: float, r: float, df: pd.DataFrame,
     return flowables
 
 
-def _results_section(result: CalculationResult, s: dict) -> list:
-    T_ci_str = (
-        f"{result.T_ci[0]*86400:.2f}  –  {result.T_ci[1]*86400:.2f} m²/day"
-        if result.T_ci else "not available"
-    )
-    S_ci_str = (
-        f"{result.S_ci[0]:.2e}  –  {result.S_ci[1]:.2e}"
-        if result.S_ci else "not available"
-    )
+# Readable names for the PDF. ASCII only: reportlab's built-in Helvetica has no
+# glyphs for Greek letters, so "alpha" rather than a symbol that renders as a box.
+_PARAMETER_NAMES = {
+    "T": "Transmissivity T",
+    "S": "Storativity S",
+    "Sy": "Specific yield Sy",
+    "B": "Leakage factor B",
+    "r_over_B": "r/B",
+    "alpha": "Drainage constant alpha",
+    "delay_index": "Delay index 1/alpha",
+    "omega": "Storativity ratio omega",
+    "lambda": "Interporosity coefficient lambda",
+    "S_fracture": "Fracture storativity",
+    "S_matrix": "Matrix storativity",
+}
 
-    rows = [
-        ["Parameter", "Value", "95% Confidence Interval"],
-        ["Transmissivity T",
-         f"{result.T:.4e} m²/s\n({result.T_day:.2f} m²/day)",
-         T_ci_str],
-        ["Storativity S",
-         f"{result.S:.4e}",
-         S_ci_str],
+
+def _pdf_unit(unit: str) -> str:
+    return "" if unit in ("", "-") else " " + unit.replace("^2", "²")
+
+
+def _parameter_row(p) -> list:
+    name = _PARAMETER_NAMES.get(p.name, p.name)
+    if p.derived:
+        name += " (derived)"
+
+    # Table cells take "\n" as a line break within the cell.
+    if p.display_unit and p.display_unit != p.unit:
+        value = (f"{p.value:.4e}{_pdf_unit(p.unit)}\n"
+                 f"({p.display:.2f}{_pdf_unit(p.display_unit)})")
+        ci = (f"{p.display_ci[0]:.2f}  –  {p.display_ci[1]:.2f}"
+              f"{_pdf_unit(p.display_unit)}" if p.ci else None)
+    else:
+        value = f"{p.value:.4e}{_pdf_unit(p.unit)}"
+        ci = f"{p.ci[0]:.2e}  –  {p.ci[1]:.2e}" if p.ci else None
+
+    if ci is None:
+        ci = "derived" if p.derived else ("fixed" if p.fixed else "not available")
+    if p.at_bound:
+        value += f"\n(at {p.at_bound} bound)"
+    if not p.reliable:
+        value += "\n(low reliability)"
+    return [name, value, ci]
+
+
+def _results_section(result: CalculationResult, s: dict) -> list:
+    """Every estimated and derived parameter. This used to list only T and S,
+    which silently dropped S_y and alpha from a Boulton report, B from a
+    Hantush-Jacob report, and omega and lambda from a Warren-Root report."""
+    rows = [["Parameter", "Value", "95% Confidence Interval"]]
+    rows += [_parameter_row(p) for p in result.parameters]
+    rows += [
         ["R² (coefficient of determination)", f"{result.r_squared:.6f}", "—"],
         ["RMSE", f"{result.rmse*1000:.3f} mm", "—"],
     ]
+    gof = result.gof
+    if gof is not None and np.isfinite(gof.aicc):
+        rows.append(["AICc (for comparing methods)", f"{gof.aicc:.2f}",
+                     f"{gof.n_params} fitted parameters"])
 
     flowables = [Paragraph("Estimated Parameters", s["section"])]
     flowables.append(_make_table(
@@ -214,9 +273,13 @@ def _results_section(result: CalculationResult, s: dict) -> list:
         col_widths=[5.5*cm, 5.5*cm, USABLE_W - 11.0*cm],
         header_bg=BLUE,
     ))
+    unreliable = [p for p in result.parameters if not p.reliable and p.reliability_note]
+    for p in unreliable:
+        flowables.append(Paragraph(
+            f"{_PARAMETER_NAMES.get(p.name, p.name)}: {_sanitise(p.reliability_note)}",
+            s["note"]))
     flowables.append(Spacer(1, 0.3*cm))
     return flowables
-
 
 # Unicode superscripts → ASCII exponent notation. Helvetica (reportlab's
 # built-in) has no glyphs for these, so an unmapped superscript renders as a
@@ -310,8 +373,11 @@ def _plot_section(result: CalculationResult, Q_si: float, r: float,
         r_c=r_c_used,
         n_excluded=n_excluded,
     )
-    fig = spec.report_plot(result, ctx)
-    caption = f"Figure 1. {_FIGURE_CAPTIONS[spec.id]}"
+    fig = (spec.report_plot or _generic_report_plot_fallback)(result, ctx)
+    caption = "Figure 1. " + _FIGURE_CAPTIONS.get(
+        spec.id,
+        f"{spec.label} log-log fit. Blue circles: observed drawdown. "
+        "Red line: fitted solution.")
     if at_well and not (r_c and r_c > 0):
         caption += " Casing radius not supplied — curve drawn assuming r_c = r_w."
 
@@ -360,15 +426,46 @@ def _data_table_section(df: pd.DataFrame, s: dict) -> list:
     return flowables
 
 
-def _footer_section(s: dict) -> list:
+def _project_section(project_info, test_label: str, s: dict) -> list:
+    """Client-facing identification: who, where, when. Omitted when no project
+    is open, so an ad-hoc analysis still produces a clean report."""
+    if project_info is None:
+        return []
+
+    fields = [
+        ("Project", project_info.title),
+        ("Client", project_info.client),
+        ("Project number", project_info.project_number),
+        ("Location", project_info.location),
+        ("Test", test_label),
+        ("Test date", project_info.test_date),
+        ("Analyst", project_info.analyst),
+    ]
+    rows = [["Field", "Value"]] + [[k, _sanitise(str(v))] for k, v in fields if v]
+    if len(rows) == 1:
+        return []
+
+    flowables = [Paragraph("Project", s["section"])]
+    flowables.append(_make_table(rows, col_widths=[4.5 * cm, USABLE_W - 4.5 * cm]))
+    if project_info.notes:
+        flowables.append(Spacer(1, 0.15 * cm))
+        flowables.append(Paragraph(_sanitise(project_info.notes), s["body"]))
+    flowables.append(Spacer(1, 0.3 * cm))
+    return flowables
+
+
+def _footer_section(method: str, s: dict) -> list:
+    """Cites the method actually used. Previously this credited Theis and
+    Cooper-Jacob on every report, including reports for other methods."""
+    from src.calculator import registry
+
+    spec = registry.get(method)
+    citation = spec.citation if spec else method
     return [
         Spacer(1, 0.5*cm),
         HRFlowable(width=USABLE_W, thickness=0.5, color=BORDER),
-        Paragraph(
-            "Generated by HydroAssist | BTP-2, IIT Kharagpur | "
-            "Theis (1935) and Cooper &amp; Jacob (1946) — confined aquifer methods.",
-            s["caption"],
-        ),
+        Paragraph(f"Method reference: {_sanitise(citation)}", s["caption"]),
+        Paragraph("Generated by HydroAssist | BTP, IIT Kharagpur", s["caption"]),
     ]
 
 
@@ -562,5 +659,50 @@ def _cj_mpl(result: CalculationResult, n_excluded: int) -> plt.Figure:
     ax_res.set_xlabel("Time (s)", fontsize=9)
     ax_res.grid(True, which="both", color="#e0e0e0", linewidth=0.5)
 
+    fig.tight_layout(h_pad=0.5)
+    return fig
+
+
+# ── Generic report figure, for any method ─────────────────────────────────────
+
+def _generic_report_plot_fallback(result, ctx):
+    return _generic_mpl(result)
+
+
+def _generic_mpl(result: CalculationResult) -> plt.Figure:
+    """Log-log observed vs fitted drawdown with residuals, for any method. The
+    default report figure, so a newly registered method can always produce a PDF."""
+    fig, (ax_main, ax_res) = plt.subplots(
+        2, 1, figsize=(8, 5.5), gridspec_kw={"height_ratios": [3, 1]}, sharex=True,
+    )
+    t = np.asarray(result.time_s, dtype=float)
+    s_obs = np.asarray(result.drawdown_obs, dtype=float)
+    shown = s_obs > 0
+
+    ax_main.scatter(t[shown], s_obs[shown], s=18, color="#1f77b4",
+                    facecolors="none", linewidths=1.2, label="Observed", zorder=3)
+    if result.drawdown_fitted is not None:
+        s_fit = np.asarray(result.drawdown_fitted, dtype=float)
+        order = np.argsort(t)
+        keep = s_fit[order] > 0
+        ax_main.plot(t[order][keep], s_fit[order][keep], color="#d62728", lw=1.8,
+                     label="Fitted solution")
+        res = (s_obs - s_fit) * 1000
+        ax_res.bar(t, res, color=["#d62728" if v < 0 else "#1f77b4" for v in res],
+                   width=t * 0.15, align="center")
+        ax_res.axhline(0, color="black", lw=0.8)
+        ax_res.set_ylabel("Res. (mm)", fontsize=8)
+
+    ax_main.set_xscale("log")
+    ax_main.set_yscale("log")
+    ax_main.set_ylabel("Drawdown (m)", fontsize=9)
+    ax_main.legend(fontsize=8, framealpha=0.9)
+    ax_main.grid(True, which="both", color="#e0e0e0", linewidth=0.5)
+    ax_main.set_title(
+        f"{result.method}  |  R² = {result.r_squared:.4f}  |  "
+        f"RMSE = {result.rmse*1000:.2f} mm", fontsize=10)
+    ax_res.set_xscale("log")
+    ax_res.set_xlabel("Time (s)", fontsize=9)
+    ax_res.grid(True, which="both", color="#e0e0e0", linewidth=0.5)
     fig.tight_layout(h_pad=0.5)
     return fig

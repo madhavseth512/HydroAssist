@@ -481,3 +481,160 @@ def derivative_diagnostic(time_s, drawdown_m, Q=None, window=None) -> go.Figure:
         margin=_MARGIN_SINGLE,
     )
     return fig
+
+
+# ── Generic plots, for any method ─────────────────────────────────────────────
+# Every CalculationResult carries its observed and fitted series and its full
+# parameter list, which is enough to draw a correct diagnostic for any method.
+# These are the registry's DEFAULT adapters, so a newly registered method gets
+# working plots without having to supply its own. Hantush-Jacob, Boulton and
+# Warren-Root originally shipped without adapters, and their results panels
+# crashed after a successful fit; that is the failure these exist to prevent.
+
+def _parameter_summary(result: CalculationResult) -> str:
+    """Estimated parameters as one legend-friendly line."""
+    parts = []
+    for p in result.parameters:
+        if not p.estimated:
+            continue
+        if p.display_unit and p.display_unit != p.unit:
+            unit = p.display_unit.replace("^2", "²")
+            parts.append(f"{p.symbol} = {p.display:.1f} {unit}")
+        else:
+            unit = "" if p.unit in ("", "-") else " " + p.unit.replace("^2", "²")
+            parts.append(f"{p.symbol} = {p.value:.3g}{unit}")
+    return ", ".join(parts)
+
+
+def generic_diagnostic(result: CalculationResult, title: str = None) -> go.Figure:
+    """Log-log observed vs fitted drawdown, with residuals, for any method."""
+    t = np.asarray(result.time_s, dtype=float)
+    s_obs = np.asarray(result.drawdown_obs, dtype=float)
+    s_fit = (np.asarray(result.drawdown_fitted, dtype=float)
+             if result.drawdown_fitted is not None else None)
+
+    fig = make_subplots(
+        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=(
+            f"{title or result.method} — Log-Log Fit   "
+            f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse * 1000:.2f} mm)",
+            "Residuals",
+        ),
+    )
+
+    shown = s_obs > 0          # a log axis cannot place non-positive values
+    fig.add_trace(go.Scatter(
+        x=t[shown], y=s_obs[shown], mode="markers", name="Observed",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+        hovertemplate="t = %{x:.1f} s<br>s = %{y:.4f} m<extra></extra>",
+    ), row=1, col=1)
+
+    if s_fit is not None:
+        order = np.argsort(t)
+        keep = s_fit[order] > 0
+        fig.add_trace(go.Scatter(
+            x=t[order][keep], y=s_fit[order][keep], mode="lines",
+            name=f"Fit  ({_parameter_summary(result)})",
+            line=dict(color=COL_FIT, width=2),
+            hovertemplate="t = %{x:.1f} s<br>s_fit = %{y:.4f} m<extra></extra>",
+        ), row=1, col=1)
+
+        res = s_obs - s_fit
+        fig.add_trace(go.Bar(
+            x=t, y=res * 1000, name="Residual (mm)",
+            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res],
+            showlegend=False,
+            hovertemplate="t = %{x:.1f} s<br>res = %{y:.2f} mm<extra></extra>",
+        ), row=2, col=1)
+        fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+
+    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True,
+                     gridcolor=COL_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID,
+                     row=2, col=1)
+    fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL,
+                      hovermode="x unified")
+    return fig
+
+
+def template_forward(spec, result: CalculationResult, ctx):
+    """forward(t, T, S) -> drawdown for a template-based method, holding every
+    parameter other than T and S at its fitted value.
+
+    That is what lets the manual-matching sliders (which move T and S) work for a
+    method with four parameters. Returns None for methods not built on
+    CurveFitCalculator, whose plots are supplied explicitly anyway.
+    """
+    import pandas as pd
+
+    from src.calculator.base import CalculationInput
+    from src.calculator.templates import CurveFitCalculator
+
+    calc = spec.build()
+    if not isinstance(calc, CurveFitCalculator) or result.time_s is None:
+        return None
+
+    at_well = spec.data_source == "pumped_well"
+    inputs = CalculationInput(
+        df=pd.DataFrame({"time_s": result.time_s, "drawdown_m": result.drawdown_obs}),
+        Q=ctx.Q, r=ctx.r_w if at_well else ctx.r, r_w=ctx.r_w, r_c=ctx.r_c,
+    )
+    names = [p.name for p in calc.parameter_specs(
+        inputs, np.asarray(result.time_s), np.asarray(result.drawdown_obs))]
+    model = calc.model(inputs)
+    fitted = {n: result.value(n) for n in names}
+
+    def forward(t, T, S):
+        values = dict(fitted, T=T, S=S)
+        return model(np.asarray(t, dtype=float), *[values[n] for n in names])
+
+    return forward
+
+
+def generic_interactive(result: CalculationResult, forward,
+                        T_manual: float, S_manual: float,
+                        title: str = None) -> tuple:
+    """Manual matching for any method. With `forward` None, shows the automatic
+    fit only and reports its RMSE."""
+    t = np.asarray(result.time_s, dtype=float)
+    s_obs = np.asarray(result.drawdown_obs, dtype=float)
+    t_smooth = np.logspace(np.log10(t.min()), np.log10(t.max()), 120)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=t, y=s_obs, mode="markers", name="Observed",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+    ))
+
+    if forward is None:
+        order = np.argsort(t)
+        fig.add_trace(go.Scatter(
+            x=t[order], y=np.asarray(result.drawdown_fitted)[order], mode="lines",
+            name="Auto fit", line=dict(color=COL_FIT, width=2, dash="dot"),
+        ))
+        rmse_mm = float(result.rmse * 1000)
+    else:
+        fig.add_trace(go.Scatter(
+            x=t_smooth, y=forward(t_smooth, result.T, result.S), mode="lines",
+            name=f"Auto fit  ({_parameter_summary(result)})",
+            line=dict(color=COL_FIT, width=2, dash="dot"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=t_smooth, y=forward(t_smooth, T_manual, S_manual), mode="lines",
+            name=f"Manual  (T = {T_manual * 86400:.1f} m²/day, S = {S_manual:.2e}; "
+                 "other parameters held at their fitted values)",
+            line=dict(color=COL_MANUAL, width=2.5),
+        ))
+        manual_at_obs = forward(t, T_manual, S_manual)
+        rmse_mm = float(np.sqrt(np.mean((s_obs - manual_at_obs) ** 2))) * 1000
+
+    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
+    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True,
+                     gridcolor=COL_GRID)
+    fig.update_layout(
+        title=f"{title or result.method} Manual Matching — RMSE = {rmse_mm:.2f} mm",
+        height=480, legend=_LEGEND_H, hovermode="x unified", margin=_MARGIN_SINGLE,
+    )
+    return fig, rmse_mm

@@ -600,6 +600,38 @@ with tab_calc:
         m3.metric("S", f"{result.S:.2e}")
         m4.metric("R²", f"{result.r_squared:.4f}")
 
+        # Methods beyond the original three estimate more than T and S —
+        # Hantush-Jacob's leakage factor, Boulton's specific yield, Warren-Root's
+        # storativity ratio. The metric row above cannot show those, so list every
+        # parameter, flagging the ones that are derived, pinned at a bound, or
+        # that the method itself says not to trust.
+        if any(p.name not in ("T", "S") for p in result.parameters):
+            def _cell(p):
+                if p.display_unit and p.display_unit != p.unit:
+                    return f"{p.display:.4g}", p.display_unit.replace("^2", "²")
+                return f"{p.value:.4g}", ("" if p.unit == "-" else p.unit)
+
+            def _ci(p):
+                if p.ci is None:
+                    return "derived" if p.derived else "—"
+                lo, hi = p.display_ci if p.display_unit != p.unit else p.ci
+                return f"{lo:.3g} – {hi:.3g}"
+
+            rows = []
+            for p in result.parameters:
+                value, unit = _cell(p)
+                notes = []
+                if p.derived:
+                    notes.append("derived")
+                if p.at_bound:
+                    notes.append(f"at {p.at_bound} bound")
+                if not p.reliable:
+                    notes.append(p.reliability_note or "low reliability")
+                rows.append({"Parameter": p.symbol, "Value": value, "Unit": unit,
+                             "95% CI": _ci(p), "Notes": "; ".join(notes)})
+            st.dataframe(pd.DataFrame(rows), hide_index=True,
+                         use_container_width=True)
+
         # ── Hand off to the consultant ────────────────────────────────────────
         ask_col, _ = st.columns([2, 3])
         with ask_col:

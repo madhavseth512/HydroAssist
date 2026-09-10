@@ -153,20 +153,28 @@ class CurveFitCalculator(BaseCalculator):
                               n_params=len([s for s in specs if s.is_free]))
 
         meta = self.parameter_metadata()
-        estimated = [
-            FittedParameter(
+
+        def build(spec):
+            # Everything the spec declares, including its display symbol — which
+            # used to be dropped, so every template method showed "Sy" and
+            # "omega" instead of "S_y" and "ω". Method metadata is merged on top
+            # rather than passed alongside, so a method may override any field
+            # (symbol included) without a duplicate-keyword error.
+            fields = dict(
                 name=spec.name,
                 value=params[spec.name],
                 unit=spec.unit,
+                symbol=spec.symbol or spec.name,
                 ci=intervals.get(spec.name),
                 at_bound=bounds_hit.get(spec.name),
                 fixed=not spec.is_free,
                 display_scale=spec.display_scale,
                 display_unit=spec.display_unit,
-                **meta.get(spec.name, {}),
             )
-            for spec in specs
-        ]
+            fields.update(meta.get(spec.name, {}))
+            return FittedParameter(**fields)
+
+        estimated = [build(spec) for spec in specs]
         estimated += self.derived_parameters(inputs, params)
 
         diagnostics = self.extra_diagnostics(inputs, params)

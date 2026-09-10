@@ -69,6 +69,30 @@ class PlotContext:
     n_excluded: int = 0         # early-time points dropped by the u-filter (CJ)
 
 
+# ── Default plot adapters ─────────────────────────────────────────────────────
+# Every MethodSpec gets these unless it supplies its own. Hantush-Jacob, Boulton
+# and Warren-Root originally shipped with no adapters at all: they fitted
+# correctly and then crashed the results panel and the PDF with "'NoneType' object
+# is not callable". Defaulting to generic adapters — built from what every result
+# already carries — makes that failure impossible for any future method.
+
+def _generic_diagnostic(result, ctx):
+    from src.calculator.plots import generic_diagnostic
+    return generic_diagnostic(result)
+
+
+def _generic_interactive(result, ctx, T_manual, S_manual):
+    from src.calculator.plots import generic_interactive, template_forward
+    spec = get(result.method_id) or get(result.method)
+    forward = template_forward(spec, result, ctx) if spec else None
+    return generic_interactive(result, forward, T_manual, S_manual)
+
+
+def _generic_report_plot(result, ctx):
+    from src.calculator.report import _generic_mpl
+    return _generic_mpl(result)
+
+
 @dataclass(frozen=True)
 class MethodSpec:
     """Everything the rest of the app needs to know about one analysis method.
@@ -105,10 +129,12 @@ class MethodSpec:
     factory: Optional[Callable] = None
 
     # Plot adapters, all taking (result, PlotContext). Lazy for the same reason.
-    diagnostic_plot: Optional[Callable] = None   # -> plotly Figure
-    report_plot: Optional[Callable] = None       # -> matplotlib Figure, for the PDF
+    # Default to the generic adapters above, so no method can be registered
+    # without working plots; the original three override them with their own.
+    diagnostic_plot: Callable = _generic_diagnostic      # -> plotly Figure
+    report_plot: Callable = _generic_report_plot         # -> matplotlib Figure
     # Manual-matching plot: (result, ctx, T_manual, S_manual) -> (Figure, rmse_mm)
-    interactive_plot: Optional[Callable] = None
+    interactive_plot: Callable = _generic_interactive
 
     ui_help: str = ""
     selection_rationale: str = ""
