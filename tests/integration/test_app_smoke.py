@@ -9,6 +9,8 @@ They are slow (the embedding model loads on first run), so they are marked
 `slow`. Run just the fast suite with:  pytest -m "not slow"
 """
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -21,7 +23,11 @@ pytestmark = pytest.mark.slow
 streamlit_testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = streamlit_testing.AppTest
 
-APP = "app.py"
+# Absolute, because Streamlit 1.63 changed AppTest.from_file() to resolve a
+# relative path against the calling test file rather than the working
+# directory — "app.py" silently became tests/integration/app.py and every UI
+# test failed before the app booted. This form works under both behaviours.
+APP = str(Path(__file__).resolve().parents[2] / "app.py")
 TIMEOUT = 240
 
 
