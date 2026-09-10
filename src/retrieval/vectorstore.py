@@ -1,5 +1,9 @@
 """ChromaDB vector store initialization and management."""
 
+import atexit
+import shutil
+import tempfile
+
 import chromadb
 from chromadb.config import Settings
 from chromadb.api.models.Collection import Collection
@@ -10,13 +14,55 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
+# ── Read-only snapshots ───────────────────────────────────────────────────────
+# The knowledge base is committed to git and shipped to the host as-is. Merely
+# constructing a chromadb PersistentClient writes a lock row into the store's
+# `acquire_write` table, so reading the committed directory in place would dirty a
+# 33 MB tracked binary on every run. Readers therefore open a private copy, made
+# once per process and refreshed only if the source changes underneath it.
+
+_SNAPSHOTS: Dict[str, tuple] = {}   # source path -> (snapshot path, source mtime)
+
+
+def _source_mtime(source: Path) -> float:
+    db = source / "chroma.sqlite3"
+    return db.stat().st_mtime if db.exists() else 0.0
+
+
+def _read_only_snapshot(source: Path) -> Path:
+    """Path to a private, writable copy of `source`, created on first use."""
+    key = str(source.resolve())
+    mtime = _source_mtime(source)
+
+    cached = _SNAPSHOTS.get(key)
+    if cached and cached[1] == mtime and cached[0].exists():
+        return cached[0]
+
+    target = Path(tempfile.mkdtemp(prefix="hydroassist_vectordb_"))
+    if source.exists():
+        shutil.copytree(source, target, dirs_exist_ok=True)
+    else:
+        # Never create the real directory from a read path: that would leave an
+        # empty store in the repository. An empty snapshot yields no results,
+        # which the consultant already reports as "not enough information".
+        logger.warning(f"Vector store not found at {source}; retrieval will be empty.")
+
+    if cached:
+        shutil.rmtree(cached[0], ignore_errors=True)
+    _SNAPSHOTS[key] = (target, mtime)
+    atexit.register(shutil.rmtree, target, True)
+    logger.info(f"Opened read-only snapshot of {source} at {target}")
+    return target
+
+
 class VectorStoreManager:
     """Manager for ChromaDB vector store operations."""
 
     def __init__(
         self,
         persist_directory: str = "./data/vectordb",
-        collection_name: str = "hydrogeology_kb"
+        collection_name: str = "hydrogeology_kb",
+        read_only: bool = False,
     ):
         """
         Initialize ChromaDB client and collection.
@@ -24,14 +70,22 @@ class VectorStoreManager:
         Args:
             persist_directory: Path to persist vector database
             collection_name: Name of the collection
+            read_only: Open a private snapshot instead of the directory itself.
+                Use for every runtime reader; leave False only for ingestion,
+                which is supposed to write.
         """
-        self.persist_directory = Path(persist_directory)
+        self.source_directory = Path(persist_directory)
         self.collection_name = collection_name
+        self.read_only = read_only
         self.client: Optional[chromadb.PersistentClient] = None
         self.collection: Optional[Collection] = None
 
-        # Create directory if it doesn't exist
-        self.persist_directory.mkdir(parents=True, exist_ok=True)
+        if read_only:
+            self.persist_directory = _read_only_snapshot(self.source_directory)
+        else:
+            self.persist_directory = self.source_directory
+            # Create directory if it doesn't exist
+            self.persist_directory.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Initializing ChromaDB at: {self.persist_directory}")
         self._initialize_client()
@@ -77,6 +131,12 @@ class VectorStoreManager:
             metadatas: List of metadata dicts
             ids: List of unique document IDs
         """
+        if self.read_only:
+            raise RuntimeError(
+                "This vector store was opened read-only: it is a private snapshot "
+                "of the committed knowledge base, so a write would appear to succeed "
+                "and then be discarded. Open it with read_only=False to ingest."
+            )
         if not self.collection:
             raise RuntimeError("Collection not initialized")
 
@@ -194,6 +254,12 @@ class VectorStoreManager:
 
     def reset_collection(self) -> None:
         """Delete and recreate the collection."""
+        if self.read_only:
+            raise RuntimeError(
+                "This vector store was opened read-only: it is a private snapshot "
+                "of the committed knowledge base, so a write would appear to succeed "
+                "and then be discarded. Open it with read_only=False to ingest."
+            )
         if not self.client:
             raise RuntimeError("Client not initialized")
 

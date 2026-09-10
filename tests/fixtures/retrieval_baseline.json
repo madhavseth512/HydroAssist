@@ -1,0 +1,269 @@
+{
+  "_provenance": "Top-5 chunk ids captured with the sentence-transformers (torch) query embedder, before switching queries to ChromaDB's ONNX DefaultEmbeddingFunction.",
+  "queries": {
+    "What are the assumptions of the Theis method?": [
+      {
+        "chunk_id": "AQTESOLV_Cooper_Jacob_1946_chunk_0",
+        "score": 0.481154
+      },
+      {
+        "chunk_id": "31032_page_60_chunk_0",
+        "score": 0.436318
+      },
+      {
+        "chunk_id": "wri99-4225_page_15_chunk_0",
+        "score": 0.415524
+      },
+      {
+        "chunk_id": "Eos  Transactions American Geophysical Union - August 1946 - Cooper - A generalized graphical method for evaluating_page_1_chunk_1",
+        "score": 0.412459
+      },
+      {
+        "chunk_id": "31032_page_15_chunk_2",
+        "score": 0.402903
+      }
+    ],
+    "When is the Cooper-Jacob approximation valid?": [
+      {
+        "chunk_id": "1-s2.0-002216948890025X-main_page_13_chunk_0",
+        "score": 0.564947
+      },
+      {
+        "chunk_id": "AQTESOLV_Cooper_Jacob_1946_chunk_0",
+        "score": 0.562743
+      },
+      {
+        "chunk_id": "1-s2.0-002216948890025X-main_page_10_chunk_0",
+        "score": 0.505462
+      },
+      {
+        "chunk_id": "1-s2.0-002216948890025X-main_page_8_chunk_0",
+        "score": 0.505029
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_8_chunk_1",
+        "score": 0.483119
+      }
+    ],
+    "How does wellbore storage affect early drawdown in a large-diameter well?": [
+      {
+        "chunk_id": "Water Resources Research - August 1985 - Moench - Transient Flow to a Large\u2010Diameter Well in an Aquifer With Storative_page_5_chunk_5",
+        "score": 0.689814
+      },
+      {
+        "chunk_id": "pp1629ver2_page_28_chunk_3",
+        "score": 0.654149
+      },
+      {
+        "chunk_id": "Water Resources Research - 1997 - Moench - Flow to a well of finite diameter in a homogeneous  anisotropic water table_page_5_chunk_4",
+        "score": 0.650424
+      },
+      {
+        "chunk_id": "spe-14251-pa_page_7_chunk_6",
+        "score": 0.644328
+      },
+      {
+        "chunk_id": "spe-16378-pa_page_5_chunk_6",
+        "score": 0.643649
+      }
+    ],
+    "What is the leakage factor in a leaky confined aquifer?": [
+      {
+        "chunk_id": "Water Resources Research - October 1972 - Halepaska - Drawdown distribution around wells partially penetrating thick leaky_page_1_chunk_1",
+        "score": 0.694598
+      },
+      {
+        "chunk_id": "Water Resources Research - June 1967 - Hantush - Flow of groundwater in relatively thick leaky aquifers_page_2_chunk_1",
+        "score": 0.683592
+      },
+      {
+        "chunk_id": "Water Resources Research - October 1972 - Neuman - Field determination of the hydraulic properties of leaky multiple_page_1_chunk_2",
+        "score": 0.672532
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1969 - Neuman - Applicability of Current Theories of Flow in Leaky Aquifers_page_1_chunk_1",
+        "score": 0.670491
+      },
+      {
+        "chunk_id": "Water Resources Research - October 1972 - Neuman - Field determination of the hydraulic properties of leaky multiple_page_2_chunk_3",
+        "score": 0.668058
+      }
+    ],
+    "Explain delayed yield in an unconfined aquifer": [
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_1_chunk_0",
+        "score": 0.760311
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_2_chunk_4",
+        "score": 0.743682
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_10_chunk_1",
+        "score": 0.73072
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_3_chunk_3",
+        "score": 0.728548
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_9_chunk_1",
+        "score": 0.728445
+      }
+    ],
+    "How is specific yield determined from a pumping test?": [
+      {
+        "chunk_id": "Theis-1935_page_4_chunk_2",
+        "score": 0.659795
+      },
+      {
+        "chunk_id": "sopaqu_page_2_chunk_1",
+        "score": 0.620228
+      },
+      {
+        "chunk_id": "pp1629ver2_page_38_chunk_3",
+        "score": 0.616839
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_3_chunk_1",
+        "score": 0.614297
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_1_chunk_3",
+        "score": 0.610725
+      }
+    ],
+    "What is double porosity in fractured rock?": [
+      {
+        "chunk_id": "ML032580008_page_7_chunk_6",
+        "score": 0.700835
+      },
+      {
+        "chunk_id": "ML032580008_page_2_chunk_0",
+        "score": 0.676685
+      },
+      {
+        "chunk_id": "spe-426-pa_page_2_chunk_1",
+        "score": 0.673438
+      },
+      {
+        "chunk_id": "ML032580008_page_7_chunk_0",
+        "score": 0.672235
+      },
+      {
+        "chunk_id": "ML032580008_page_6_chunk_8",
+        "score": 0.662229
+      }
+    ],
+    "How do you analyse a step-drawdown test?": [
+      {
+        "chunk_id": "sopaqu_page_4_chunk_4",
+        "score": 0.663053
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_16_chunk_3",
+        "score": 0.602275
+      },
+      {
+        "chunk_id": "sopaqu_page_4_chunk_5",
+        "score": 0.585355
+      },
+      {
+        "chunk_id": "31032_page_52_chunk_2",
+        "score": 0.563418
+      },
+      {
+        "chunk_id": "wri99-4225_page_13_chunk_4",
+        "score": 0.525612
+      }
+    ],
+    "What is the Hantush well function?": [
+      {
+        "chunk_id": "31032_page_137_chunk_2",
+        "score": 0.547746
+      },
+      {
+        "chunk_id": "31032_page_125_chunk_2",
+        "score": 0.507715
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1985 - Moench - Transient Flow to a Large\u2010Diameter Well in an Aquifer With Storative_page_2_chunk_2",
+        "score": 0.502674
+      },
+      {
+        "chunk_id": "Estimating_aquifer_hydraulic_properties_page_4_chunk_2",
+        "score": 0.491444
+      },
+      {
+        "chunk_id": "ISWSB-49_page_32_chunk_4",
+        "score": 0.490368
+      }
+    ],
+    "How does partial penetration affect drawdown?": [
+      {
+        "chunk_id": "Water Resources Research - April 1975 - Neuman - Analysis of pumping test data from anisotropic unconfined aquifers_page_10_chunk_1",
+        "score": 0.529355
+      },
+      {
+        "chunk_id": "Water Resources Research - April 1974 - Neuman - Effect of partial penetration on flow in unconfined aquifers considering_page_5_chunk_2",
+        "score": 0.505123
+      },
+      {
+        "chunk_id": "Water Resources Research - April 1974 - Neuman - Effect of partial penetration on flow in unconfined aquifers considering_page_7_chunk_1",
+        "score": 0.504406
+      },
+      {
+        "chunk_id": "Tartakovsky_et_al-2007-Water_Resources_Research_page_6_chunk_0",
+        "score": 0.496288
+      },
+      {
+        "chunk_id": "ISWSB-49_page_13_chunk_4",
+        "score": 0.491515
+      }
+    ],
+    "What is the difference between storativity and specific yield?": [
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_3_chunk_1",
+        "score": 0.454764
+      },
+      {
+        "chunk_id": "Water Resources Research - April 1973 - Cooley - Effect of a water table aquitard on drawdown in an underlying pumped_page_3_chunk_5",
+        "score": 0.419724
+      },
+      {
+        "chunk_id": "Theis-1935_page_9_chunk_0",
+        "score": 0.412045
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_3_chunk_8",
+        "score": 0.407002
+      },
+      {
+        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_4_chunk_7",
+        "score": 0.381454
+      }
+    ],
+    "How do boundaries show up on a time-drawdown plot?": [
+      {
+        "chunk_id": "ISWSB-49_page_23_chunk_0",
+        "score": 0.596957
+      },
+      {
+        "chunk_id": "1-s2.0-002216948890025X-main_page_11_chunk_2",
+        "score": 0.577008
+      },
+      {
+        "chunk_id": "ISWSB-49_page_26_chunk_1",
+        "score": 0.537494
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_16_chunk_3",
+        "score": 0.532209
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_19_chunk_2",
+        "score": 0.522775
+      }
+    ]
+  }
+}

@@ -24,9 +24,14 @@ class Retriever:
         self.embedding_model = embeddings_manager.get_embeddings(
             config.retrieval.embedding_model
         )
+        # Read-only: the store is committed to git and shipped to the host, and
+        # merely opening a chromadb PersistentClient writes a lock row into it.
+        # Retrieval reads a per-process snapshot instead; only the ingestion
+        # scripts write to the real directory.
         self.vectorstore = VectorStoreManager(
             persist_directory=config.vectorstore.persist_directory,
-            collection_name=config.vectorstore.collection_name
+            collection_name=config.vectorstore.collection_name,
+            read_only=True,
         )
 
     def retrieve(

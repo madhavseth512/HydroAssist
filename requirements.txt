@@ -3,11 +3,15 @@ langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-google-genai>=2.0.0
 langgraph>=0.2.0
-langchain-huggingface>=0.1.0
 
 # Vector Store & Embeddings
-chromadb>=0.4.0
-sentence-transformers>=2.7.0
+# chromadb embeds with its bundled ONNX export of all-MiniLM-L6-v2 (via
+# onnxruntime, a chromadb dependency). sentence-transformers and
+# langchain-huggingface were removed: they pulled in torch (~1.7 GB) only to embed
+# queries, while the index itself was always ONNX-embedded. Pinned to 1.x because
+# the committed data/vectordb was written by chromadb 1.5 and older versions
+# cannot read its on-disk format.
+chromadb>=1.5,<2
 
 # Document Processing
 pypdf>=4.0.0
