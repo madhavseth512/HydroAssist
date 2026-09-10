@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.core.graph import HydroAssistChat
 from src.core.config import load_config
 from src.calculator import registry as _registry
+from src.project import workspace as _ws
+from src.project.model import FILE_SUFFIX, Project, ProjectFileError, Readings
 from langchain_core.messages import HumanMessage, AIMessage
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -78,6 +80,19 @@ if "validation" not in st.session_state:
     st.session_state.validation = None   # last ValidationResult
 if "diagnosis" not in st.session_state:
     st.session_state.diagnosis = None    # last DerivativeSignature
+
+# The open project, and which of its tests the workspace is showing.
+if "project" not in st.session_state:
+    st.session_state.project = _ws.new_project()
+    st.session_state.active_test_id = st.session_state.project.tests[0].id
+# Bumped whenever a different project or test is loaded, so keyed detail
+# inputs are recreated showing the new values.
+if "project_gen" not in st.session_state:
+    st.session_state.project_gen = 0
+# Step 2 inputs are keyed so a reopened project can prefill them.
+for _key, _default in _ws.DEFAULTS.items():
+    if _key not in st.session_state:
+        st.session_state[_key] = _default
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -186,6 +201,109 @@ def _inspection_llm():
         return None
 
 
+# ── Project helpers ───────────────────────────────────────────────────────────
+
+def _active_test():
+    """The project test the workspace is showing. Recovers if the stored id no
+    longer exists, e.g. just after a different project was opened."""
+    project = st.session_state.project
+    try:
+        return project.get_test(st.session_state.get("active_test_id", ""))
+    except KeyError:
+        if not project.tests:
+            project.add_test()
+        st.session_state.active_test_id = project.tests[0].id
+        return project.tests[0]
+
+
+def _load_test_into_workspace(test):
+    """Point the workspace at `test`: its readings, its setup in the Step 2 form,
+    and a clean slate for results.
+
+    Writes Step 2 widget keys, which Streamlit only allows before those widgets
+    render in the run — so this is called only from the sidebar, which executes
+    before the workspace tab, and always followed by st.rerun().
+    """
+    st.session_state.active_test_id = test.id
+    st.session_state.calc_result = None
+    st.session_state.validation = None
+    st.session_state.diagnosis = None
+    st.session_state.formatted_df = (
+        test.readings.to_frame() if test.readings is not None else None)
+    for key, value in _ws.inputs_from_setup(test.setup).items():
+        st.session_state[key] = value
+    st.session_state.chat.clear_calculation()
+    st.session_state.chat.clear_staged_series()
+    st.session_state.project_gen = st.session_state.get("project_gen", 0) + 1
+
+
+def _render_prepared_data(df):
+    """Everything Step 1 shows for a ready dataset, whatever its source — a fresh
+    CSV upload or readings reopened from a project."""
+    from src.calculator.derivative import diagnose
+    from src.calculator.plots import derivative_diagnostic
+    from src.data.validator import DataValidator
+
+    # Publish the series to the conversation so the Manager's method suggestion
+    # reads the actual flow regime off the derivative rather than inferring it
+    # from the words in the user's message.
+    st.session_state.chat.stage_series(
+        df.time_s.values, df.drawdown_m.values,
+        Q=st.session_state.calc_inputs.get("Q"),
+    )
+
+    st.markdown(f"**{len(df)} data points** ready  "
+                f"| t: {df.time_s.min():.0f}s – {df.time_s.max():.0f}s  "
+                f"| s: {df.drawdown_m.min():.3f}m – {df.drawdown_m.max():.3f}m")
+
+    with st.expander("Preview formatted data (first 10 rows)"):
+        st.dataframe(df.head(10), use_container_width=True)
+
+    # Modern practice reads the derivative first and picks the model from its
+    # shape, rather than fitting a model chosen in advance and checking R²
+    # afterwards. So this sits in Step 1, ahead of the method dropdown.
+    with st.expander("🔍 Diagnostic plot — what does the data say?", expanded=True):
+        try:
+            signature = diagnose(df.time_s.values, df.drawdown_m.values)
+            st.session_state.diagnosis = signature
+            st.plotly_chart(
+                derivative_diagnostic(df.time_s.values, df.drawdown_m.values),
+                use_container_width=True,
+            )
+            st.info(f"**{signature.regime.replace('_', ' ').title()}** "
+                    f"— {signature.evidence}")
+            for note in signature.notes:
+                st.caption(f"• {note}")
+            recommended = [_registry.get(m) for m in signature.suggests]
+            recommended = [spec.label for spec in recommended if spec]
+            if recommended:
+                st.caption("Consistent with: " + ", ".join(recommended))
+        except Exception as e:
+            st.caption(f"Diagnostic plot unavailable: {e}")
+            st.session_state.diagnosis = None
+
+    # Physical plausibility and method suitability.
+    validation = DataValidator().validate(
+        df,
+        well_radius_m=st.session_state.calc_inputs.get("r"),
+        pumping_rate_m3d=st.session_state.calc_inputs.get("Q_day"),
+        well_casing_radius_m=st.session_state.calc_inputs.get("r_c"),
+    )
+    st.session_state.validation = validation
+    for err in validation.errors:
+        st.error(err)
+    for warn in validation.warnings:
+        st.warning(warn)
+    if validation.info:
+        with st.expander(f"Data notes ({len(validation.info)})"):
+            for note in validation.info:
+                st.caption(f"• {note}")
+    if not validation.is_usable:
+        st.error("This dataset cannot be analysed as-is — resolve the errors "
+                 "above before running a fit.")
+        st.session_state.formatted_df = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR — always visible
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -210,6 +328,77 @@ with st.sidebar:
 
     if context["has_result"]:
         st.success("Analysis loaded — the consultant can discuss it.")
+
+    # ── Project ───────────────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("📁 Project")
+    project = st.session_state.project
+    active = _active_test()
+    gen = st.session_state.project_gen
+    st.caption(f"**{project.info.title}** · {_ws.project_summary(project)}")
+
+    # Keyed by generation: after a successful open the key changes, so the
+    # uploader comes back empty instead of re-opening the same file every rerun.
+    opened = st.file_uploader(
+        "Open a project", type=["json"], key=f"project_file_{gen}",
+        help=f"A {FILE_SUFFIX} file saved from HydroAssist.",
+    )
+    if opened is not None:
+        try:
+            loaded = Project.from_json(opened.getvalue())
+        except ProjectFileError as e:
+            st.error(str(e))
+        else:
+            if not loaded.tests:
+                loaded.add_test()
+            st.session_state.project = loaded
+            _load_test_into_workspace(loaded.tests[0])
+            st.rerun()
+
+    test_ids = [t.id for t in project.tests]
+    chosen = st.selectbox(
+        "Active test", test_ids, index=test_ids.index(active.id),
+        format_func=lambda test_id: project.get_test(test_id).name,
+    )
+    if chosen != active.id:
+        _load_test_into_workspace(project.get_test(chosen))
+        st.rerun()
+
+    with st.expander("Project and test details"):
+        info = project.info
+        info.title = st.text_input("Project title", info.title, key=f"pi_title_{gen}")
+        info.client = st.text_input("Client", info.client, key=f"pi_client_{gen}")
+        info.project_number = st.text_input(
+            "Project number", info.project_number, key=f"pi_number_{gen}")
+        info.location = st.text_input("Location", info.location, key=f"pi_loc_{gen}")
+        info.test_date = st.text_input("Test date", info.test_date,
+                                       placeholder="YYYY-MM-DD", key=f"pi_date_{gen}")
+        info.analyst = st.text_input("Analyst", info.analyst, key=f"pi_analyst_{gen}")
+        info.notes = st.text_area("Notes", info.notes, key=f"pi_notes_{gen}")
+        st.markdown("**Active test**")
+        active.name = st.text_input(
+            "Test name", active.name, key=f"t_name_{active.id}_{gen}") or active.name
+        active.pumping_well = st.text_input(
+            "Pumping well", active.pumping_well, key=f"t_pw_{active.id}_{gen}")
+        active.observation_well = st.text_input(
+            "Observation well", active.observation_well, key=f"t_ow_{active.id}_{gen}")
+
+    pc1, pc2 = st.columns(2)
+    if pc1.button("➕ Add test", use_container_width=True):
+        _load_test_into_workspace(project.add_test())
+        st.rerun()
+    pc2.download_button(
+        "💾 Save", data=project.to_json(), file_name=project.filename,
+        mime="application/json", use_container_width=True,
+        help="Download the project as a file you can reopen later.",
+    )
+
+    with st.expander("Start a new project"):
+        st.caption("Anything not saved to a file will be lost.")
+        if st.button("Discard and start new", use_container_width=True):
+            st.session_state.project = _ws.new_project()
+            _load_test_into_workspace(st.session_state.project.tests[0])
+            st.rerun()
 
     st.divider()
     st.subheader("⚙️ Controls")
@@ -344,6 +533,10 @@ with tab_calc:
         "Upload a CSV file with time and drawdown columns",
         type=["csv"],
         help="Expected columns: time (s/min/hr) and drawdown (m/ft). Multi-well wide format supported.",
+        # One uploader per test. Otherwise switching tests leaves the previous
+        # CSV in the uploader, and the next rerun would silently overwrite the
+        # newly selected test's readings with it.
+        key=f"csv_{_active_test().id}",
     )
 
     if uploaded:
@@ -382,14 +575,6 @@ with tab_calc:
             df = fmt.df
             st.session_state.formatted_df = df
 
-            # Publish the series to the conversation so the Manager's method
-            # suggestion reads the actual flow regime off the derivative rather
-            # than inferring it from the words in the user's message.
-            st.session_state.chat.stage_series(
-                df.time_s.values, df.drawdown_m.values,
-                Q=st.session_state.calc_inputs.get("Q"),
-            )
-
             if fmt.conversions_applied:
                 with st.expander("Conversions applied"):
                     for c in fmt.conversions_applied:
@@ -399,74 +584,33 @@ with tab_calc:
                     for r in fmt.rows_removed:
                         st.caption(f"• {r}")
 
-            st.markdown(f"**{len(df)} data points** ready  "
-                        f"| t: {df.time_s.min():.0f}s – {df.time_s.max():.0f}s  "
-                        f"| s: {df.drawdown_m.min():.3f}m – {df.drawdown_m.max():.3f}m")
+            # Record the readings in the active project test, so a saved project
+            # reopens with its data. Guarded by fingerprint because the uploader
+            # re-delivers the same file on every rerun.
+            active_test = _active_test()
+            readings = Readings.from_frame(df, source_name=uploaded.name,
+                                           conversions=fmt.conversions_applied)
+            if (active_test.readings is None
+                    or active_test.readings.fingerprint != readings.fingerprint):
+                active_test.set_readings(readings)
 
-            with st.expander("Preview formatted data (first 10 rows)"):
-                st.dataframe(df.head(10), use_container_width=True)
-
-            # ── Diagnostic plot, before any model is chosen ───────────────────
-            # Modern practice reads the derivative first and picks the model from
-            # its shape, rather than fitting a model chosen in advance and
-            # checking R² afterwards. So this sits in Step 1, ahead of the
-            # method dropdown.
-            with st.expander("🔍 Diagnostic plot — what does the data say?",
-                             expanded=True):
-                try:
-                    from src.calculator.derivative import diagnose
-                    from src.calculator.plots import derivative_diagnostic
-
-                    signature = diagnose(df.time_s.values, df.drawdown_m.values)
-                    st.session_state.diagnosis = signature
-
-                    st.plotly_chart(
-                        derivative_diagnostic(df.time_s.values,
-                                              df.drawdown_m.values),
-                        use_container_width=True,
-                    )
-                    st.info(f"**{signature.regime.replace('_', ' ').title()}** "
-                            f"— {signature.evidence}")
-                    for note in signature.notes:
-                        st.caption(f"• {note}")
-
-                    recommended = [_registry.get(m) for m in signature.suggests]
-                    recommended = [s.label for s in recommended if s]
-                    if recommended:
-                        st.caption("Consistent with: " + ", ".join(recommended))
-                except Exception as e:
-                    st.caption(f"Diagnostic plot unavailable: {e}")
-                    st.session_state.diagnosis = None
-
-            # ── Physical plausibility + method suitability ────────────────────
-            validation = DataValidator().validate(
-                df,
-                well_radius_m=st.session_state.calc_inputs.get("r"),
-                pumping_rate_m3d=st.session_state.calc_inputs.get("Q_day"),
-                well_casing_radius_m=st.session_state.calc_inputs.get("r_c"),
-            )
-            st.session_state.validation = validation
-
-            for err in validation.errors:
-                st.error(err)
-            for warn in validation.warnings:
-                st.warning(warn)
-            if validation.info:
-                with st.expander(f"Data notes ({len(validation.info)})"):
-                    for note in validation.info:
-                        st.caption(f"• {note}")
-
-            if not validation.is_usable:
-                st.error(
-                    "This dataset cannot be analysed as-is — resolve the errors "
-                    "above before running a fit."
-                )
-                st.session_state.formatted_df = None
+            _render_prepared_data(df)
 
         except Exception as e:
             st.error(f"Failed to process CSV: {e}")
             st.session_state.formatted_df = None
             st.session_state.validation = None
+
+    elif _active_test().readings is not None:
+        # No new upload, but the active test already holds readings — typically
+        # a reopened project. Use them rather than showing an empty workspace.
+        saved = _active_test().readings
+        df = saved.to_frame()
+        st.session_state.formatted_df = df
+        source = f" from {saved.source_name}" if saved.source_name else ""
+        st.info(f"Using {len(saved)} readings saved in this project{source}. "
+                "Upload a CSV above to replace them.")
+        _render_prepared_data(df)
 
     # ── Step 2: Well parameters ───────────────────────────────────────────────
     st.divider()
@@ -474,18 +618,20 @@ with tab_calc:
 
     col1, col2, col3 = st.columns(3)
     with col1:
+        # Keyed (values come from session state) so a reopened project or a
+        # switched test can prefill them.
         Q_input = st.number_input(
             "Pumping rate Q",
-            min_value=0.0001, max_value=100000.0,
-            value=500.0, step=10.0,
+            min_value=0.0001, max_value=100000.0, step=10.0,
+            key=_ws.KEY_Q,
             help="Enter Q in the unit selected below",
         )
-        Q_unit = st.selectbox("Q unit", ["m³/day", "m³/hour", "m³/s", "L/s"])
+        Q_unit = st.selectbox("Q unit", _ws.Q_UNITS, key=_ws.KEY_Q_UNIT)
     with col2:
         r = st.number_input(
             "Observation well distance r (m)",
-            min_value=0.1, max_value=5000.0,
-            value=50.0, step=1.0,
+            min_value=0.1, max_value=5000.0, step=1.0,
+            key=_ws.KEY_R,
             help="Distance from pumping well to the observation well",
         )
     with col3:
@@ -517,13 +663,13 @@ with tab_calc:
         with pc_col1:
             r_w = st.number_input(
                 "Well screen radius r_w (m)",
-                min_value=0.01, max_value=5.0, value=0.15, step=0.01,
+                min_value=0.01, max_value=5.0, step=0.01, key=_ws.KEY_RW,
                 help="Effective radius of the well screen or open hole (paper: r_w)",
             )
         with pc_col2:
             r_c = st.number_input(
                 "Casing radius r_c (m)",
-                min_value=0.01, max_value=5.0, value=0.10, step=0.01,
+                min_value=0.01, max_value=5.0, step=0.01, key=_ws.KEY_RC,
                 help="Radius of the well casing where the water level declines (paper: r_c)",
             )
         st.caption(
@@ -532,9 +678,12 @@ with tab_calc:
         )
 
     # Convert Q to m³/s
-    Q_convert = {"m³/day": 1/86400, "m³/hour": 1/3600, "m³/s": 1.0, "L/s": 1e-3}
-    Q_si = Q_input * Q_convert[Q_unit]
+    Q_si = _ws.q_to_si(Q_input, Q_unit)
     st.caption(f"Q = {Q_si:.6f} m³/s")
+
+    # Keep the active test's setup in step with the form, so saving the
+    # project captures what is on screen.
+    _active_test().setup = _ws.setup_from_inputs(st.session_state)
 
     # ── Step 3: Run analysis ──────────────────────────────────────────────────
     st.divider()
@@ -565,6 +714,8 @@ with tab_calc:
                     # Q_day and r_c feed DataValidator's method-suitability
                     # pre-check on the next upload / rerun.
                     "Q_day": Q_si * 86400.0,
+                    # Kept so a saved analysis records Q as it was entered.
+                    "Q_entered": Q_input, "Q_unit": Q_unit,
                 }
 
                 # ── Publish the result back into the conversation ────────────
@@ -670,6 +821,29 @@ with tab_calc:
         r_w_r   = inputs.get("r_w", 0.10)
         r_c_r   = inputs.get("r_c", 0.10)
 
+        # ── Save to the project ───────────────────────────────────────────────
+        active_test = _active_test()
+        # Compared by identity against a held reference, not by id(): an id can
+        # be reused once the old result is garbage-collected.
+        saved_already = st.session_state.get("saved_result") is result
+        if active_test.readings is None:
+            st.caption("Load readings into this project test to save analyses.")
+        elif saved_already:
+            st.success(f"Saved to **{active_test.name}** — compare it with other "
+                       "methods in the table at the bottom of this page.")
+        elif st.button(f"📌 Save this analysis to “{active_test.name}”",
+                       use_container_width=True):
+            method_spec = _registry.get(result.method)
+            active_test.add_analysis(
+                result, result.method,
+                method_spec.id if method_spec else result.method_id,
+                # The setup the fit ran with, not whatever the form now shows.
+                setup=_ws.setup_from_run(st.session_state.calc_inputs),
+            )
+            st.session_state.project.touch()
+            st.session_state.saved_result = result
+            st.rerun()
+
         # ── Step 4b: PDF Report download ──────────────────────────────────────
         st.divider()
         st.subheader("Step 4b — Download Report")
@@ -689,6 +863,8 @@ with tab_calc:
                         st.session_state.formatted_df,
                         n_excl,
                         r_c=r_c_r if at_well else None,
+                        project_info=st.session_state.project.info,
+                        test_label=_active_test().name,
                     )
                     fname = (
                         method_r.split("(")[0].strip().lower().replace(" ", "_")
@@ -770,3 +946,24 @@ with tab_calc:
                     f"S = {S_manual:.2e}"
                 )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Saved analyses for the active test — shown whether or not a fit is on screen
+# ─────────────────────────────────────────────────────────────────────────────
+with tab_calc:
+    _test = _active_test()
+    _frame = _ws.comparison_frame(_test)
+    if not _frame.empty:
+        st.divider()
+        st.subheader(f"Compare saved analyses — {_test.name}")
+        st.dataframe(_frame, hide_index=True, use_container_width=True)
+        st.caption(
+            "Ranked by AICc, which charges for every extra parameter — not by R², "
+            "which always favours the most complex method. ΔAICc under 2 means the "
+            "data cannot tell two methods apart; over 10 is decisive. Weight is the "
+            "relative likelihood that each method is the best of this set."
+        )
+        _stale = _ws.stale_count(_test)
+        if _stale:
+            st.caption(f"{_stale} earlier analysis(es) were run on different "
+                       "readings and are left out of this comparison.")
