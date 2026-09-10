@@ -34,6 +34,9 @@ class RuleContext:
     correlations: dict = field(default_factory=dict)    # (a, b) -> correlation
     diagnostics: dict = field(default_factory=dict)     # method-specific extras
     inputs: object = None
+    # name -> (lo, hi) | None. Empty means intervals were not supplied, which
+    # is different from intervals that could not be computed.
+    intervals: dict = field(default_factory=dict)
 
     def value(self, name: str, default: float = 0.0) -> float:
         return self.params.get(name, default)
@@ -160,6 +163,33 @@ def bound_hit_rule() -> ValidityRule:
         severity="warning",
         applies=lambda c: bool(hits(c)),
         message=text,
+    )
+
+
+def ci_unavailable_rule(message: str = "") -> ValidityRule:
+    """No estimated parameter has a confidence interval.
+
+    covariance_to_ci returns None for every parameter when the covariance
+    diagonal holds inf or a negative value — the fit did not settle on a unique
+    solution, or the Jacobian is ill-conditioned. Without this rule the interval
+    simply disappears from the results and the user is never told why. `message`
+    lets a method explain the likely cause in the terms of its own paper.
+    """
+
+    def applies(c):
+        free = [name for name, spec in c.specs.items() if spec.is_free]
+        return (bool(c.intervals) and bool(free)
+                and all(c.intervals.get(name) is None for name in free))
+
+    return ValidityRule(
+        id="confidence_intervals_unavailable",
+        severity="warning",
+        applies=applies,
+        message=lambda c: message or (
+            "Confidence intervals could not be computed — the covariance matrix "
+            "is ill-conditioned, so the data do not constrain every parameter. "
+            "Treat the estimates as indicative."
+        ),
     )
 
 

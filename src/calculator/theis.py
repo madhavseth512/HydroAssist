@@ -13,16 +13,26 @@ Key equations from the paper:
       W(u) = -0.5772 - ln(u) + u - u²/(2·2!) + u³/(3·3!) - ...
       As u → 0, -ln(u) → +∞ (diverges) → guard required
       For small u, W(u) ≈ -0.5772 - ln(u) → Cooper-Jacob straight-line regime
+
+Built on CurveFitCalculator: this module supplies the model, the starting point
+and the interpretation rules. Fitting, confidence intervals, goodness of fit and
+the shared diagnostics — bound hits, parameter correlation, AICc — come from the
+template. The fitted numbers are identical to the hand-written version this
+replaced; tests/fixtures/golden_fits.json pins them to 1e-9.
 """
 
 import logging
 from typing import Optional
 
 import numpy as np
-from scipy.optimize import curve_fit
 from scipy.special import expn
 
-from src.calculator.base import BaseCalculator, CalculationInput, CalculationResult
+from src.calculator.fitting import ParameterSpec
+from src.calculator.rules import (
+    ValidityRule, bound_hit_rule, ci_unavailable_rule, overfitting_rule,
+    parameter_correlation_rule, poor_fit_rule,
+)
+from src.calculator.templates import CurveFitCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +54,23 @@ S_MIN, S_MAX = 1e-9, 1e-2     # [dimensionless]
 # what CJ will actually accept when the user runs both methods.
 CJ_U_THRESHOLD = 0.02
 
-# curve_fit tolerances tightened from scipy defaults (1e-8) because T and S
+# Optimiser tolerances tightened from scipy defaults (1e-8) because T and S
 # span 4-5 orders of magnitude. Default tolerances can declare convergence
 # with a 20% error in T. (Fix #4)
 CURVE_FIT_TOL = 1e-12
+
+_CRUDE_GUESS_NOTE = (
+    "Initial parameter guess is crude (CJ slope method not applicable — "
+    "test duration may be too short for the linear regime). "
+    "Verify fit quality carefully."
+)
 
 
 def _make_theis_model(Q: float, r: float):
     """
     Factory returning the Theis model function with Q and r as closed-over
     invariants. Q and r are fixed test parameters (Theis treats them as
-    constants throughout). Signature f(t, T, S) matches curve_fit's requirement.
+    constants throughout). Signature f(t, T, S) is what the fitter calls.
 
     Args:
         Q: Pumping rate [m³/s] — MUST be SI before calling
@@ -69,60 +85,59 @@ def _make_theis_model(Q: float, r: float):
     return theis_model
 
 
+def _late_time_slope(time_s: np.ndarray, drawdown_m: np.ndarray,
+                     r: float) -> Optional[float]:
+    """Semi-log slope of the last third of the record, or None when the data
+    are not in the Cooper-Jacob straight-line regime or the slope is not
+    positive.
+
+    Regime pre-check: u = r²S/4Tt. Since T and S are unknown, use the ratio
+    r²/4t (equivalent to T=S=1, which cancels). This is order-of-magnitude
+    neutral and avoids the 1000× error that the canonical T=S=1e-4 proxy
+    produces for high-transmissivity aquifers. (Fix #1 — partial)
+    """
+    # Use last third of data (latest time → smallest u → most linear)
+    n_late = max(3, len(time_s) // 3)
+    t_late = time_s[-n_late:]
+    s_late = drawdown_m[-n_late:]
+
+    u_approx = (r ** 2) / (4.0 * t_late)
+    if np.all(u_approx < 0.5) and len(t_late) >= 3:
+        slope, _ = np.polyfit(np.log10(t_late), s_late, 1)
+        if slope > 1e-6:
+            return float(slope)
+    return None
+
+
 def _estimate_initial_T(time_s: np.ndarray, drawdown_m: np.ndarray,
                          Q: float, r: float) -> tuple[float, list]:
     """
     Estimate T_init from late-time data using the Cooper-Jacob linearisation
     (Theis eq. 3 series truncated for small u: W(u) ≈ -0.5772 - ln(u)).
 
-    Includes a regime pre-check: if late-time u values are likely > 0.5
-    (data not yet in linear CJ regime), the CJ slope estimate is unreliable
-    and the crude fallback is used immediately. (Fix #1 — partial)
-
     Returns (T_init, notes_list).
     """
-    notes = []
-
-    # Use last third of data (latest time → smallest u → most linear)
-    n_late = max(3, len(time_s) // 3)
-    t_late = time_s[-n_late:]
-    s_late = drawdown_m[-n_late:]
-
-    # Regime pre-check: u = r²S/4Tt. Since T and S are unknown, use the
-    # ratio r²/4t (equivalent to T=S=1, which cancels). This is
-    # order-of-magnitude neutral and avoids the 1000× error that the
-    # canonical T=S=1e-4 proxy produces for high-transmissivity aquifers.
-    u_approx = (r ** 2) / (4.0 * t_late)
-    in_cj_regime = np.all(u_approx < 0.5)
-
-    if in_cj_regime and len(t_late) >= 3:
-        log_t = np.log10(t_late)
-        slope, _ = np.polyfit(log_t, s_late, 1)
-        if slope > 1e-6:
-            T_init = (2.303 * Q) / (4.0 * np.pi * slope)
-            logger.debug(f"T_init from CJ slope: {T_init:.3e} m²/s")
-            return T_init, notes
+    slope = _late_time_slope(time_s, drawdown_m, r)
+    if slope is not None:
+        T_init = (2.303 * Q) / (4.0 * np.pi * slope)
+        logger.debug(f"T_init from CJ slope: {T_init:.3e} m²/s")
+        return T_init, []
 
     # Fallback: CJ slope method failed (short test or non-linear regime).
     # Setting W(u) = 1 implicitly — crude but within the right order of magnitude.
-    # curve_fit with TRF and bounded parameters is robust to this. (Fix #2)
+    # The bounded Trust Region Reflective fit is robust to this. (Fix #2)
     T_init = Q / (4.0 * np.pi * np.median(drawdown_m))
-    notes.append(
-        "Initial parameter guess is crude (CJ slope method not applicable — "
-        "test duration may be too short for the linear regime). "
-        "Verify fit quality carefully."
-    )
     logger.warning(f"T_init fallback used: {T_init:.3e} m²/s")
-    return T_init, notes
+    return T_init, [_CRUDE_GUESS_NOTE]
 
 
-class TheisCalculator(BaseCalculator):
+class TheisCalculator(CurveFitCalculator):
     """
     Theis (1935) pumping test analysis for confined aquifers.
 
-    Fits the Theis well function W(u) to observed time-drawdown data using
-    nonlinear least squares (scipy.optimize.curve_fit, Trust Region Reflective).
-    Outputs T (transmissivity) and S (storativity) with 95% confidence intervals.
+    Fits the Theis well function W(u) to observed time-drawdown data by bounded
+    nonlinear least squares, estimating T (transmissivity) and S (storativity)
+    with 95% confidence intervals.
 
     Aquifer conditions required (from Theis 1935):
       - Confined (artesian) aquifer, bounded above and below by aquitards
@@ -133,219 +148,137 @@ class TheisCalculator(BaseCalculator):
       - Well of infinitesimal diameter (Theis assumption 5)
     """
 
-    def calculate(self, inputs: CalculationInput) -> CalculationResult:
-        """
-        Run Theis curve fitting.
+    method_id = "theis_1935"
+    method_label = "Theis (1935)"
+    fit_tolerance = CURVE_FIT_TOL
+    max_evals = 10000
 
-        Args:
-            inputs: CalculationInput with Q in m³/s (not m³/day)
+    def parameter_specs(self, inputs, time_s, drawdown_m):
+        # Linear rather than log scale: this is the parametrisation the golden
+        # baseline was recorded with, and two parameters alone are not badly
+        # enough scaled against each other for the optimiser to need it.
+        T_init, _ = _estimate_initial_T(time_s, drawdown_m, inputs.Q, inputs.r)
+        return [
+            ParameterSpec("T", "m^2/s", T_MIN, T_MAX,
+                          float(np.clip(T_init, T_MIN * 10, T_MAX / 10)),
+                          symbol="T", display_scale=86400.0,
+                          display_unit="m^2/day", description="Transmissivity"),
+            # Canonical midpoint of the confined storativity range.
+            ParameterSpec("S", "-", S_MIN, S_MAX, 1e-4,
+                          symbol="S", description="Storativity"),
+        ]
 
-        Returns:
-            CalculationResult with T, S, confidence intervals, and validity notes
-        """
-        # ── Step 1: Validate inputs ───────────────────────────────────────────
-        error = self._validate(inputs)
-        if error:
-            return CalculationResult(
-                method="Theis (1935)", T=0.0, S=0.0,
-                success=False, error_message=error
-            )
+    def model(self, inputs):
+        return _make_theis_model(inputs.Q, inputs.r)
 
-        time_s, drawdown_m = inputs.get_series()
-        Q, r = inputs.Q, inputs.r
-        notes = []
+    def extra_diagnostics(self, inputs, params):
+        # Largest u over the last third of the record — whether the
+        # Cooper-Jacob approximation holds for this dataset. max(1, ...)
+        # prevents the -0 slice bug (Fix #6).
+        time_s, _ = inputs.get_series()
+        n_late = max(1, len(time_s) // 3)
+        u_late = (inputs.r ** 2 * params["S"]) / (4.0 * params["T"] * time_s[-n_late:])
+        return {"u_max_late": float(np.max(u_late))}
 
-        # ── Step 2: Build model function ──────────────────────────────────────
-        theis_model = _make_theis_model(Q, r)
-
-        # ── Step 3: Initial parameter estimates ───────────────────────────────
-        T_init, init_notes = _estimate_initial_T(time_s, drawdown_m, Q, r)
-        S_init = 1e-4   # canonical midpoint of confined aquifer storativity range
-        notes.extend(init_notes)
-
-        # Clamp T_init to bounds
-        T_init = np.clip(T_init, T_MIN * 10, T_MAX / 10)
-
-        # ── Step 4: Nonlinear least squares fit ───────────────────────────────
-        try:
-            popt, pcov = curve_fit(
-                theis_model,
-                time_s,
-                drawdown_m,
-                p0=[T_init, S_init],
-                bounds=([T_MIN, S_MIN], [T_MAX, S_MAX]),
-                maxfev=10000,
-                method="trf",       # Trust Region Reflective — handles bounds correctly
-                ftol=CURVE_FIT_TOL, # tightened: default 1e-8 too loose for multi-order params
-                xtol=CURVE_FIT_TOL,
-                gtol=CURVE_FIT_TOL,
-            )
-        except (RuntimeError, ValueError) as e:
-            return CalculationResult(
-                method="Theis (1935)", T=0.0, S=0.0,
-                success=False,
-                error_message=f"Curve fitting failed: {e}. "
-                              "Try adjusting Q or r, or check data quality."
-            )
-
-        T_fit, S_fit = popt
-
-        # ── Step 5: Confidence intervals with pcov guard ──────────────────────
-        T_ci, S_ci = self._compute_ci(pcov, T_fit, S_fit, notes)
-
-        # Detect silent bound-hit on T (Fix #3)
-        if abs(T_fit - T_MAX) < 1e-6:
-            notes.append(
-                f"Transmissivity hit the upper bound ({T_MAX} m²/s = "
-                f"{T_MAX * 86400:.0f} m²/day). True T may be higher. "
-                "Consider whether this is a high-transmissivity aquifer (karst/fractured rock)."
-            )
-        if abs(T_fit - T_MIN) < 1e-9:
-            notes.append("Transmissivity hit the lower bound — check data quality and Q value.")
-
-        # ── Step 6: Goodness-of-fit ───────────────────────────────────────────
-        s_fitted  = theis_model(time_s, T_fit, S_fit)
-        residuals = drawdown_m - s_fitted
-        rmse      = float(np.sqrt(np.mean(residuals ** 2)))
-        ss_res    = float(np.sum(residuals ** 2))
-        ss_tot    = float(np.sum((drawdown_m - np.mean(drawdown_m)) ** 2))
-        r_squared = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
-
-        # ── Step 7: Validity notes ────────────────────────────────────────────
-        self._add_validity_notes(
-            T_fit, S_fit, r_squared, time_s, drawdown_m, Q, r, notes
-        )
-
-        logger.info(
-            f"Theis fit: T={T_fit:.3e} m²/s ({T_fit*86400:.1f} m²/day), "
-            f"S={S_fit:.3e}, R²={r_squared:.4f}, RMSE={rmse:.4f}m"
-        )
-
-        return CalculationResult(
-            method="Theis (1935)",
-            T=float(T_fit),
-            S=float(S_fit),
-            T_ci=T_ci,
-            S_ci=S_ci,
-            rmse=rmse,
-            r_squared=r_squared,
-            time_s=time_s,
-            drawdown_obs=drawdown_m,
-            drawdown_fitted=s_fitted,
-            validity_notes=notes,
-            success=True,
-        )
-
-    # ── Private helpers ───────────────────────────────────────────────────────
-
-    def _validate(self, inputs: CalculationInput) -> Optional[str]:
-        """Return an error string if inputs are invalid, else None."""
-        if inputs.Q <= 0:
-            return f"Pumping rate Q must be positive (got {inputs.Q}). Ensure Q is in m³/s."
-        if inputs.r <= 0:
-            return f"Observation distance r must be positive (got {inputs.r} m)."
-        if inputs.r < 0.5:
-            # Very small r likely means the user passed the pumping well casing radius
-            # instead of the observation well distance. Flag it.
-            logger.warning(
-                f"r = {inputs.r}m is very small — verify this is the observation well "
-                "distance (typically 10–200m), not the pumping well casing radius."
-            )
-        t, s = inputs.get_series()
-        if len(t) < 10:
-            return f"Insufficient data: {len(t)} points (minimum 10 required)."
-        if np.any(s < 0):
-            return "Negative drawdown values detected — remove recovery phase data before fitting."
-        if np.any(t <= 0):
-            return "Non-positive time values detected — t=0 should be removed by the formatter."
-        return None
-
-    def _compute_ci(
-        self, pcov: np.ndarray, T_fit: float, S_fit: float, notes: list
-    ) -> tuple:
-        """
-        Compute 95% confidence intervals from the curve_fit covariance matrix.
-        Returns (T_ci, S_ci) — each is a (lower, upper) tuple or None.
-
-        None is returned when pcov diagonal contains inf or negative values.
-        inf → curve_fit did not converge to a unique solution.
-        negative → ill-conditioned Jacobian (numerically pathological).
-        Both indicate Theis's own warning: heterogeneous aquifer behavior may
-        make the theoretical curve a poor model for the data.
-        """
-        diag = np.diag(pcov)
-        if np.any(np.isinf(diag)) or np.any(diag < 0):
-            notes.append(
+    def validity_rules(self):
+        return [
+            _crude_initial_guess_rule(),
+            ci_unavailable_rule(
                 "Confidence intervals could not be computed — the covariance matrix "
                 "is ill-conditioned. This often indicates aquifer heterogeneity or "
                 "boundary effects (Theis 1935: 'more observations are always necessary "
                 "to guard against heterogeneity of the aquifer')."
-            )
-            return None, None
+            ),
+            bound_hit_rule(),
+            parameter_correlation_rule(),
+            overfitting_rule(),
+            poor_fit_rule(),
+            _storativity_rule(),
+            _cooper_jacob_regime_rule(),
+            _recovery_hint_rule(),
+        ]
 
-        perr = np.sqrt(diag)
-        T_ci = (T_fit - 1.96 * perr[0], T_fit + 1.96 * perr[0])
-        S_ci = (S_fit - 1.96 * perr[1], S_fit + 1.96 * perr[1])
-        return T_ci, S_ci
 
-    def _add_validity_notes(
-        self,
-        T: float, S: float, r_sq: float,
-        time_s: np.ndarray, drawdown_m: np.ndarray,
-        Q: float, r: float,
-        notes: list,
-    ):
-        """Generate hydrogeological interpretation notes."""
+# ── Method-specific interpretation ────────────────────────────────────────────
 
-        # Goodness-of-fit
-        if r_sq < 0.95:
-            notes.append(
-                f"Poor fit (R² = {r_sq:.3f} < 0.95) — the Theis model may not fully "
-                "describe this dataset. Possible causes: aquifer heterogeneity, "
-                "boundary effects, or leakage (Theis 1935: heterogeneity warning)."
-            )
+def _crude_initial_guess_rule() -> ValidityRule:
+    """The optimiser started from the fallback estimate, so it may have settled
+    somewhere poor — worth saying before anything else."""
+    return ValidityRule(
+        id="crude_initial_guess",
+        severity="warning",
+        applies=lambda c: _late_time_slope(c.time_s, c.drawdown_obs, c.inputs.r) is None,
+        message=lambda c: _CRUDE_GUESS_NOTE,
+    )
 
-        # Storativity range check (confined aquifer: 10⁻⁵ to 10⁻³)
+
+def _storativity_rule() -> ValidityRule:
+    """Storativity outside the confined range, with the paper's short-distance
+    caveat: close to the pumped well S is poorly constrained while T is not."""
+
+    def text(c):
+        S, r = c.value("S"), c.inputs.r
         if S > 1e-3:
-            notes.append(
+            return (
                 f"S = {S:.2e} is above the typical confined aquifer range (10⁻⁵ – 10⁻³). "
                 "Verify the aquifer is truly artesian. Higher S suggests unconfined "
                 "or leaky conditions, for which Theis assumptions do not hold."
             )
+        if r < 5.0:
+            return (
+                f"S = {S:.2e} is very low. With r = {r}m (short distance), "
+                "storativity is poorly constrained — T is reliable but S is not. "
+                "Use a more distant observation well for a reliable S estimate "
+                "(Theis 1935: time-lag makes S computation unreliable at short r)."
+            )
+        return (
+            f"S = {S:.2e} is below the typical confined range (10⁻⁵). "
+            "Check for leakage or partial penetration effects."
+        )
 
-        if S < 1e-6:
-            if r < 5.0:
-                notes.append(
-                    f"S = {S:.2e} is very low. With r = {r}m (short distance), "
-                    "storativity is poorly constrained — T is reliable but S is not. "
-                    "Use a more distant observation well for a reliable S estimate "
-                    "(Theis 1935: time-lag makes S computation unreliable at short r)."
-                )
-            else:
-                notes.append(
-                    f"S = {S:.2e} is below the typical confined range (10⁻⁵). "
-                    "Check for leakage or partial penetration effects."
-                )
+    return ValidityRule(
+        id="storativity_out_of_range",
+        severity="warning",
+        applies=lambda c: c.value("S") > 1e-3 or c.value("S") < 1e-6,
+        message=text,
+        citation="Theis (1935)",
+    )
 
-        # Cooper-Jacob validity check — correct direction:
-        # large t → small u → u < CJ_U_THRESHOLD → CJ valid (Theis eq. 3 truncation)
-        n_late = max(1, len(time_s) // 3)  # Fix #6: max(1,...) prevents -0 slice bug
-        u_late = (r ** 2 * S) / (4.0 * T * time_s[-n_late:])
-        if np.all(u_late < CJ_U_THRESHOLD):
-            notes.append(
+
+def _cooper_jacob_regime_rule() -> ValidityRule:
+    """Large t → small u → u < CJ_U_THRESHOLD → Cooper-Jacob valid (Theis eq. 3
+    truncation). Always reported, in whichever direction it falls."""
+
+    def text(c):
+        if c.diagnostics["u_max_late"] < CJ_U_THRESHOLD:
+            return (
                 f"u < {CJ_U_THRESHOLD} satisfied for all late-time points "
                 "(Cooper-Jacob approximation is valid for this dataset). "
                 "Consider also running Cooper-Jacob (1946) for comparison."
             )
-        else:
-            notes.append(
-                f"u < {CJ_U_THRESHOLD} not satisfied throughout — Theis full-curve fitting "
-                "is the appropriate method for this dataset."
-            )
+        return (
+            f"u < {CJ_U_THRESHOLD} not satisfied throughout — Theis full-curve fitting "
+            "is the appropriate method for this dataset."
+        )
 
-        # Recovery data hint (Theis 1935 eq. 7 — Phase 3 feature)
-        notes.append(
+    return ValidityRule(
+        id="cooper_jacob_regime",
+        severity="info",
+        applies=lambda c: "u_max_late" in c.diagnostics,
+        message=text,
+        citation="Theis (1935) eq. 3",
+    )
+
+
+def _recovery_hint_rule() -> ValidityRule:
+    return ValidityRule(
+        id="recovery_hint",
+        severity="info",
+        applies=lambda c: True,
+        message=lambda c: (
             "If recovery data is available, Theis (1935) equation 7 provides "
             "an independent T estimate from residual drawdown vs log(t/t'). "
             "Recovery analysis is planned for a future release."
-        )
+        ),
+        citation="Theis (1935) eq. 7",
+    )

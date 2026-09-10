@@ -332,7 +332,20 @@ class TestGofInTheStateDict:
 
         assert result["gof"]["aicc"] is not None
         assert result["gof"]["n_params"] == 2
+        # On the curve-fit template since step 8, so Theis supplies its own gof;
+        # a full-curve fit uses every point, so the basis covers the whole record.
+        assert result["gof"]["basis"] == "fit"
+        assert result["gof"]["n_points"] == len(_theis_frame())
+
+    def test_straight_line_aicc_covers_the_whole_record(self):
+        """Cooper-Jacob fits only late-time points; its comparison statistics are
+        still computed over every point so its AICc is comparable with Theis's."""
+        from src.calculator.cooper_jacob import CooperJacobCalculator
+
+        result = _fit(CooperJacobCalculator, _theis_frame()).to_state_dict()
+
         assert result["gof"]["basis"] == "all_points"
+        assert result["gof"]["n_points"] == len(_theis_frame())
 
     def test_template_calculators_report_their_own_gof(self):
         result = _fit(HantushJacobCalculator, _leaky_frame()).to_state_dict()

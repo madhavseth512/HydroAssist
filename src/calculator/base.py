@@ -284,8 +284,8 @@ class CalculationResult:
         """Goodness of fit including the information criteria, for comparing
         models on the same data.
 
-        Methods built on the fitting template supply `gof` directly. The three
-        original calculators do not, so it is computed here from the observed and
+        Curve-fit methods supply `gof` directly. Straight-line methods such as
+        Cooper-Jacob deliberately do not, so it is computed here from the observed and
         fitted series, counting only estimated parameters (derived ones such as
         r/B are not free). Computed over every observed point, which is what makes
         AICc comparable across methods: Cooper-Jacob fits only late-time data, so

@@ -37,17 +37,18 @@ Key equations from the paper:
 """
 
 import logging
-from typing import Optional
 
 import numpy as np
-from scipy.optimize import curve_fit
-from scipy.special import expn
 
-from src.calculator.base import BaseCalculator, CalculationInput, CalculationResult
+from src.calculator.fitting import ParameterSpec
 from src.calculator.laplace import stehfest_coefficients, stehfest_invert_array
 from src.calculator.laplace_solutions import (
     papadopulos_cooper_transform, q_theis, with_wellbore_storage,
 )
+from src.calculator.rules import (
+    ValidityRule, bound_hit_rule, ci_unavailable_rule, overfitting_rule,
+)
+from src.calculator.templates import CurveFitCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,14 @@ def pc_drawdown(t_arr: np.ndarray, T: float, S: float,
 
 # ── Calculator class ──────────────────────────────────────────────────────────
 
-class PapadopulosCooperCalculator(BaseCalculator):
+_S_UNRELIABLE = (
+    "Papadopulos & Cooper (1967) p. 244: the determined value of S changes by an "
+    "order of magnitude when the data are moved from one type curve to another, "
+    "while T changes only slightly."
+)
+
+
+class PapadopulosCooperCalculator(CurveFitCalculator):
     """
     Papadopulos-Cooper (1967) large-diameter well analysis.
 
@@ -148,111 +156,79 @@ class PapadopulosCooperCalculator(BaseCalculator):
       - Data from the pumped well (not an observation well)
 
     T is reliably determined; S has order-of-magnitude uncertainty
-    (Papadopulos & Cooper 1967, p. 244).
+    (Papadopulos & Cooper 1967, p. 244), and is reported flagged as such.
+
+    Built on CurveFitCalculator; the fitted numbers are identical to the
+    hand-written version this replaced (tests/fixtures/golden_fits.json).
     """
 
-    def calculate(self, inputs: CalculationInput) -> CalculationResult:
-        error = self._validate(inputs)
-        if error:
-            return CalculationResult(
-                method="Papadopulos-Cooper (1967)", T=0.0, S=0.0,
-                success=False, error_message=error,
-            )
+    method_id = "papadopulos_cooper_1967"
+    method_label = "Papadopulos-Cooper (1967)"
+    requires = ("well.r_w", "well.r_c")
+    fit_tolerance = CURVE_FIT_TOL
+    max_evals = 5000
 
-        time_s, drawdown_m = inputs.get_series()
+    def parameter_specs(self, inputs, time_s, drawdown_m):
+        T_init = self._estimate_T_init(time_s, drawdown_m, inputs.Q, inputs.r_w)
+        return [
+            ParameterSpec("T", "m^2/s", T_MIN, T_MAX,
+                          float(np.clip(T_init, T_MIN * 10, T_MAX / 10)),
+                          symbol="T", display_scale=86400.0,
+                          display_unit="m^2/day", description="Transmissivity"),
+            ParameterSpec("S", "-", S_MIN, S_MAX, 1e-4,
+                          symbol="S", description="Storativity"),
+        ]
+
+    def model(self, inputs):
+        # Free parameters are T and S; Q, r_w and r_c are fixed by the test.
         Q, r_w, r_c = inputs.Q, inputs.r_w, inputs.r_c
-        notes = []
 
-        # ── Initial parameter estimates ───────────────────────────────────────
-        T_init = self._estimate_T_init(time_s, drawdown_m, Q, r_w)
-        T_init = float(np.clip(T_init, T_MIN * 10, T_MAX / 10))
-        S_init = 1e-4
+        def papadopulos_cooper(t, T, S):
+            return pc_drawdown(t, T, S, Q, r_w, r_c)
 
-        # ── Curve fit: free parameters are T and S; Q, r_w, r_c are fixed ────
-        model = lambda t, T, S: pc_drawdown(t, T, S, Q, r_w, r_c)
+        return papadopulos_cooper
 
-        try:
-            popt, pcov = curve_fit(
-                model,
-                time_s,
-                drawdown_m,
-                p0=[T_init, S_init],
-                bounds=([T_MIN, S_MIN], [T_MAX, S_MAX]),
-                maxfev=5000,
-                method="trf",
-                ftol=CURVE_FIT_TOL,
-                xtol=CURVE_FIT_TOL,
-                gtol=CURVE_FIT_TOL,
-            )
-        except (RuntimeError, ValueError) as e:
-            return CalculationResult(
-                method="Papadopulos-Cooper (1967)", T=0.0, S=0.0,
-                success=False,
-                error_message=(
-                    f"Curve fitting failed: {e}. "
-                    "Ensure data are from the pumped well and span the curved "
-                    "portion of the type curve (not only the early-time straight "
-                    "portion — paper p. 244)."
-                ),
-            )
+    def parameter_metadata(self):
+        return {"S": {"reliable": False, "reliability_note": _S_UNRELIABLE}}
 
-        T_fit = float(np.clip(popt[0], T_MIN, T_MAX))
-        S_fit = float(np.clip(popt[1], S_MIN, S_MAX))
-        alpha = (r_w ** 2 * S_fit) / (r_c ** 2)
+    def extra_diagnostics(self, inputs, params):
+        time_s, _ = inputs.get_series()
+        T, S = params["T"], params["S"]
+        r_w, r_c = inputs.r_w, inputs.r_c
+        alpha = (r_w ** 2 * S) / (r_c ** 2)
+        u_w = (r_w ** 2 * S) / (4.0 * T * time_s)
+        return {
+            "alpha": alpha,
+            # Paper p. 242: F(u_w, α) ≈ W(u_w) once u_w/α < 10⁻³.
+            "t_convergence_s": 2.5e3 * r_c ** 2 / T,
+            "n_theis_regime": int(np.sum(u_w / alpha < 1e-3)),
+            "n_wellbore_storage_regime": int(np.sum(u_w / alpha > 1.0)),
+        }
 
-        # ── Confidence intervals ───────────────────────────────────────────────
-        T_ci, S_ci = self._compute_ci(pcov, T_fit, S_fit, notes)
-
-        # ── Goodness-of-fit ───────────────────────────────────────────────────
-        s_fitted = pc_drawdown(time_s, T_fit, S_fit, Q, r_w, r_c)
-        residuals = drawdown_m - s_fitted
-        rmse = float(np.sqrt(np.mean(residuals ** 2)))
-        ss_res = float(np.sum(residuals ** 2))
-        ss_tot = float(np.sum((drawdown_m - np.mean(drawdown_m)) ** 2))
-        r_squared = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
-
-        # ── Validity notes ────────────────────────────────────────────────────
-        self._add_validity_notes(
-            T_fit, S_fit, alpha, r_squared, time_s, Q, r_w, r_c, notes
-        )
-
-        logger.info(
-            f"PC fit: T={T_fit:.3e} m²/s ({T_fit*86400:.1f} m²/day), "
-            f"S={S_fit:.3e}, α={alpha:.2e}, R²={r_squared:.4f}, RMSE={rmse:.4f}m"
-        )
-
-        return CalculationResult(
-            method="Papadopulos-Cooper (1967)",
-            T=T_fit,
-            S=S_fit,
-            T_ci=T_ci,
-            S_ci=S_ci,
-            rmse=rmse,
-            r_squared=r_squared,
-            time_s=time_s,
-            drawdown_obs=drawdown_m,
-            drawdown_fitted=s_fitted,
-            validity_notes=notes,
-            success=True,
-        )
-
-    # ── Private helpers ───────────────────────────────────────────────────────
-
-    def _validate(self, inputs: CalculationInput) -> Optional[str]:
-        if inputs.Q <= 0:
-            return f"Q must be positive (got {inputs.Q} m³/s)."
-        if inputs.r_w <= 0:
-            return f"r_w must be positive (got {inputs.r_w} m)."
-        if inputs.r_c <= 0:
-            return f"r_c must be positive (got {inputs.r_c} m)."
-        t, s = inputs.get_series()
-        if len(t) < 10:
-            return f"Insufficient data: {len(t)} points (minimum 10 required)."
-        if np.any(s < 0):
-            return "Negative drawdown values detected — remove recovery phase data."
-        if np.any(t <= 0):
-            return "Non-positive time values detected."
-        return None
+    def validity_rules(self):
+        # The shared parameter-correlation rule is deliberately left out. T and S
+        # are strongly correlated here by construction — on the bundled sample
+        # r = -0.99 — yet T is still pinned to about ±0.2%. That rule would tell
+        # the user every estimate is unreliable; the paper's own finding, which
+        # is the accurate one, is that S is unreliable and T is not. S is flagged
+        # as such through parameter_metadata and the first method rule below.
+        return [
+            ci_unavailable_rule(
+                "Confidence intervals could not be computed — covariance matrix "
+                "is ill-conditioned. This often means the data do not uniquely "
+                "constrain both T and S (paper p. 244: type curves differ only "
+                "slightly when α changes by an order of magnitude)."
+            ),
+            bound_hit_rule(),
+            overfitting_rule(),
+            _storativity_reliability_rule(),
+            _alpha_rule(),
+            _regime_rule(),
+            _convergence_rule(),
+            _poor_fit_rule(),
+            _wellbore_dominated_rule(),
+            _compare_with_theis_rule(),
+        ]
 
     def _estimate_T_init(self, time_s: np.ndarray, drawdown_m: np.ndarray,
                          Q: float, r_w: float) -> float:
@@ -265,81 +241,109 @@ class PapadopulosCooperCalculator(BaseCalculator):
             return (2.303 * Q) / (4.0 * np.pi * slope)
         return Q / (4.0 * np.pi * np.median(drawdown_m))
 
-    def _compute_ci(self, pcov: np.ndarray, T_fit: float, S_fit: float,
-                    notes: list) -> tuple:
-        diag = np.diag(pcov)
-        if np.any(np.isinf(diag)) or np.any(diag < 0):
-            notes.append(
-                "Confidence intervals could not be computed — covariance matrix "
-                "is ill-conditioned. This often means the data do not uniquely "
-                "constrain both T and S (paper p. 244: type curves differ only "
-                "slightly when α changes by an order of magnitude)."
-            )
-            return None, None
-        perr = np.sqrt(diag)
-        T_ci = (T_fit - 1.96 * perr[0], T_fit + 1.96 * perr[0])
-        S_ci = (S_fit - 1.96 * perr[1], S_fit + 1.96 * perr[1])
-        return T_ci, S_ci
 
-    def _add_validity_notes(
-        self,
-        T: float, S: float, alpha: float, r_sq: float,
-        time_s: np.ndarray, Q: float,
-        r_w: float, r_c: float,
-        notes: list,
-    ):
-        # Paper p.244 mandatory S warning
-        notes.append(
-            f"S = {S:.2e} has QUESTIONABLE RELIABILITY — paper p. 244: "
+# ── Method-specific interpretation ────────────────────────────────────────────
+
+def _storativity_reliability_rule() -> ValidityRule:
+    """Paper p. 244 — mandatory, whatever the fit looks like."""
+    return ValidityRule(
+        id="storativity_unreliable",
+        severity="warning",
+        applies=lambda c: True,
+        message=lambda c: (
+            f"S = {c.value('S'):.2e} has QUESTIONABLE RELIABILITY — paper p. 244: "
             "'the determined value of S will change by an order of magnitude "
             "when the data plot is moved from one type curve to another.' "
             "T is the reliable output from this method."
-        )
+        ),
+        citation="Papadopulos & Cooper (1967) p. 244",
+    )
 
-        # α value and meaning
-        notes.append(
-            f"α = r_w²S/r_c² = {alpha:.3e}. "
+
+def _alpha_rule() -> ValidityRule:
+    return ValidityRule(
+        id="wellbore_storage_parameter",
+        severity="info",
+        applies=lambda c: "alpha" in c.diagnostics,
+        message=lambda c: (
+            f"α = r_w²S/r_c² = {c.diagnostics['alpha']:.3e}. "
             "Large α (> 0.1): wellbore storage dominates at early time. "
             "Small α (< 10⁻⁴): converges quickly to Theis."
-        )
+        ),
+    )
 
-        # Fraction of data in each regime
-        u_w_arr = (r_w ** 2 * S) / (4.0 * T * time_s)
-        n_theis = int(np.sum(u_w_arr / alpha < 1e-3))
-        n_ws = int(np.sum(u_w_arr / alpha > 1.0))
-        notes.append(
-            f"Regime breakdown: {n_theis}/{len(time_s)} points in Theis regime "
-            f"(u_w/α < 10⁻³), {n_ws}/{len(time_s)} in wellbore-storage regime "
-            f"(u_w/α > 1). PC fitting requires points on the curved transition."
-        )
 
-        # Late-time convergence threshold (paper p.242)
-        t_conv = 2.5e3 * r_c ** 2 / T
-        notes.append(
-            f"Convergence to Theis after t ≈ {t_conv:.0f} s "
+def _regime_rule() -> ValidityRule:
+    return ValidityRule(
+        id="regime_breakdown",
+        severity="info",
+        applies=lambda c: "n_theis_regime" in c.diagnostics,
+        message=lambda c: (
+            f"Regime breakdown: {c.diagnostics['n_theis_regime']}/{len(c.time_s)} "
+            "points in Theis regime (u_w/α < 10⁻³), "
+            f"{c.diagnostics['n_wellbore_storage_regime']}/{len(c.time_s)} in "
+            "wellbore-storage regime (u_w/α > 1). PC fitting requires points on "
+            "the curved transition."
+        ),
+    )
+
+
+def _convergence_rule() -> ValidityRule:
+    def text(c):
+        r_c, T = c.inputs.r_c, c.value("T")
+        return (
+            f"Convergence to Theis after t ≈ {c.diagnostics['t_convergence_s']:.0f} s "
             f"(paper criterion: t > 2.5×10³ × r_c²/T = 2500 × {r_c**2:.4f} / {T:.3e})."
         )
 
-        # Goodness-of-fit
-        if r_sq < 0.95:
-            notes.append(
-                f"Poor fit (R² = {r_sq:.3f}). If data fall entirely on the "
-                "early-time straight portion of the type curve (s_w ≈ Qt/πr_c²), "
-                "aquifer properties cannot be recovered — paper p. 244."
-            )
+    return ValidityRule(
+        id="theis_convergence_time",
+        severity="info",
+        applies=lambda c: "t_convergence_s" in c.diagnostics,
+        message=text,
+        citation="Papadopulos & Cooper (1967) p. 242",
+    )
 
-        # Early-time straight-line check (wellbore storage dominated)
-        if n_ws > len(time_s) * 0.8:
-            notes.append(
-                "WARNING: Most data appear to be in the wellbore-storage-dominated "
-                "regime. The type curve method cannot reliably estimate aquifer "
-                "properties from data lying entirely on the early-time straight "
-                "portion (paper p. 244)."
-            )
 
-        # Comparison recommendation
-        notes.append(
+def _poor_fit_rule() -> ValidityRule:
+    """The paper-specific reading of a poor fit, rather than the generic one."""
+    return ValidityRule(
+        id="poor_fit",
+        severity="warning",
+        applies=lambda c: c.gof.r_squared < 0.95,
+        message=lambda c: (
+            f"Poor fit (R² = {c.gof.r_squared:.3f}). If data fall entirely on the "
+            "early-time straight portion of the type curve (s_w ≈ Qt/πr_c²), "
+            "aquifer properties cannot be recovered — paper p. 244."
+        ),
+        citation="Papadopulos & Cooper (1967) p. 244",
+    )
+
+
+def _wellbore_dominated_rule() -> ValidityRule:
+    return ValidityRule(
+        id="wellbore_storage_dominated",
+        severity="warning",
+        applies=lambda c: (c.diagnostics.get("n_wellbore_storage_regime", 0)
+                           > len(c.time_s) * 0.8),
+        message=lambda c: (
+            "WARNING: Most data appear to be in the wellbore-storage-dominated "
+            "regime. The type curve method cannot reliably estimate aquifer "
+            "properties from data lying entirely on the early-time straight "
+            "portion (paper p. 244)."
+        ),
+        citation="Papadopulos & Cooper (1967) p. 244",
+    )
+
+
+def _compare_with_theis_rule() -> ValidityRule:
+    return ValidityRule(
+        id="compare_with_theis",
+        severity="info",
+        applies=lambda c: True,
+        message=lambda c: (
             "Run Theis (1935) on the same data: at late time both methods should "
             "agree on T. If they diverge significantly, check for boundary effects "
             "or aquifer heterogeneity."
-        )
+        ),
+    )
