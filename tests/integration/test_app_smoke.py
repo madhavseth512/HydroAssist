@@ -91,6 +91,32 @@ class TestAppBoots:
 
 # ── The suggestion card (chat → calculator) ───────────────────────────────────
 
+class TestReportDownload:
+    """The PDF button used to read `spec_r` about thirty lines before that
+    variable was assigned, so every click raised NameError and the surrounding
+    try/except reported "Failed to generate PDF". No test clicked it. The report
+    is now assembled by src/services/analysis.report_pdf."""
+
+    def test_generating_the_report_offers_a_download(self):
+        result, df = _fitted_result()
+        at = _fresh()
+        at.session_state.calc_result = result
+        at.session_state.formatted_df = df
+        at.session_state.calc_inputs = {
+            "Q": 500 / 86400, "r": 50.0, "method": THEIS, "n_excluded": 0,
+            "r_w": 0.10, "r_c": 0.10,
+        }
+        at.run()
+
+        next(b for b in at.button if "Generate PDF Report" in b.label).click().run()
+
+        assert not at.exception, [str(e.value)[:300] for e in at.exception]
+        assert not any("Failed to generate PDF" in e.value for e in at.error)
+        # AppTest has no typed download_button accessor in this version.
+        labels = [getattr(d, "label", "") for d in at.get("download_button")]
+        assert any("Download PDF Report" in label for label in labels), labels
+
+
 class TestSessionsAreIsolated:
     """Two visitors must never share a conversation. The chat object used to be
     st.cache_resource'd, so a method confirmed in one session hid the suggestion

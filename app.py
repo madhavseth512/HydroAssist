@@ -21,7 +21,8 @@ from src.core.graph import HydroAssistChat
 from src.core.config import load_config
 from src.calculator import registry as _registry
 from src.project import workspace as _ws
-from src.project.model import FILE_SUFFIX, Project, ProjectFileError, Readings
+from src.project.model import FILE_SUFFIX, Project, ProjectFileError
+from src.services import analysis as _analysis, data_intake as _intake
 from langchain_core.messages import HumanMessage, AIMessage
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -94,102 +95,18 @@ for _key, _default in _ws.DEFAULTS.items():
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def _run_calculator(df, Q_si, r, method, r_w=0.10, r_c=0.10,
-                    test_type=_registry.CONSTANT_RATE, t_p_s=None,
-                    clock="since_stop"):
-    """Run the selected calculator and return CalculationResult.
+# The work itself lives in src/services, which knows nothing about Streamlit;
+# this file is the widgets and the session state around it.
 
-    Which calculator to build, and whether the radial coordinate is an
-    observation distance or the well screen radius, both come from the method's
-    registry entry rather than from string matching on the label.
-    """
-    from src.calculator.base import CalculationInput
-    from src.calculator.geometry import PumpingSchedule, RateStep
-
-    spec = _registry.require(method)
-
-    extra = {}
-    if test_type == _registry.RECOVERY:
-        # The pump ran at Q for t_p, then stopped: a schedule ending at zero.
-        extra = dict(
-            test_type=test_type,
-            schedule=PumpingSchedule(steps=(RateStep(0.0, Q_si), RateStep(t_p_s, 0.0))),
-            options={"recovery_clock": clock},
-        )
-
-    if spec.data_source == _registry.PUMPED_WELL:
-        # Fitted at the well face, so r is the screen radius, not a distance.
-        inp = CalculationInput(df=df, Q=Q_si, r=r_w, r_w=r_w, r_c=r_c, **extra)
-    else:
-        inp = CalculationInput(df=df, Q=Q_si, r=r, **extra)
-
-    return spec.build().calculate(inp)
-
-
-def _format_ci(ci, scale=86400, unit="m²/day"):
-    if ci is None:
-        return "not available"
-    return f"[{ci[0]*scale:.2f}, {ci[1]*scale:.2f}] {unit}"
-
+_format_ci = _analysis.format_ci
 
 ALL_METHODS = _registry.labels()
 
 
-def _method_options(validation, test_type=_registry.CONSTANT_RATE):
-    """Method dropdown contents: the registry's methods for this test type,
-    filtered by DataValidator's suitability check.
-
-    Returns (options, gated_out). The first method for the test type is always
-    offered, so the dropdown is never empty.
-    """
-    for_type = [spec.label for spec in _registry.for_test_type(test_type)]
-    if validation is None or not validation.suitable_methods:
-        return for_type, []
-    suitable = [m for m in for_type if m in validation.suitable_methods]
-    if not suitable:
-        suitable = for_type[:1]
-    gated_out = [m for m in for_type if m not in suitable]
-    return suitable, gated_out
-
-
-def _method_help(options):
-    """Tooltip for the method dropdown, assembled from each method's registry entry.
-
-    Written once in the registry rather than as a hardcoded sentence here, so a new
-    method arrives with its own explanation instead of silently having none.
-    """
-    lines = []
-    for label in options:
-        spec = _registry.get(label)
-        if spec and spec.ui_help:
-            lines.append(f"{spec.label}: {spec.ui_help}")
-    return "\n\n".join(lines)
-
-
 def _default_method_index(options):
     """Preselect the method the consultant suggested in chat, if it is offered."""
-    suggested = st.session_state.chat.state.get("selected_method", "") or ""
-    if suggested:
-        for i, opt in enumerate(options):
-            if _same_method(opt, suggested):
-                return i
-    return 0
-
-
-def _same_method(a: str, b: str) -> bool:
-    """Loose match between a dropdown label and a method name from the LLM.
-
-    The Manager may return "Theis", "theis method", or "Theis (1935)"; the
-    dropdown label is always the canonical form.
-    """
-    def key(s):
-        # Drops years, punctuation and spacing: "Papadopulos-Cooper (1967)"
-        # and "papadopulos cooper" both reduce to "papadopuloscooper".
-        return "".join(ch for ch in s.lower() if ch.isalpha())
-    ka, kb = key(a), key(b)
-    if not ka or not kb:
-        return False
-    return ka.startswith(kb) or kb.startswith(ka)
+    return _analysis.default_method_index(
+        options, st.session_state.chat.state.get("selected_method", "") or "")
 
 
 @st.cache_resource
@@ -249,12 +166,26 @@ def _load_test_into_workspace(test):
     st.session_state.project_gen = st.session_state.get("project_gen", 0) + 1
 
 
-def _render_prepared_data(df):
+def _intake_settings():
+    """What the validator needs to judge a dataset, from the current form."""
+    inputs = st.session_state.calc_inputs
+    return dict(
+        test_type=st.session_state.get(_ws.KEY_TEST_TYPE, _registry.CONSTANT_RATE),
+        well_radius_m=inputs.get("r"),
+        pumping_rate_m3d=inputs.get("Q_day"),
+        well_casing_radius_m=inputs.get("r_c"),
+    )
+
+
+def _render_prepared_data(prepared):
     """Everything Step 1 shows for a ready dataset, whatever its source — a fresh
     CSV upload or readings reopened from a project."""
-    from src.calculator.derivative import diagnose
     from src.calculator.plots import derivative_diagnostic
-    from src.data.validator import DataValidator
+
+    df = prepared.df
+    st.session_state.formatted_df = df
+    st.session_state.diagnosis = prepared.diagnosis
+    st.session_state.validation = prepared.validation
 
     # Publish the series to the conversation so the Manager's method suggestion
     # reads the actual flow regime off the derivative rather than inferring it
@@ -264,45 +195,43 @@ def _render_prepared_data(df):
         Q=st.session_state.calc_inputs.get("Q"),
     )
 
-    st.markdown(f"**{len(df)} data points** ready  "
-                f"| t: {df.time_s.min():.0f}s – {df.time_s.max():.0f}s  "
-                f"| s: {df.drawdown_m.min():.3f}m – {df.drawdown_m.max():.3f}m")
+    st.markdown(f"**{prepared.summary()}**")
 
     with st.expander("Preview formatted data (first 10 rows)"):
         st.dataframe(df.head(10), use_container_width=True)
+
+    if prepared.conversions:
+        with st.expander("Conversions applied"):
+            for c in prepared.conversions:
+                st.caption(f"• {c}")
+    if prepared.rows_removed:
+        with st.expander("Rows removed"):
+            for r in prepared.rows_removed:
+                st.caption(f"• {r}")
 
     # Modern practice reads the derivative first and picks the model from its
     # shape, rather than fitting a model chosen in advance and checking R²
     # afterwards. So this sits in Step 1, ahead of the method dropdown.
     with st.expander("🔍 Diagnostic plot — what does the data say?", expanded=True):
-        try:
-            signature = diagnose(df.time_s.values, df.drawdown_m.values)
-            st.session_state.diagnosis = signature
-            st.plotly_chart(
-                derivative_diagnostic(df.time_s.values, df.drawdown_m.values),
-                use_container_width=True,
-            )
-            st.info(f"**{signature.regime.replace('_', ' ').title()}** "
-                    f"— {signature.evidence}")
-            for note in signature.notes:
+        if prepared.diagnosis is None:
+            st.caption(f"Diagnostic plot unavailable: {prepared.diagnosis_error}")
+        else:
+            try:
+                st.plotly_chart(
+                    derivative_diagnostic(df.time_s.values, df.drawdown_m.values),
+                    use_container_width=True,
+                )
+            except Exception as e:
+                st.caption(f"Diagnostic plot unavailable: {e}")
+            st.info(f"**{prepared.diagnosis.regime.replace('_', ' ').title()}** "
+                    f"— {prepared.diagnosis.evidence}")
+            for note in prepared.diagnosis.notes:
                 st.caption(f"• {note}")
-            recommended = [_registry.get(m) for m in signature.suggests]
-            recommended = [spec.label for spec in recommended if spec]
-            if recommended:
-                st.caption("Consistent with: " + ", ".join(recommended))
-        except Exception as e:
-            st.caption(f"Diagnostic plot unavailable: {e}")
-            st.session_state.diagnosis = None
+            if prepared.consistent_methods:
+                st.caption("Consistent with: "
+                           + ", ".join(prepared.consistent_methods))
 
-    # Physical plausibility and method suitability.
-    validation = DataValidator().validate(
-        df,
-        well_radius_m=st.session_state.calc_inputs.get("r"),
-        pumping_rate_m3d=st.session_state.calc_inputs.get("Q_day"),
-        well_casing_radius_m=st.session_state.calc_inputs.get("r_c"),
-        test_type=st.session_state.get(_ws.KEY_TEST_TYPE, _registry.CONSTANT_RATE),
-    )
-    st.session_state.validation = validation
+    validation = prepared.validation
     for err in validation.errors:
         st.error(err)
     for warn in validation.warnings:
@@ -311,7 +240,7 @@ def _render_prepared_data(df):
         with st.expander(f"Data notes ({len(validation.info)})"):
             for note in validation.info:
                 st.caption(f"• {note}")
-    if not validation.is_usable:
+    if not prepared.is_usable:
         st.error("This dataset cannot be analysed as-is — resolve the errors "
                  "above before running a fit.")
         st.session_state.formatted_df = None
@@ -554,10 +483,6 @@ with tab_calc:
 
     if uploaded:
         try:
-            from src.data.csv_inspector import CSVInspector
-            from src.data.formatter import DataFormatter
-            from src.data.validator import DataValidator
-
             # A new file invalidates any result already published to the chat,
             # otherwise the consultant would discuss numbers from the old dataset.
             if st.session_state.get("uploaded_name") != uploaded.name:
@@ -566,48 +491,27 @@ with tab_calc:
                 st.session_state.chat.clear_calculation()
                 st.session_state.chat.clear_staged_series()
 
-            raw_df = pd.read_csv(uploaded)
-            # Hand the inspector the same Gemini client the agents use, so the
-            # layer-3 LLM fallback actually fires on ambiguous column names
-            # instead of being dead code.
-            inspector = CSVInspector(llm=_inspection_llm())
-            inspection = inspector.inspect(raw_df)
+            # The inspector gets the same Gemini client the agents use, so its
+            # layer-3 fallback on ambiguous column names is not dead code.
+            prepared = _intake.prepare_upload(
+                pd.read_csv(uploaded), llm=_inspection_llm(), **_intake_settings())
+            inspection = prepared.inspection
 
             st.success(f"Detected: time col = **{inspection.time_col}** "
                        f"({inspection.time_unit}), "
                        f"drawdown col(s) = **{', '.join(inspection.drawdown_cols)}** "
                        f"({inspection.drawdown_unit})  "
                        f"| Confidence: {inspection.confidence:.0%}")
-
-            if inspection.issues:
-                for iss in inspection.issues:
-                    st.warning(iss)
-
-            formatter = DataFormatter()
-            fmt = formatter.format(raw_df, inspection)
-            df = fmt.df
-            st.session_state.formatted_df = df
-
-            if fmt.conversions_applied:
-                with st.expander("Conversions applied"):
-                    for c in fmt.conversions_applied:
-                        st.caption(f"• {c}")
-            if fmt.rows_removed:
-                with st.expander("Rows removed"):
-                    for r in fmt.rows_removed:
-                        st.caption(f"• {r}")
+            for iss in inspection.issues:
+                st.warning(iss)
 
             # Record the readings in the active project test, so a saved project
-            # reopens with its data. Guarded by fingerprint because the uploader
-            # re-delivers the same file on every rerun.
-            active_test = _active_test()
-            readings = Readings.from_frame(df, source_name=uploaded.name,
-                                           conversions=fmt.conversions_applied)
-            if (active_test.readings is None
-                    or active_test.readings.fingerprint != readings.fingerprint):
-                active_test.set_readings(readings)
+            # reopens with its data.
+            _intake.store_readings(_active_test(), prepared.df,
+                                   source_name=uploaded.name,
+                                   conversions=prepared.conversions)
 
-            _render_prepared_data(df)
+            _render_prepared_data(prepared)
 
         except Exception as e:
             st.error(f"Failed to process CSV: {e}")
@@ -618,12 +522,11 @@ with tab_calc:
         # No new upload, but the active test already holds readings — typically
         # a reopened project. Use them rather than showing an empty workspace.
         saved = _active_test().readings
-        df = saved.to_frame()
-        st.session_state.formatted_df = df
         source = f" from {saved.source_name}" if saved.source_name else ""
         st.info(f"Using {len(saved)} readings saved in this project{source}. "
                 "Upload a CSV above to replace them.")
-        _render_prepared_data(df)
+        _render_prepared_data(
+            _intake.prepare(saved.to_frame(), **_intake_settings()))
 
     # ── Step 2: Well parameters ───────────────────────────────────────────────
     st.divider()
@@ -656,13 +559,13 @@ with tab_calc:
             help="Distance from pumping well to the observation well",
         )
     with col3:
-        method_options, gated_out = _method_options(st.session_state.validation,
-                                                    test_type)
+        method_options, gated_out = _analysis.method_options(
+            st.session_state.validation, test_type)
         method = st.selectbox(
             "Analysis method",
             method_options,
             index=_default_method_index(method_options),
-            help=_method_help(method_options),
+            help=_analysis.method_help(method_options),
         )
         if gated_out:
             st.caption(
@@ -724,8 +627,9 @@ with tab_calc:
     st.caption(f"Q = {Q_si:.6f} m³/s")
 
     # Keep the active test's setup in step with the form, so saving the
-    # project captures what is on screen.
-    _active_test().setup = _ws.setup_from_inputs(st.session_state)
+    # project captures what is on screen. The same setup drives the run.
+    setup = _ws.setup_from_inputs(st.session_state)
+    _active_test().setup = setup
 
     # ── Step 3: Run analysis ──────────────────────────────────────────────────
     st.divider()
@@ -743,33 +647,16 @@ with tab_calc:
         df = st.session_state.formatted_df
         with st.spinner(f"Running {method}…"):
             try:
-                result = _run_calculator(df, Q_si, r, method, r_w=r_w, r_c=r_c,
-                                         test_type=test_type, t_p_s=t_p_s,
-                                         clock=clock)
+                result = _analysis.run_analysis(df, method, setup)
                 st.session_state.calc_result = result
-                # Points a straight-line method left out, as it reports them.
-                n_excl = (int(result.diagnostics.get("n_excluded", 0))
-                          if result.success else 0)
-                st.session_state.calc_inputs = {
-                    "Q": Q_si, "r": r, "method": method, "n_excluded": n_excl,
-                    "r_w": r_w, "r_c": r_c,
-                    # Q_day and r_c feed DataValidator's method-suitability
-                    # pre-check on the next upload / rerun.
-                    "Q_day": Q_si * 86400.0,
-                    # Kept so a saved analysis records Q as it was entered.
-                    "Q_entered": Q_input, "Q_unit": Q_unit,
-                    "test_type": test_type, "t_p_s": t_p_s,
-                    "recovery_clock": clock,
-                }
+                st.session_state.calc_inputs = _analysis.run_record(
+                    setup, method, result, n_points=len(df))
 
                 # ── Publish the result back into the conversation ────────────
                 # This is what lets the Consultation tab discuss these numbers.
                 st.session_state.chat.record_calculation(
                     result.to_state_dict(),
-                    {
-                        "Q": Q_si, "r": r, "method": method,
-                        "r_w": r_w, "r_c": r_c, "n_points": len(df),
-                    },
+                    _analysis.chat_record(st.session_state.calc_inputs),
                 )
                 st.session_state.chat.confirm_method(method)
 
@@ -792,7 +679,7 @@ with tab_calc:
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("T (m²/day)", f"{result.T_day:.2f}")
         m2.metric("T (m²/s)", f"{result.T:.3e}")
-        if result.get("S") is not None:
+        if _analysis.estimates_S(result):
             m3.metric("S", f"{result.S:.2e}")
         else:
             m3.metric("S", "not determined",
@@ -851,7 +738,7 @@ with tab_calc:
         col_a, col_b = st.columns(2)
         with col_a:
             s_ci_line = (f'<b>S 95% CI:</b> {_format_ci(result.S_ci, scale=1, unit="")}<br>'
-                         if result.get("S") is not None else "")
+                         if _analysis.estimates_S(result) else "")
             st.markdown('<div class="result-box">'
                         f'<b>T 95% CI:</b> {_format_ci(result.T_ci)}<br>'
                         + s_ci_line +
@@ -863,13 +750,9 @@ with tab_calc:
                     for note in result.validity_notes:
                         st.markdown(f"• {note}")
 
+        # The setup the fit ran with, which the form may since have moved on from.
         inputs = st.session_state.calc_inputs
-        Q_si_r  = inputs.get("Q", Q_si)
-        r_r     = inputs.get("r", r)
         method_r = inputs.get("method", method)
-        n_excl  = inputs.get("n_excluded", 0)
-        r_w_r   = inputs.get("r_w", 0.10)
-        r_c_r   = inputs.get("r_c", 0.10)
 
         # ── Save to the project ───────────────────────────────────────────────
         active_test = _active_test()
@@ -883,13 +766,9 @@ with tab_calc:
                        "methods in the table at the bottom of this page.")
         elif st.button(f"📌 Save this analysis to “{active_test.name}”",
                        use_container_width=True):
-            method_spec = _registry.get(result.method)
-            active_test.add_analysis(
-                result, result.method,
-                method_spec.id if method_spec else result.method_id,
-                # The setup the fit ran with, not whatever the form now shows.
-                setup=_ws.setup_from_run(st.session_state.calc_inputs),
-            )
+            # Recorded with the setup the fit ran with, not whatever the form
+            # now shows.
+            _analysis.save_analysis(active_test, result, inputs)
             st.session_state.project.touch()
             st.session_state.saved_result = result
             st.rerun()
@@ -898,27 +777,15 @@ with tab_calc:
         st.divider()
         st.subheader("Step 4b — Download Report")
         if st.button("📄 Generate PDF Report", use_container_width=True):
-            from src.calculator.report import generate_pdf
             with st.spinner("Generating PDF…"):
                 try:
-                    # Papadopulos-Cooper is fitted at the pumped well, so the
-                    # radial coordinate for the report is r_w, not the
-                    # observation-well distance.
-                    at_well = spec_r.data_source == _registry.PUMPED_WELL
-                    pdf_bytes = generate_pdf(
-                        result,
-                        Q_si_r,
-                        r_w_r if at_well else r_r,
-                        method_r,
-                        st.session_state.formatted_df,
-                        n_excl,
-                        r_c=r_c_r if at_well else None,
+                    # The service picks the radial coordinate the method reports
+                    # (r_w at the pumped well, the observation distance
+                    # otherwise) and names the file.
+                    pdf_bytes, fname = _analysis.report_pdf(
+                        result, inputs, st.session_state.formatted_df,
                         project_info=st.session_state.project.info,
                         test_label=_active_test().name,
-                    )
-                    fname = (
-                        method_r.split("(")[0].strip().lower().replace(" ", "_")
-                        + "_report.pdf"
                     )
                     st.download_button(
                         label="⬇ Download PDF Report",
@@ -935,14 +802,10 @@ with tab_calc:
         st.subheader("Step 5 — Diagnostic Plots")
         plot_tab1, plot_tab2 = st.tabs(["📊 Fit Diagnostic", "🎛️ Manual Matching"])
 
-        # One context object serves every plot for this result.
-        plot_ctx = _registry.PlotContext(
-            Q=Q_si_r, r=r_r, r_w=r_w_r, r_c=r_c_r, n_excluded=n_excl,
-        )
         spec_r = _registry.require(method_r)
 
         with plot_tab1:
-            st.plotly_chart(spec_r.diagnostic_plot(result, plot_ctx),
+            st.plotly_chart(_analysis.diagnostic_plot(result, inputs),
                             use_container_width=True)
 
         with plot_tab2:
@@ -982,9 +845,8 @@ with tab_calc:
                     st.caption(f"{spec_r.label} does not estimate S, so only T "
                                "is adjusted.")
 
-            fig_m, rmse_m = spec_r.interactive_plot(
-                result, plot_ctx, T_manual, S_manual,
-            )
+            fig_m, rmse_m = _analysis.manual_match(
+                result, inputs, T_manual, S_manual)
 
             st.plotly_chart(fig_m, use_container_width=True)
 
