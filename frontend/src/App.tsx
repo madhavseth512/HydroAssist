@@ -2,47 +2,55 @@
  * The workspace shell.
  *
  * Layout follows the decision taken in planning — chat drives, the form
- * confirms: the project on the left, the analysis in the centre, and the
- * consultation in a drawer that is always one click away.
+ * confirms: the project on the left, the analysis in the centre, and (in a
+ * later slice) the consultation in a drawer that is always one click away.
  */
-import { AppShell, Badge, Group, Loader, Text, Title } from '@mantine/core'
-import { useQuery } from '@tanstack/react-query'
+import { AppShell, Badge, Burger, Group, Stack, Text, Title } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 
-import { api } from './api/client'
+import { DataPanel } from './panels/DataPanel'
+import { ProjectSidebar } from './panels/ProjectSidebar'
+import { useSession } from './hooks'
 
 export function App() {
   // Creates the session on first contact; every later request carries its cookie.
-  const session = useQuery({ queryKey: ['session'], queryFn: api.session })
+  const session = useSession()
+  const [navOpen, nav] = useDisclosure()
 
   return (
-    <AppShell header={{ height: 56 }} padding="md">
+    <AppShell
+      header={{ height: 56 }}
+      navbar={{ width: 320, breakpoint: 'sm', collapsed: { mobile: !navOpen } }}
+      padding="md"
+    >
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Group gap="xs">
+        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
+          <Group gap="xs" wrap="nowrap">
+            <Burger opened={navOpen} onClick={nav.toggle} hiddenFrom="sm" size="sm" />
             <Text size="xl">💧</Text>
             <Title order={4}>HydroAssist</Title>
-            <Text size="sm" c="dimmed">
+            <Text size="sm" c="dimmed" visibleFrom="md">
               Pumping test analysis that explains itself
             </Text>
           </Group>
           {session.data && (
-            <Badge variant="light" color="blue">
-              {session.data.project.summary}
-            </Badge>
+            <Badge variant="light" color="blue">{session.data.project.summary}</Badge>
           )}
         </Group>
       </AppShell.Header>
 
+      <AppShell.Navbar p="md">
+        {session.isError ? (
+          <Text c="red" size="sm">{(session.error as Error).message}</Text>
+        ) : (
+          <ProjectSidebar />
+        )}
+      </AppShell.Navbar>
+
       <AppShell.Main>
-        {session.isPending && <Loader />}
-        {session.isError && (
-          <Text c="red">{(session.error as Error).message}</Text>
-        )}
-        {session.data && (
-          <Text c="dimmed">
-            Connected. The workspace panels land in the next slice.
-          </Text>
-        )}
+        <Stack gap="md">
+          <DataPanel />
+        </Stack>
       </AppShell.Main>
     </AppShell>
   )

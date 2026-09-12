@@ -1,4 +1,6 @@
 /// <reference types="vitest" />
+import { fileURLToPath } from 'node:url'
+
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -20,9 +22,19 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
   },
   test: {
-    environment: 'jsdom',
+    // happy-dom, not jsdom. Measured on this project: a trivial Mantine render
+    // took 4 s under jsdom and 63 ms under happy-dom, with the difference spent
+    // outside the test body entirely (render itself was 99 ms either way). The
+    // whole file went from 29 s to 0.1 s.
+    environment: 'happy-dom',
     globals: true,
     setupFiles: './src/test/setup.ts',
     css: false,
+    alias: {
+      // Plotly is megabytes of charting code. A panel test is about what the
+      // panel hands to the chart, not about Plotly's own rendering.
+      'react-plotly.js/factory': fileURLToPath(
+        new URL('./src/test/plotlyStub.tsx', import.meta.url)),
+    },
   },
 })
