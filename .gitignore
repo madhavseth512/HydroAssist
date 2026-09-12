@@ -69,6 +69,13 @@ htmlcov/
 # Claude Code machine-specific config
 .claude/settings.local.json
 
+# Frontend (React + Vite). The built SPA is produced by `npm run build` at
+# deploy time and served by FastAPI; it is not committed.
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb

@@ -1,0 +1,42 @@
+{
+  "name": "hydroassist-frontend",
+  "private": true,
+  "version": "5.0.0",
+  "type": "module",
+  "description": "HydroAssist workspace: pumping test analysis that explains itself.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gen:types": "openapi-typescript ../openapi.json -o src/api/schema.d.ts"
+  },
+  "dependencies": {
+    "@mantine/core": "^7.17.0",
+    "@mantine/dropzone": "^7.17.0",
+    "@mantine/hooks": "^7.17.0",
+    "@mantine/notifications": "^7.17.0",
+    "@tabler/icons-react": "^3.31.0",
+    "@tanstack/react-query": "^5.66.0",
+    "plotly.js-basic-dist-min": "^3.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-plotly.js": "^2.6.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/react-plotly.js": "^2.6.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.0.0",
+    "openapi-typescript": "^7.6.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5"
+  }
+}

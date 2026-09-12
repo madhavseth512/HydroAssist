@@ -1,0 +1,2822 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HydroAssist",
+    "summary": "Pumping test analysis that explains itself.",
+    "description": "The calculators, the project model and the consultant, over HTTP. Sessions are per visitor: a conversation is never shared.",
+    "version": "5.0.0"
+  },
+  "paths": {
+    "/api/session": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Read Session",
+        "description": "The caller's workspace, created on first contact.",
+        "operationId": "read_session_api_session_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Start Session",
+        "operationId": "start_session_api_session_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test-types": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "List Test Types",
+        "description": "Only the test types that have an implemented method.",
+        "operationId": "list_test_types_api_test_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TestTypeModel"
+                  },
+                  "type": "array",
+                  "title": "Response List Test Types Api Test Types Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/methods": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "List Methods",
+        "description": "The methods for a test type, as the registry declares them.\n\nThe browser builds its form from this \u2014 including which extra inputs a\nmethod needs \u2014 so a new method needs no frontend change.",
+        "operationId": "list_methods_api_methods_get",
+        "parameters": [
+          {
+            "name": "test_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "constant_rate",
+              "title": "Test Type"
+            }
+          },
+          {
+            "name": "filtered",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Apply the validator's suitability check",
+              "default": true,
+              "title": "Filtered"
+            },
+            "description": "Apply the validator's suitability check"
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MethodListModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Read Project",
+        "operationId": "read_project_api_project_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project/new": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "New Project",
+        "description": "Discard the open project. Anything not downloaded is lost, which the UI\nwarns about before calling this.",
+        "operationId": "new_project_api_project_new_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project/open": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Open Project",
+        "operationId": "open_project_api_project_open_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_open_project_api_project_open_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project/file": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Download Project",
+        "description": "The project as the file the user keeps \u2014 this is the only persistence.",
+        "operationId": "download_project_api_project_file_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project/info": {
+      "patch": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Update Project Info",
+        "operationId": "update_project_info_api_project_info_patch",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectInfoModel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Add Test",
+        "operationId": "add_test_api_tests_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}/activate": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Activate Test",
+        "operationId": "activate_test_api_tests__test_id__activate_post",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}": {
+      "patch": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Update Test",
+        "operationId": "update_test_api_tests__test_id__patch",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestDetailsModel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}/readings": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Upload Readings",
+        "description": "Inspect, format, diagnose and validate an uploaded CSV, and record the\nreadings against the test.",
+        "operationId": "upload_readings_api_tests__test_id__readings_post",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_readings_api_tests__test_id__readings_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreparedDataModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Read Readings",
+        "description": "The readings already held by a test \u2014 typically a reopened project.",
+        "operationId": "read_readings_api_tests__test_id__readings_get",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreparedDataModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}/setup": {
+      "put": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Update Setup",
+        "description": "Store the Step 2 form against the test, so saving the project captures\nwhat is on screen.",
+        "operationId": "update_setup_api_tests__test_id__setup_put",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupModel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/run": {
+      "post": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Run Analysis",
+        "description": "Fit the chosen method to the active test's readings.\n\nThe setup is stored on the test first, so the analysis, the project and the\nform all describe the same test afterwards.",
+        "operationId": "run_analysis_api_analyses_run_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/current": {
+      "get": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Current Result",
+        "description": "The last result, for a browser that reloaded mid-session.",
+        "operationId": "current_result_api_analyses_current_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/manual-match": {
+      "post": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Manual Match",
+        "description": "The hand-matched curve for the sliders. Every parameter other than T and\nS stays at its fitted value; a method that estimates no S ignores it.",
+        "operationId": "manual_match_api_analyses_manual_match_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualMatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualMatchModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/save": {
+      "post": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Save Analysis",
+        "description": "Record the last result against the active test, so methods can be\ncompared rather than recomputed.",
+        "operationId": "save_analysis_api_analyses_save_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}/comparison": {
+      "get": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Comparison",
+        "description": "Saved analyses ranked by AICc \u2014 never by R\u00b2, which cannot penalise an\nextra parameter. Analyses run on replaced readings are left out.",
+        "operationId": "comparison_api_tests__test_id__comparison_get",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}/analyses/{analysis_id}": {
+      "delete": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Remove Analysis",
+        "operationId": "remove_analysis_api_tests__test_id__analyses__analysis_id__delete",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/report.pdf": {
+      "get": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Report",
+        "description": "The client deliverable: the fit, its figure, its validity notes and the\nproject metadata.",
+        "operationId": "report_api_report_pdf_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Read Chat",
+        "operationId": "read_chat_api_chat_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatStateModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/messages": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Send Message",
+        "description": "Ask the consultant. The reply lands in the message list, so the browser\nredraws from one response.",
+        "operationId": "send_message_api_chat_messages_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatStateModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/confirm": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Confirm Method",
+        "description": "Accept the suggested method, or override it. This is the bridge: the\nworkspace form follows what the conversation settles on.",
+        "operationId": "confirm_method_api_chat_confirm_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmMethodRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatStateModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/reset": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Reset Chat",
+        "description": "Start the conversation again. The project and its readings are kept \u2014\nonly the discussion is cleared.",
+        "operationId": "reset_chat_api_chat_reset_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatStateModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/export": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Export Chat",
+        "description": "The conversation as a plain-text transcript.",
+        "operationId": "export_chat_api_chat_export_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "description": "Liveness for the container smoke test and the reverse proxy.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_open_project_api_project_open_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_open_project_api_project_open_post"
+      },
+      "Body_upload_readings_api_tests__test_id__readings_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_readings_api_tests__test_id__readings_post"
+      },
+      "ChatContextModel": {
+        "properties": {
+          "intent": {
+            "type": "string",
+            "title": "Intent",
+            "default": "unknown"
+          },
+          "aquifer": {
+            "type": "string",
+            "title": "Aquifer",
+            "default": "unknown"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": ""
+          },
+          "suggestion_confirmed": {
+            "type": "boolean",
+            "title": "Suggestion Confirmed",
+            "default": false
+          },
+          "has_result": {
+            "type": "boolean",
+            "title": "Has Result",
+            "default": false
+          },
+          "message_count": {
+            "type": "integer",
+            "title": "Message Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "ChatContextModel"
+      },
+      "ChatRequest": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequest"
+      },
+      "ChatStateModel": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageModel"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ChatContextModel"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SuggestionModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retrieved": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievedDocModel"
+            },
+            "type": "array",
+            "title": "Retrieved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "context"
+        ],
+        "title": "ChatStateModel"
+      },
+      "ComparisonModel": {
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "title": "Test Id"
+          },
+          "test_name": {
+            "type": "string",
+            "title": "Test Name"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ComparisonRowModel"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "n_stale": {
+            "type": "integer",
+            "title": "N Stale",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "test_id",
+          "test_name"
+        ],
+        "title": "ComparisonModel"
+      },
+      "ComparisonRowModel": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          },
+          "analysis_id": {
+            "type": "string",
+            "title": "Analysis Id"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "n_params": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Params"
+          },
+          "T_m2_per_day": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "T M2 Per Day"
+          },
+          "S": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S"
+          },
+          "r_squared": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "R Squared"
+          },
+          "aicc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aicc"
+          },
+          "delta_aicc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Aicc"
+          },
+          "akaike_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Akaike Weight"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "rank",
+          "analysis_id",
+          "method"
+        ],
+        "title": "ComparisonRowModel"
+      },
+      "ConfirmMethodRequest": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method"
+        ],
+        "title": "ConfirmMethodRequest"
+      },
+      "DiagnosisModel": {
+        "properties": {
+          "regime": {
+            "type": "string",
+            "title": "Regime"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "consistent_methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Consistent Methods"
+          }
+        },
+        "type": "object",
+        "required": [
+          "regime",
+          "evidence"
+        ],
+        "title": "DiagnosisModel",
+        "description": "What the Bourdet derivative says the flow regime is."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "InspectionModel": {
+        "properties": {
+          "time_col": {
+            "type": "string",
+            "title": "Time Col",
+            "default": ""
+          },
+          "time_unit": {
+            "type": "string",
+            "title": "Time Unit",
+            "default": ""
+          },
+          "drawdown_cols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Drawdown Cols"
+          },
+          "drawdown_unit": {
+            "type": "string",
+            "title": "Drawdown Unit",
+            "default": ""
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "title": "InspectionModel"
+      },
+      "ManualMatchModel": {
+        "properties": {
+          "figure": {
+            "type": "string",
+            "title": "Figure"
+          },
+          "rmse_mm": {
+            "type": "number",
+            "title": "Rmse Mm"
+          },
+          "auto_rmse_mm": {
+            "type": "number",
+            "title": "Auto Rmse Mm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "figure",
+          "rmse_mm",
+          "auto_rmse_mm"
+        ],
+        "title": "ManualMatchModel"
+      },
+      "ManualMatchRequest": {
+        "properties": {
+          "T": {
+            "type": "number",
+            "title": "T"
+          },
+          "S": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "T"
+        ],
+        "title": "ManualMatchRequest"
+      },
+      "MessageModel": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "MessageModel"
+      },
+      "MethodListModel": {
+        "properties": {
+          "test_type": {
+            "type": "string",
+            "title": "Test Type"
+          },
+          "offered": {
+            "items": {
+              "$ref": "#/components/schemas/MethodModel"
+            },
+            "type": "array",
+            "title": "Offered"
+          },
+          "gated_out": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Gated Out",
+            "description": "Methods the validator does not offer for this dataset"
+          },
+          "help": {
+            "type": "string",
+            "title": "Help",
+            "default": ""
+          },
+          "default_index": {
+            "type": "integer",
+            "title": "Default Index",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "test_type",
+          "offered"
+        ],
+        "title": "MethodListModel"
+      },
+      "MethodModel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Authors"
+          },
+          "citation": {
+            "type": "string",
+            "title": "Citation"
+          },
+          "aquifer_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aquifer Types"
+          },
+          "test_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Test Types"
+          },
+          "parameters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Parameters"
+          },
+          "data_source": {
+            "type": "string",
+            "title": "Data Source"
+          },
+          "requires": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requires"
+          },
+          "ui_help": {
+            "type": "string",
+            "title": "Ui Help"
+          },
+          "selection_rationale": {
+            "type": "string",
+            "title": "Selection Rationale"
+          },
+          "needs_well_geometry": {
+            "type": "boolean",
+            "title": "Needs Well Geometry"
+          },
+          "estimates_storativity": {
+            "type": "boolean",
+            "title": "Estimates Storativity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "year",
+          "authors",
+          "citation",
+          "aquifer_types",
+          "test_types",
+          "parameters",
+          "data_source",
+          "requires",
+          "ui_help",
+          "selection_rationale",
+          "needs_well_geometry",
+          "estimates_storativity"
+        ],
+        "title": "MethodModel",
+        "description": "A registry entry, which is what drives the method form in the browser."
+      },
+      "ParameterModel": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "display": {
+            "type": "number",
+            "title": "Display"
+          },
+          "display_unit": {
+            "type": "string",
+            "title": "Display Unit"
+          },
+          "ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci"
+          },
+          "display_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Ci"
+          },
+          "reliable": {
+            "type": "boolean",
+            "title": "Reliable",
+            "default": true
+          },
+          "reliability_note": {
+            "type": "string",
+            "title": "Reliability Note",
+            "default": ""
+          },
+          "derived": {
+            "type": "boolean",
+            "title": "Derived",
+            "default": false
+          },
+          "fixed": {
+            "type": "boolean",
+            "title": "Fixed",
+            "default": false
+          },
+          "at_bound": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Bound"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "symbol",
+          "value",
+          "unit",
+          "display",
+          "display_unit"
+        ],
+        "title": "ParameterModel"
+      },
+      "PreparedDataModel": {
+        "properties": {
+          "n_points": {
+            "type": "integer",
+            "title": "N Points"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "preview": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Preview"
+          },
+          "conversions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Conversions"
+          },
+          "rows_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rows Removed"
+          },
+          "inspection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InspectionModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ValidationModel"
+          },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagnosisModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "diagnosis_error": {
+            "type": "string",
+            "title": "Diagnosis Error",
+            "default": ""
+          },
+          "derivative_figure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derivative Figure",
+            "description": "Plotly JSON for the derivative diagnostic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_points",
+          "summary",
+          "validation"
+        ],
+        "title": "PreparedDataModel"
+      },
+      "ProjectInfoModel": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "default": "Untitled project"
+          },
+          "client": {
+            "type": "string",
+            "title": "Client",
+            "default": ""
+          },
+          "project_number": {
+            "type": "string",
+            "title": "Project Number",
+            "default": ""
+          },
+          "location": {
+            "type": "string",
+            "title": "Location",
+            "default": ""
+          },
+          "test_date": {
+            "type": "string",
+            "title": "Test Date",
+            "default": ""
+          },
+          "analyst": {
+            "type": "string",
+            "title": "Analyst",
+            "default": ""
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ProjectInfoModel"
+      },
+      "ProjectModel": {
+        "properties": {
+          "info": {
+            "$ref": "#/components/schemas/ProjectInfoModel"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/TestModel"
+            },
+            "type": "array",
+            "title": "Tests"
+          },
+          "active_test_id": {
+            "type": "string",
+            "title": "Active Test Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "analysis_count": {
+            "type": "integer",
+            "title": "Analysis Count"
+          },
+          "modified_at": {
+            "type": "string",
+            "title": "Modified At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "info",
+          "tests",
+          "active_test_id",
+          "filename",
+          "summary",
+          "analysis_count",
+          "modified_at"
+        ],
+        "title": "ProjectModel"
+      },
+      "ResultModel": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "error_message": {
+            "type": "string",
+            "title": "Error Message",
+            "default": ""
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": ""
+          },
+          "method_id": {
+            "type": "string",
+            "title": "Method Id",
+            "default": ""
+          },
+          "T": {
+            "type": "number",
+            "title": "T",
+            "default": 0.0
+          },
+          "T_day": {
+            "type": "number",
+            "title": "T Day",
+            "default": 0.0
+          },
+          "T_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "T Ci"
+          },
+          "S": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S"
+          },
+          "S_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S Ci"
+          },
+          "estimates_storativity": {
+            "type": "boolean",
+            "title": "Estimates Storativity",
+            "default": false
+          },
+          "rmse": {
+            "type": "number",
+            "title": "Rmse",
+            "default": 0.0
+          },
+          "r_squared": {
+            "type": "number",
+            "title": "R Squared",
+            "default": 0.0
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterModel"
+            },
+            "type": "array",
+            "title": "Parameters"
+          },
+          "gof": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gof"
+          },
+          "diagnostics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Diagnostics"
+          },
+          "validity_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Validity Notes"
+          },
+          "figure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Figure",
+            "description": "Plotly JSON for the fit diagnostic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "ResultModel"
+      },
+      "RetrievedDocModel": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": ""
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": ""
+          },
+          "aquifer": {
+            "type": "string",
+            "title": "Aquifer",
+            "default": ""
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "default": 0.0
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "RetrievedDocModel"
+      },
+      "RunRequest": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SetupModel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method",
+          "setup"
+        ],
+        "title": "RunRequest"
+      },
+      "SessionModel": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectModel"
+          },
+          "chat": {
+            "$ref": "#/components/schemas/ChatStateModel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "project",
+          "chat"
+        ],
+        "title": "SessionModel"
+      },
+      "SetupModel": {
+        "properties": {
+          "q_value": {
+            "type": "number",
+            "title": "Q Value",
+            "description": "Pumping rate, as entered",
+            "default": 500.0
+          },
+          "q_unit": {
+            "type": "string",
+            "title": "Q Unit",
+            "default": "m\u00b3/day"
+          },
+          "r_m": {
+            "type": "number",
+            "title": "R M",
+            "description": "Observation well distance",
+            "default": 50.0
+          },
+          "r_w_m": {
+            "type": "number",
+            "title": "R W M",
+            "description": "Well screen radius",
+            "default": 0.15
+          },
+          "r_c_m": {
+            "type": "number",
+            "title": "R C M",
+            "description": "Casing radius",
+            "default": 0.1
+          },
+          "test_type": {
+            "type": "string",
+            "title": "Test Type",
+            "default": "constant_rate"
+          },
+          "t_p_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "T P Hours",
+            "description": "Pumping duration before shut-down (recovery)"
+          },
+          "recovery_clock": {
+            "type": "string",
+            "title": "Recovery Clock",
+            "description": "Whether the time column counts from pump start or stop",
+            "default": "since_stop"
+          }
+        },
+        "type": "object",
+        "title": "SetupModel",
+        "description": "The Step 2 form: the test parameters an analysis runs with."
+      },
+      "SuggestionModel": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": ""
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "supported": {
+            "type": "boolean",
+            "title": "Supported",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "SuggestionModel"
+      },
+      "TestDetailsModel": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "pumping_well": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pumping Well"
+          },
+          "observation_well": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Well"
+          }
+        },
+        "type": "object",
+        "title": "TestDetailsModel",
+        "description": "The editable fields of one test."
+      },
+      "TestModel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pumping_well": {
+            "type": "string",
+            "title": "Pumping Well"
+          },
+          "observation_well": {
+            "type": "string",
+            "title": "Observation Well"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SetupModel"
+          },
+          "n_readings": {
+            "type": "integer",
+            "title": "N Readings",
+            "default": 0
+          },
+          "readings_source": {
+            "type": "string",
+            "title": "Readings Source",
+            "default": ""
+          },
+          "n_analyses": {
+            "type": "integer",
+            "title": "N Analyses",
+            "default": 0
+          },
+          "n_stale_analyses": {
+            "type": "integer",
+            "title": "N Stale Analyses",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "pumping_well",
+          "observation_well",
+          "setup"
+        ],
+        "title": "TestModel"
+      },
+      "TestTypeModel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "TestTypeModel"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationModel": {
+        "properties": {
+          "is_usable": {
+            "type": "boolean",
+            "title": "Is Usable"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "info": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Info"
+          },
+          "suitable_methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suitable Methods"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_usable"
+        ],
+        "title": "ValidationModel"
+      }
+    }
+  }
+}
