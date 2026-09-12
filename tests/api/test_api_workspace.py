@@ -1,0 +1,219 @@
+"""Session, project and readings over HTTP.
+
+These cover what the Streamlit AppTests covered for the sidebar and Step 1:
+sessions never share state, a project round-trips through its file, and an
+uploaded CSV comes back inspected, diagnosed and validated.
+"""
+
+import pytest
+
+from conftest import RECOVERY_SAMPLE, THEIS_SAMPLE, setup_payload, upload
+
+from src.calculator import registry
+
+
+class TestSession:
+
+    def test_health_names_the_method_catalogue(self, client):
+        body = client.get("/api/health").json()
+        assert body["status"] == "ok"
+        assert body["methods"] == len(registry.all_specs())
+
+    def test_a_session_is_created_on_first_contact(self, client):
+        body = client.get("/api/session").json()
+
+        assert body["session_id"]
+        assert len(body["project"]["tests"]) == 1
+        assert body["chat"]["messages"] == []
+
+    def test_the_same_browser_keeps_its_session(self, client):
+        first = client.get("/api/session").json()["session_id"]
+        assert client.get("/api/session").json()["session_id"] == first
+
+    def test_two_visitors_never_share_a_workspace(self, client, second_client):
+        """The bug that shipped once already: one cached chat for everyone."""
+        first = client.get("/api/session").json()["session_id"]
+        second = second_client.get("/api/session").json()["session_id"]
+        assert first != second
+
+        client.post("/api/chat/confirm", json={"method": "Theis (1935)"})
+
+        assert client.get("/api/chat").json()["context"]["suggestion_confirmed"]
+        assert not second_client.get("/api/chat").json()["context"]["suggestion_confirmed"]
+
+
+class TestMethodCatalogue:
+
+    def test_only_test_types_with_a_method_are_offered(self, client):
+        ids = [t["id"] for t in client.get("/api/test-types").json()]
+        assert ids == ["constant_rate", "recovery"]
+
+    def test_methods_are_listed_for_a_test_type(self, client):
+        body = client.get("/api/methods", params={"test_type": "constant_rate"}).json()
+        labels = [m["label"] for m in body["offered"]]
+
+        assert labels == [s.label for s in registry.for_test_type("constant_rate")]
+        assert "Theis Recovery (1935)" not in labels
+
+    def test_a_method_declares_what_the_form_needs(self, client):
+        body = client.get("/api/methods", params={"test_type": "constant_rate"}).json()
+        by_id = {m["id"]: m for m in body["offered"]}
+
+        assert by_id["papadopulos_cooper_1967"]["needs_well_geometry"] is True
+        assert by_id["theis_1935"]["needs_well_geometry"] is False
+        assert by_id["theis_1935"]["estimates_storativity"] is True
+
+    def test_recovery_reports_that_it_estimates_no_storativity(self, client):
+        body = client.get("/api/methods", params={"test_type": "recovery"}).json()
+
+        assert [m["label"] for m in body["offered"]] == ["Theis Recovery (1935)"]
+        assert body["offered"][0]["estimates_storativity"] is False
+
+    def test_an_unknown_test_type_is_rejected(self, client):
+        assert client.get("/api/methods", params={"test_type": "sideways"}).status_code == 400
+
+    def test_a_short_test_gates_cooper_jacob(self, client):
+        """Cooper-Jacob needs late-time data; the validator says so before the
+        user picks it."""
+        import pandas as pd
+        from scipy.special import expn
+        import numpy as np
+
+        t = np.linspace(10, 600, 30)
+        s = (500 / 86400) / (4 * np.pi * 2.5e-3) * expn(1, 50.0**2 * 5e-5 / (4 * 2.5e-3 * t))
+        csv = pd.DataFrame({"time_s": t, "drawdown_m": s}).to_csv(index=False).encode()
+        test_id = client.get("/api/project").json()["active_test_id"]
+        client.post(f"/api/tests/{test_id}/readings",
+                    files={"file": ("short.csv", csv, "text/csv")})
+
+        body = client.get("/api/methods", params={"test_type": "constant_rate"}).json()
+
+        assert "Cooper-Jacob (1946)" in body["gated_out"]
+        assert "Theis (1935)" in [m["label"] for m in body["offered"]]
+        assert body["help"]
+
+    def test_a_validation_for_one_test_type_does_not_gate_another(self, client):
+        """The readings are judged as a recovery record, which says nothing
+        about which pumping methods suit a constant-rate test."""
+        test_id = client.get("/api/project").json()["active_test_id"]
+        client.put(f"/api/tests/{test_id}/setup",
+                   json=setup_payload(test_type="recovery", t_p_hours=24.0))
+        upload(client, RECOVERY_SAMPLE)
+
+        recovery = client.get("/api/methods", params={"test_type": "recovery"}).json()
+        pumping = client.get("/api/methods", params={"test_type": "constant_rate"}).json()
+
+        assert [m["label"] for m in recovery["offered"]] == ["Theis Recovery (1935)"]
+        assert pumping["gated_out"] == []
+
+
+class TestProject:
+
+    def test_metadata_can_be_edited(self, client):
+        body = client.patch("/api/project/info", json={
+            "title": "Campus well field", "client": "IIT Kharagpur",
+            "project_number": "BTP-26-04", "location": "Kharagpur",
+            "test_date": "2026-09-01", "analyst": "M. Seth", "notes": "",
+        }).json()
+
+        assert body["info"]["title"] == "Campus well field"
+        assert body["filename"] == "Campus_well_field.hydroassist.json"
+
+    def test_a_project_round_trips_through_its_file(self, client):
+        client.patch("/api/project/info", json={"title": "Round trip"})
+        upload(client)
+
+        saved = client.get("/api/project/file")
+        assert saved.headers["content-disposition"].endswith('.hydroassist.json"')
+
+        client.post("/api/project/new")
+        assert client.get("/api/project").json()["info"]["title"] == "Untitled project"
+
+        reopened = client.post("/api/project/open",
+                               files={"file": ("p.json", saved.content,
+                                               "application/json")}).json()
+
+        assert reopened["info"]["title"] == "Round trip"
+        assert reopened["tests"][0]["n_readings"] == 50
+
+    def test_a_file_that_is_not_a_project_is_explained(self, client):
+        response = client.post("/api/project/open",
+                               files={"file": ("x.json", b"{}", "application/json")})
+
+        assert response.status_code == 400
+        assert "not a HydroAssist project file" in response.json()["detail"]
+
+    def test_tests_can_be_added_renamed_and_activated(self, client):
+        first = client.get("/api/project").json()["active_test_id"]
+
+        added = client.post("/api/tests").json()
+        second = added["active_test_id"]
+        assert second != first and len(added["tests"]) == 2
+
+        renamed = client.patch(f"/api/tests/{second}", json={"name": "PW-2"}).json()
+        assert [t["name"] for t in renamed["tests"]] == ["Test 1", "PW-2"]
+
+        back = client.post(f"/api/tests/{first}/activate").json()
+        assert back["active_test_id"] == first
+
+    def test_an_unknown_test_is_a_404(self, client):
+        assert client.post("/api/tests/nope/activate").status_code == 404
+
+
+class TestReadings:
+
+    def test_an_uploaded_csv_comes_back_prepared(self, client):
+        body = upload(client).json()
+
+        assert body["n_points"] == 50
+        assert body["inspection"]["time_col"] == "time_s"
+        assert body["validation"]["is_usable"] is True
+        assert len(body["preview"]) == 10
+        assert "50 data points" in body["summary"]
+
+    def test_the_derivative_diagnosis_travels_with_it(self, client):
+        body = upload(client).json()
+
+        assert body["diagnosis"]["regime"]
+        assert "Theis (1935)" in body["diagnosis"]["consistent_methods"]
+        assert body["derivative_figure"].startswith("{")
+
+    def test_the_readings_are_recorded_against_the_test(self, client):
+        upload(client)
+        test = client.get("/api/project").json()["tests"][0]
+
+        assert test["n_readings"] == 50
+        assert test["readings_source"].endswith(".csv")
+
+    def test_saved_readings_can_be_read_back(self, client):
+        upload(client)
+        test_id = client.get("/api/project").json()["active_test_id"]
+
+        body = client.get(f"/api/tests/{test_id}/readings").json()
+        assert body["n_points"] == 50
+
+    def test_a_test_without_readings_says_so(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        response = client.get(f"/api/tests/{test_id}/readings")
+
+        assert response.status_code == 404
+
+    def test_a_file_that_is_not_csv_is_explained(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        response = client.post(f"/api/tests/{test_id}/readings",
+                               files={"file": ("x.csv", b"\x00\x01 not a csv",
+                                               "text/csv")})
+
+        assert response.status_code == 400
+        assert "detail" in response.json()
+
+    def test_recovery_readings_are_not_flagged_for_falling_drawdown(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        client.put(f"/api/tests/{test_id}/setup",
+                   json=setup_payload(test_type="recovery", t_p_hours=24.0))
+
+        body = upload(client, RECOVERY_SAMPLE).json()
+
+        assert not any("recovery" in note.lower()
+                       for note in body["validation"]["info"])
+        assert body["validation"]["suitable_methods"] == ["Theis Recovery (1935)"]

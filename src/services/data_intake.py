@@ -28,6 +28,9 @@ class PreparedData:
     conversions: list = field(default_factory=list)
     rows_removed: list = field(default_factory=list)
     validation: object = None               # ValidationResult
+    # The test type the validation was computed for. A dataset judged as a
+    # recovery record says nothing about which pumping methods suit it.
+    test_type: str = registry.CONSTANT_RATE
     diagnosis: object = None                # DerivativeSignature, when readable
     diagnosis_error: str = ""
     consistent_methods: list = field(default_factory=list)   # labels
@@ -103,6 +106,7 @@ def prepare(df: pd.DataFrame, *,
     )
     return PreparedData(
         df=df,
+        test_type=test_type,
         inspection=inspection,
         conversions=list(conversions),
         rows_removed=list(rows_removed),

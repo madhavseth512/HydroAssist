@@ -139,8 +139,12 @@ def stale_count(test: PumpingTest) -> int:
     return sum(1 for a in test.analyses if test.is_stale(a))
 
 
-def _evidence(delta: Optional[float]) -> str:
-    """Burnham & Anderson's conventional reading of ΔAICc."""
+def evidence(delta: Optional[float]) -> str:
+    """Burnham & Anderson's conventional reading of ΔAICc.
+
+    Public because the HTTP API reports the same wording; duplicating the
+    thresholds would let the two drift.
+    """
     if delta is None:
         return "not ranked"
     if delta < 1e-9:
@@ -172,7 +176,7 @@ def comparison_frame(test: PumpingTest) -> pd.DataFrame:
             "AICc": fmt(r["aicc"], ".1f"),
             "ΔAICc": fmt(r["delta_aicc"], ".1f"),
             "Weight": fmt(r["akaike_weight"], ".2f"),
-            "Evidence": _evidence(r["delta_aicc"]),
+            "Evidence": evidence(r["delta_aicc"]),
         }
         for rank, r in enumerate(rows, 1)
     ])

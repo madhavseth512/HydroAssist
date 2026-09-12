@@ -70,7 +70,7 @@ addopts = [
     "--cov-report=term-missing",
 ]
 markers = [
-    "slow: Streamlit AppTest UI smoke tests (loads the embedding model). Deselect with -m 'not slow'.",
+    "slow: end-to-end tests that load the embedding model or drive a whole UI/API surface. Deselect with -m 'not slow'.",
 ]
 
 [tool.coverage.run]
