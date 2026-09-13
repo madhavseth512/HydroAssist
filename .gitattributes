@@ -1,0 +1,14 @@
+# Files read by Linux tools must keep LF line endings, whatever the checkout.
+#
+# On a Windows checkout with core.autocrlf=true these would otherwise gain CRLF:
+# a Dockerfile continuation line ending in "\<CR>" breaks the build, a Caddyfile
+# or compose file parses a stray carriage return into values, and a script run
+# on the server fails with "bad interpreter".
+Dockerfile        text eol=lf
+Caddyfile         text eol=lf
+.dockerignore     text eol=lf
+.env.example      text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+*.sh              text eol=lf
+scripts/*.py      text eol=lf
