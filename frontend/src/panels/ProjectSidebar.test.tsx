@@ -154,3 +154,43 @@ describe('the project panel', () => {
     await waitFor(() => expect(called(stub, '/api/project/new', 'POST')).toBe(true))
   })
 })
+
+describe('the wells a test was run between', () => {
+  it('are recorded against the test', async () => {
+    const stub = stubFetch([
+      { url: '/api/tests/test-1', method: 'PATCH', body: project() },
+      { url: '/api/project', body: project() },
+    ])
+
+    renderWithProviders(<ProjectSidebar />)
+    await screen.findByText('Untitled project')
+
+    fireEvent.click(screen.getByText('Project and test details'))
+    const pumping = await screen.findByLabelText('Pumping well')
+    fireEvent.change(pumping, { target: { value: 'PW-1' } })
+    fireEvent.blur(pumping)
+
+    await waitFor(() => expect(called(stub, '/api/tests/test-1', 'PATCH')).toBe(true))
+    const [, init] = stub.mock.mock.calls.find(
+      ([url]) => String(url).includes('/api/tests/test-1'))!
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ pumping_well: 'PW-1' })
+  })
+
+  it('never leaves a test without a name', async () => {
+    const stub = stubFetch([
+      { url: '/api/tests/test-1', method: 'PATCH', body: project() },
+      { url: '/api/project', body: project() },
+    ])
+
+    renderWithProviders(<ProjectSidebar />)
+    await screen.findByText('Untitled project')
+
+    fireEvent.click(screen.getByText('Project and test details'))
+    const name = await screen.findByLabelText('Test name')
+    fireEvent.change(name, { target: { value: '   ' } })
+    fireEvent.blur(name)
+
+    expect(called(stub, '/api/tests/test-1', 'PATCH')).toBe(false)
+    await waitFor(() => expect(name).toHaveValue('Test 1'))
+  })
+})

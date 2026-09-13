@@ -28,7 +28,7 @@ import { notifications } from '@mantine/notifications'
 import { IconChevronDown, IconChevronRight, IconPlus } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
-import { api, type ProjectInfo } from '../api/client'
+import { api, type ProjectInfo, type Test } from '../api/client'
 import {
   reportError,
   useActivateTest,
@@ -134,9 +134,7 @@ export function ProjectSidebar() {
 
       <Collapse in={detailsOpen}>
         <ProjectDetails info={info} />
-        {activeTest && (
-          <TestName testId={activeTest.id} name={activeTest.name} />
-        )}
+        {activeTest && <TestDetails test={activeTest} />}
       </Collapse>
 
       <Divider />
@@ -208,25 +206,50 @@ function ProjectDetails({ info }: { info: ProjectInfo }) {
   )
 }
 
-function TestName({ testId, name }: { testId: string; name: string }) {
+type TestField = 'name' | 'pumping_well' | 'observation_well'
+
+/** The active test's name and the wells it was run between — which the report
+ * and the project file carry, so a colleague can tell the tests apart. */
+function TestDetails({ test }: { test: Test }) {
   const updateTest = useUpdateTest()
-  const [draft, setDraft] = useState(name)
+  const saved = {
+    name: test.name,
+    pumping_well: test.pumping_well ?? '',
+    observation_well: test.observation_well ?? '',
+  }
+  const [draft, setDraft] = useState(saved)
 
-  useEffect(() => setDraft(name), [name, testId])
+  useEffect(() => setDraft(saved),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [test.id, test.name, test.pumping_well, test.observation_well])
 
-  return (
+  const commit = (field: TestField) => {
+    const value = draft[field].trim()
+    if (value === saved[field]) return
+    // A test must keep a name; the wells may be left blank.
+    if (field === 'name' && !value) {
+      setDraft({ ...draft, name: saved.name })
+      return
+    }
+    updateTest.mutate({ testId: test.id, [field]: value })
+  }
+
+  const field = (key: TestField, label: string) => (
     <TextInput
       mt="xs"
       size="xs"
-      label="Test name"
-      value={draft}
-      onChange={(event) => setDraft(event.currentTarget.value)}
-      onBlur={() => {
-        const trimmed = draft.trim()
-        if (trimmed && trimmed !== name) {
-          updateTest.mutate({ testId, name: trimmed })
-        }
-      }}
+      label={label}
+      value={draft[key]}
+      onChange={(event) => setDraft({ ...draft, [key]: event.currentTarget.value })}
+      onBlur={() => commit(key)}
     />
+  )
+
+  return (
+    <>
+      {field('name', 'Test name')}
+      {field('pumping_well', 'Pumping well')}
+      {field('observation_well', 'Observation well')}
+    </>
   )
 }

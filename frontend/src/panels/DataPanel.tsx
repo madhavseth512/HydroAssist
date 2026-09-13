@@ -126,6 +126,11 @@ function PreparedView({ prepared, test }: {
         </Group>
       )}
 
+      {/* What column detection was unsure about: negative drawdowns, a unit it
+          guessed, a column it could not place. */}
+      {(inspection?.issues ?? []).map((issue) => (
+        <Alert key={issue} color="yellow" variant="light">{issue}</Alert>
+      ))}
       {errors.map((message) => (
         <Alert key={message} color="red" icon={<IconAlertTriangle size={18} />}>
           {message}

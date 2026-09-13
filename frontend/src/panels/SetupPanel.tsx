@@ -27,7 +27,7 @@ import { useEffect, useState } from 'react'
 
 import type { Setup, Test } from '../api/client'
 import { useMethods, useProject, useRunAnalysis, useTestTypes } from '../hooks'
-import { Q_UNITS, RECOVERY_CLOCKS } from '../setupOptions'
+import { Q_TO_SI, Q_UNITS, RECOVERY_CLOCKS } from '../setupOptions'
 
 const RECOVERY = 'recovery'
 
@@ -129,6 +129,13 @@ export function SetupPanel() {
         </SimpleGrid>
 
         {method?.ui_help && <Text size="xs" c="dimmed">{method.ui_help}</Text>}
+        {/* The rate the calculators receive, so a unit mix-up is visible here
+            rather than as an implausible transmissivity later. */}
+        <Text size="xs" c="dimmed">
+          Q = {(Number(setup.q_value ?? 0)
+                * (Q_TO_SI[(setup.q_unit ?? 'm³/day') as keyof typeof Q_TO_SI] ?? 0))
+                .toExponential(4)} m³/s
+        </Text>
         {gatedOut.length > 0 && (
           <Text size="xs" c="dimmed">
             Not offered for this dataset: {gatedOut.join(', ')} — see the data
@@ -160,6 +167,10 @@ export function SetupPanel() {
                 onChange={(value) => update({ r_c_m: asNumber(value) ?? undefined })}
               />
             </SimpleGrid>
+            <Text size="xs" c="dimmed">
+              α = r_w²·S/r_c², the dimensionless wellbore-storage parameter. The
+              fit reports it once S has been estimated.
+            </Text>
           </>
         )}
 

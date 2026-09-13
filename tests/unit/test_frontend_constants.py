@@ -31,6 +31,21 @@ def test_the_pumping_rate_units_match_the_conversions():
     assert units == ws.Q_UNITS
 
 
+def test_the_conversion_factors_match_the_server():
+    """The browser shows Q in m³/s; it must be the number the server will use."""
+    match = re.search(r"Q_TO_SI[^=]*=\s*\{([^}]*)\}", _source())
+    assert match, "Q_TO_SI not found in setupOptions.ts"
+
+    factors = {}
+    for unit, expression in re.findall(r"'([^']*)':\s*([0-9e.\-/ ]+)", match.group(1)):
+        parts = [float(part) for part in expression.split("/")]
+        factors[unit] = parts[0] / parts[1] if len(parts) == 2 else parts[0]
+
+    assert set(factors) == set(ws.Q_TO_SI)
+    for unit, factor in ws.Q_TO_SI.items():
+        assert factors[unit] == pytest.approx(factor, rel=1e-12), unit
+
+
 def test_the_recovery_clocks_match_the_server():
     pairs = re.findall(r"value:\s*'([^']*)',\s*label:\s*'([^']*)'", _source())
     assert dict(pairs) == ws.CLOCK_LABELS

@@ -146,8 +146,12 @@ export function useActivateTest() {
 
 export function useUpdateTest() {
   return useProjectMutation(
-    ({ testId, name }: { testId: string; name: string }) =>
-      api.updateTest(testId, { name }),
+    ({ testId, ...details }: {
+      testId: string
+      name?: string
+      pumping_well?: string
+      observation_well?: string
+    }) => api.updateTest(testId, details),
   )
 }
 

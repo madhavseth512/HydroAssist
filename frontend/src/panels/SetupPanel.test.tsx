@@ -149,3 +149,31 @@ describe('the setup step', () => {
     expect(body.setup.t_p_hours).toBeNull()
   })
 })
+
+describe('the rate the calculators receive', () => {
+  it('is shown in m³/s beside the form', async () => {
+    stubFetch([
+      { url: '/api/methods', body: methodList([method()]) },
+      { url: '/api/test-types', body: TEST_TYPES },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+
+    renderWithProviders(<SetupPanel />)
+
+    // 500 m³/day = 5.787e-3 m³/s
+    expect(await screen.findByText('Q = 5.7870e-3 m³/s')).toBeInTheDocument()
+  })
+
+  it('explains α when the method is fitted at the pumped well', async () => {
+    stubFetch([
+      { url: '/api/methods', body: methodList([PC]) },
+      { url: '/api/test-types', body: TEST_TYPES },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+
+    renderWithProviders(<SetupPanel />)
+
+    expect(await screen.findByText(/dimensionless wellbore-storage parameter/))
+      .toBeInTheDocument()
+  })
+})

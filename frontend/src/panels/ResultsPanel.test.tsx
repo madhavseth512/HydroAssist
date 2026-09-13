@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ResultsPanel } from './ResultsPanel'
 import { renderWithProviders } from '../test/render'
-import { stubFetch } from '../test/stubFetch'
+import { chatState, stubFetch } from '../test/stubFetch'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -139,5 +139,25 @@ describe('the results', () => {
     const [, init] = stub.mock.mock.calls.find(
       ([url]) => String(url).includes('/api/analyses/manual-match'))!
     expect(JSON.parse((init as RequestInit).body as string).S).toBeNull()
+  })
+})
+
+describe('asking the consultant about the result', () => {
+  it('sends the interpretation question the Streamlit app asked', async () => {
+    const stub = stubFetch([
+      { url: '/api/chat/messages', method: 'POST', body: chatState },
+      { url: '/api/analyses/current', body: result() },
+    ])
+
+    renderWithProviders(<ResultsPanel />)
+    fireEvent.click(await screen.findByRole('button', { name: /Interpret in chat/ }))
+
+    await waitFor(() =>
+      expect(stub.calls.some((c) => c.url.includes('/api/chat/messages'))).toBe(true))
+    const [, init] = stub.mock.mock.calls.find(
+      ([url]) => String(url).includes('/api/chat/messages'))!
+    expect(JSON.parse((init as RequestInit).body as string).message)
+      .toMatch(/^Interpret the pumping test results I just computed/)
+    expect(await screen.findByText('The consultant has replied')).toBeInTheDocument()
   })
 })

@@ -22,7 +22,8 @@ import {
   Text,
   Title,
 } from '@mantine/core'
-import { IconDeviceFloppy, IconFileTypePdf } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
+import { IconDeviceFloppy, IconFileTypePdf, IconMessageCircle } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
 import { api, type Parameter, type Result } from '../api/client'
@@ -32,7 +33,14 @@ import {
   useCurrentResult,
   useManualMatch,
   useSaveAnalysis,
+  useSendMessage,
 } from '../hooks'
+
+// The question the Streamlit app's "Interpret these results in chat" asked.
+const INTERPRET_PROMPT =
+  'Interpret the pumping test results I just computed. Is the fit trustworthy, ' +
+  'are T and S physically plausible for this aquifer, and what do the validity ' +
+  'notes mean in practice?'
 
 const SECONDS_PER_DAY = 86400
 
@@ -76,6 +84,9 @@ export function ResultsPanel() {
 
 function SuccessfulResult({ result }: { result: Result }) {
   const save = useSaveAnalysis()
+  // The result is already published to the conversation on the server, so the
+  // consultant answers about these numbers.
+  const interpret = useSendMessage()
   const [savedFor, setSavedFor] = useState<Result | null>(null)
   const saved = savedFor === result
 
@@ -94,6 +105,20 @@ function SuccessfulResult({ result }: { result: Result }) {
               onClick={() => save.mutate(undefined, { onSuccess: () => setSavedFor(result) })}
             >
               {saved ? 'Saved to project' : 'Save to project'}
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconMessageCircle size={16} />}
+              loading={interpret.isPending}
+              onClick={() => interpret.mutate(INTERPRET_PROMPT, {
+                onSuccess: () => notifications.show({
+                  color: 'teal', title: 'The consultant has replied',
+                  message: 'Open the Consultant panel to read the interpretation.',
+                }),
+              })}
+            >
+              Interpret in chat
             </Button>
             <Button
               size="xs"

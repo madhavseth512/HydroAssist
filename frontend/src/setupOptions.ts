@@ -9,6 +9,15 @@
 
 export const Q_UNITS = ['m³/day', 'm³/hour', 'm³/s', 'L/s'] as const
 
+/** m³/s per unit of each pumping rate — `Q_TO_SI` in workspace.py. Used only to
+ * show the SI rate beside the form; the server does the conversion that counts. */
+export const Q_TO_SI: Record<(typeof Q_UNITS)[number], number> = {
+  'm³/day': 1 / 86400,
+  'm³/hour': 1 / 3600,
+  'm³/s': 1,
+  'L/s': 1e-3,
+}
+
 export const RECOVERY_CLOCKS = [
   { value: 'since_stop', label: 'Time since pumping stopped (t′)' },
   { value: 'since_start', label: 'Time since pumping started (t)' },

@@ -114,3 +114,18 @@ describe('the data step', () => {
     expect(await screen.findByText(/too few points/)).toBeInTheDocument()
   })
 })
+
+describe('what column detection was unsure about', () => {
+  it('is shown as a warning', async () => {
+    const issue = "Column 'dd' has 3 negative drawdown value(s) — check for recovery data."
+    stubFetch([
+      { url: '/readings', body: prepared({ inspection: {
+        ...prepared().inspection, issues: [issue] } }) },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+
+    renderWithProviders(<DataPanel />)
+
+    expect(await screen.findByText(issue)).toBeInTheDocument()
+  })
+})
