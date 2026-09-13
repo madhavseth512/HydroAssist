@@ -10,6 +10,7 @@ Run it with:  uvicorn src.api.app:app --port 8000
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,10 @@ from fastapi.staticfiles import StaticFiles
 from src.api import routes_analysis, routes_chat, routes_workspace
 from src.api.deps import set_store
 from src.api.sessions import SessionStore
+
+# The Gemini key lives in .env during development, as it did for the Streamlit
+# app. override=False: a variable set by the deployment always wins over the file.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 # Written by `npm run build` in frontend/. Absent during backend development and
 # in the API tests, which is why serving it is optional.

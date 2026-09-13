@@ -16,6 +16,7 @@ bound the memory a public URL can be made to consume — the oldest idle session
 is evicted first.
 """
 
+import logging
 import secrets
 import threading
 import time
@@ -25,12 +26,83 @@ from typing import Callable, Optional
 from src.project import workspace as ws
 from src.project.model import Project, PumpingTest
 
+logger = logging.getLogger(__name__)
+
 COOKIE_NAME = "hydroassist_session"
 
 # Two hours of inactivity, and a ceiling low enough that a public URL cannot
 # exhaust a 12 GB VM: each session holds a conversation and a project, not data.
 IDLE_TIMEOUT_S = 2 * 60 * 60
 MAX_SESSIONS = 200
+
+
+class UnavailableChat:
+    """The conversation bridge when the real one could not be built.
+
+    Building the consultant needs a model API key and the vector store. Without
+    them — no key configured, the free-tier quota exhausted at start-up, the
+    store missing — the calculators still work, and they must: fitting a
+    pumping test does not need a language model. So the session gets this in
+    place of the chat. The workspace can publish into it as usual, and asking it
+    a question explains why it cannot answer.
+    """
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        self.state = {
+            "messages": [], "user_intent": "unknown", "aquifer_context": "unknown",
+            "selected_method": "", "retrieved_docs": [], "metadata_filters": {},
+            "method_suggestion": {}, "suggestion_confirmed": False,
+            "calculation_input": {}, "calculation_result": {}, "staged_series": {},
+        }
+
+    def send_message(self, message: str) -> str:
+        raise RuntimeError(self.reason)
+
+    def reset(self) -> None:
+        self.__init__(self.reason)
+
+    def get_context(self) -> dict:
+        return {
+            "intent": "unknown", "aquifer": "unknown",
+            "method": self.state.get("selected_method", ""),
+            "suggestion_confirmed": self.state.get("suggestion_confirmed", False),
+            "method_suggestion": {},
+            "has_result": bool(self.state.get("calculation_result")),
+            "message_count": 0,
+            "retrieved_docs_count": 0,
+        }
+
+    def confirm_method(self, method: str) -> None:
+        self.state["selected_method"] = method
+        self.state["suggestion_confirmed"] = True
+
+    def record_calculation(self, result: dict, calc_input: dict) -> None:
+        self.state["calculation_result"] = result or {}
+        self.state["calculation_input"] = calc_input or {}
+
+    def stage_series(self, time_s, drawdown_m, Q=None) -> None:
+        self.state["staged_series"] = {"time_s": time_s, "drawdown_m": drawdown_m,
+                                       "Q": Q}
+
+    def clear_staged_series(self) -> None:
+        self.state["staged_series"] = {}
+
+    def clear_calculation(self) -> None:
+        self.state["calculation_result"] = {}
+        self.state["calculation_input"] = {}
+
+
+def _build_chat(factory: Callable[[], object]) -> object:
+    """The real conversation, or an UnavailableChat that says why not."""
+    try:
+        return factory()
+    except Exception as exc:          # noqa: BLE001 - any failure degrades the same way
+        logger.warning("Consultant unavailable for this session: %s", exc)
+        return UnavailableChat(
+            "The consultant is not available on this server "
+            f"({exc}). The calculators still work."
+        )
 
 
 @dataclass
@@ -111,7 +183,7 @@ class SessionStore:
         project = ws.new_project()
         session = SessionState(
             id=secrets.token_urlsafe(24),
-            chat=self._chat_factory(),
+            chat=_build_chat(self._chat_factory),
             project=project,
             active_test_id=project.tests[0].id,
         )

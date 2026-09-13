@@ -94,7 +94,9 @@ def create_hydroassist_graph(config: AppConfig):
     # Compile workflow
     graph = workflow.compile()
 
-    logger.info("✓ LangGraph workflow compiled successfully")
+    # Plain ASCII: this runs for every new session, and a Windows console
+    # cannot encode "✓", which raised a logging error each time.
+    logger.info("LangGraph workflow compiled successfully")
 
     return graph
 
