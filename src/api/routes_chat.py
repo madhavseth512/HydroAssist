@@ -8,7 +8,7 @@ sources — because that is what the panel redraws after any of them.
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from src.api import presenters, schemas
-from src.api.deps import current_session
+from src.api.deps import current_session, get_limiter
 from src.api.sessions import SessionState
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -23,7 +23,15 @@ def read_chat(session: SessionState = Depends(current_session)):
 def send_message(payload: schemas.ChatRequest,
                  session: SessionState = Depends(current_session)):
     """Ask the consultant. The reply lands in the message list, so the browser
-    redraws from one response."""
+    redraws from one response.
+
+    Rate-limited per session and per day, to stay inside the model's free tier.
+    """
+    decision = get_limiter().check(session.id)
+    if not decision.allowed:
+        raise HTTPException(status_code=429, detail=decision.detail,
+                            headers={"Retry-After": str(decision.retry_after_s)})
+
     try:
         session.chat.send_message(payload.message)
     except Exception as exc:

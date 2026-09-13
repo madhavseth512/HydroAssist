@@ -11,6 +11,7 @@ from typing import Optional
 
 from fastapi import Cookie, Response
 
+from src.api.ratelimit import ChatRateLimiter
 from src.api.sessions import COOKIE_NAME, SessionState, SessionStore
 
 # Streamlit's 50 MB upload cap, carried over: a bound on what a public URL can
@@ -18,6 +19,7 @@ from src.api.sessions import COOKIE_NAME, SessionState, SessionStore
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 _store: Optional[SessionStore] = None
+_limiter: Optional[ChatRateLimiter] = None
 
 
 def build_chat():
@@ -39,6 +41,20 @@ def set_store(store: Optional[SessionStore]) -> None:
     """Replace the process-wide store. For tests and for app construction."""
     global _store
     _store = store
+
+
+def get_limiter() -> ChatRateLimiter:
+    """The consultant's rate limit, shared by every session in the process."""
+    global _limiter
+    if _limiter is None:
+        _limiter = ChatRateLimiter()
+    return _limiter
+
+
+def set_limiter(limiter: Optional[ChatRateLimiter]) -> None:
+    """Replace the process-wide limiter. For tests."""
+    global _limiter
+    _limiter = limiter
 
 
 @lru_cache(maxsize=1)

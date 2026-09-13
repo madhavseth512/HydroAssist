@@ -4,14 +4,13 @@
  * The API sends Plotly JSON built by the registry's own plot adapters, so the
  * curve on screen is the same one the PDF prints — there is no second
  * implementation of any model in the browser.
+ *
+ * The chart library itself is loaded on first use (see PlotlyChart.tsx).
  */
 import { Alert, Box, Skeleton } from '@mantine/core'
-import Plotly from 'plotly.js-basic-dist-min'
-import { useMemo } from 'react'
-import createPlotlyComponent from 'react-plotly.js/factory'
+import { Suspense, lazy, useMemo } from 'react'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Plot = createPlotlyComponent(Plotly as any)
+const Plot = lazy(() => import('./PlotlyChart'))
 
 interface Figure {
   data: unknown[]
@@ -54,19 +53,21 @@ export function PlotFigure({
 
   return (
     <Box>
-      <Plot
-        data={parsed.data as Plotly.Data[]}
-        layout={{
-          ...(parsed.layout as object),
-          autosize: true,
-          // The server sets the figure's own height; let the container decide
-          // the width so it reflows on a narrow screen.
-          margin: (parsed.layout as { margin?: object }).margin,
-        }}
-        style={{ width: '100%', height }}
-        useResizeHandler
-        config={{ displaylogo: false, responsive: true }}
-      />
+      <Suspense fallback={<Skeleton height={height} radius="sm" />}>
+        <Plot
+          data={parsed.data as Plotly.Data[]}
+          layout={{
+            ...(parsed.layout as object),
+            autosize: true,
+            // The server sets the figure's own height; the container decides
+            // the width so it reflows on a narrow screen.
+            margin: (parsed.layout as { margin?: object }).margin,
+          }}
+          style={{ width: '100%', height }}
+          useResizeHandler
+          config={{ displaylogo: false, responsive: true }}
+        />
+      </Suspense>
     </Box>
   )
 }
