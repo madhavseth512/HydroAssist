@@ -30,7 +30,9 @@ describe('the data step', () => {
     ])
 
     const { container } = renderWithProviders(<DataPanel />)
-    await screen.findByText('Choose CSV')
+    // Wait for the project: until it has loaded there is no test to upload into.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Choose CSV/ })).toBeEnabled())
 
     fireEvent.change(fileInput(container), { target: { files: [csvFile()] } })
 
@@ -89,7 +91,9 @@ describe('the data step', () => {
     ])
 
     const { container } = renderWithProviders(<DataPanel />)
-    await screen.findByText('Choose CSV')
+    // Wait for the project: until it has loaded there is no test to upload into.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Choose CSV/ })).toBeEnabled())
 
     fireEvent.change(fileInput(container), { target: { files: [csvFile()] } })
 

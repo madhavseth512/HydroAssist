@@ -107,7 +107,9 @@ function useProjectMutation<TData, TVars>(
       if (invalidateAll) {
         // Switching or replacing a test invalidates the analysis too: the old
         // result describes data this workspace is no longer showing.
-        queryClient.removeQueries({ queryKey: keys.result })
+        // resetQueries, not removeQueries: removing the entry detaches the results
+      // panel that is subscribed to it, so the next result would never show.
+      queryClient.resetQueries({ queryKey: keys.result })
         queryClient.invalidateQueries({ queryKey: keys.chat })
       }
       onSuccess?.(...args)
@@ -152,14 +154,21 @@ export function useUpdateTest() {
 export function useUploadReadings(testId: string | undefined) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (file: File) => api.uploadReadings(testId!, file),
+    mutationFn: (file: File) => {
+      if (!testId) {
+        return Promise.reject(new Error('The project is still loading — try again in a moment.'))
+      }
+      return api.uploadReadings(testId, file)
+    },
     onSuccess: (prepared) => {
       queryClient.setQueryData(keys.readings(testId ?? ''), prepared)
       queryClient.invalidateQueries({ queryKey: keys.project })
       // By prefix: the gating depends on the data, whatever test type is shown.
       queryClient.invalidateQueries({ queryKey: ['methods'] })
       // New data retires the previous fit, on the server and here.
-      queryClient.removeQueries({ queryKey: keys.result })
+      // resetQueries, not removeQueries: removing the entry detaches the results
+      // panel that is subscribed to it, so the next result would never show.
+      queryClient.resetQueries({ queryKey: keys.result })
       queryClient.invalidateQueries({ queryKey: keys.chat })
     },
     onError: (error) => reportError(error, 'That file could not be used'),
@@ -251,7 +260,9 @@ export function useResetChat() {
     onSuccess: (state) => {
       queryClient.setQueryData(keys.chat, state)
       // The server clears the last result along with the conversation.
-      queryClient.removeQueries({ queryKey: keys.result })
+      // resetQueries, not removeQueries: removing the entry detaches the results
+      // panel that is subscribed to it, so the next result would never show.
+      queryClient.resetQueries({ queryKey: keys.result })
       queryClient.invalidateQueries({ queryKey: ['methods'] })
     },
     onError: (error) => reportError(error),

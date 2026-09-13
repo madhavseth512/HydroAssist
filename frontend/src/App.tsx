@@ -5,7 +5,7 @@
  * confirms: the project on the left, the analysis in the centre, and the
  * consultation in a drawer that is always one click away.
  */
-import { AppShell, Badge, Burger, Button, Group, Stack, Text, Title } from '@mantine/core'
+import { AppShell, Badge, Burger, Button, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { IconMessageCircle } from '@tabler/icons-react'
 
@@ -19,7 +19,13 @@ import { useSession } from './hooks'
 
 export function App() {
   // Creates the session on first contact; every later request carries its cookie.
+  //
+  // Nothing else may ask the server for state until this has answered. On a
+  // first visit there is no cookie yet, so requests sent in parallel would each
+  // create a session of their own: the page would show a test from one session
+  // and send the upload to another, where that test does not exist.
   const session = useSession()
+  const ready = Boolean(session.data)
   const [navOpen, nav] = useDisclosure()
   const [chatOpen, chat] = useDisclosure(false)
 
@@ -56,21 +62,25 @@ export function App() {
       <AppShell.Navbar p="md">
         {session.isError ? (
           <Text c="red" size="sm">{(session.error as Error).message}</Text>
-        ) : (
+        ) : ready ? (
           <ProjectSidebar />
+        ) : (
+          <Loader size="sm" />
         )}
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Stack gap="md">
-          <DataPanel />
-          <SetupPanel />
-          <ResultsPanel />
-          <ComparePanel />
-        </Stack>
+        {ready && (
+          <Stack gap="md">
+            <DataPanel />
+            <SetupPanel />
+            <ResultsPanel />
+            <ComparePanel />
+          </Stack>
+        )}
       </AppShell.Main>
 
-      <ChatDrawer opened={chatOpen} onClose={chat.close} />
+      {ready && <ChatDrawer opened={chatOpen} onClose={chat.close} />}
     </AppShell>
   )
 }

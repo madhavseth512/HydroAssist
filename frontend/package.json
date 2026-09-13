@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:types": "openapi-typescript ../openapi.json -o src/api/schema.d.ts"
+    "gen:types": "openapi-typescript ../openapi.json -o src/api/schema.d.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@mantine/core": "^7.17.0",

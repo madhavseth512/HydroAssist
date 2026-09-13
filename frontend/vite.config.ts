@@ -30,6 +30,8 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.ts',
     css: false,
+    // e2e/ holds the Playwright browser tests, which Vitest must not run.
+    exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
     alias: {
       // Plotly is megabytes of charting code. A panel test is about what the
       // panel hands to the chart, not about Plotly's own rendering.
