@@ -4,8 +4,8 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Phase](https://img.shields.io/badge/phase-4%20in%20progress-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-795%20passing-brightgreen.svg)]()
+[![Phase](https://img.shields.io/badge/phase-5%20in%20progress-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1182%20python%20%2B%2054%20frontend-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-75%25-green.svg)]()
 [![Methods](https://img.shields.io/badge/methods-6%20across%204%20aquifer%20types-blue.svg)]()
 
@@ -46,8 +46,8 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Streamlit Web UI                            │
-│         Tab 1: Consultation Chat  |  Tab 2: Calculator           │
+│   React workspace (frontend/)  ──HTTP──▶  FastAPI (src/api)      │
+│   project · data · setup · results · compare · consultant drawer │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
@@ -67,7 +67,7 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
    ┌────────────┐   ┌────────────────┐   ┌─────────────────────┐
    │   Gemini   │   │  RAG Pipeline  │   │  Calculator Engine  │
    │  2.5 Flash │   │  ChromaDB +    │   │  scipy / Stehfest   │
-   │    LLM     │   │  Sentence-Trns │   │  + Plotly + PDF     │
+   │    LLM     │   │  ONNX MiniLM   │   │  + Plotly + PDF     │
    └────────────┘   └────────────────┘   └─────────────────────┘
 ```
 
@@ -104,10 +104,14 @@ inputs), so the two halves exchange state through three seams on
 
 ```
 hydroassist/
-├── app.py                          # Streamlit entry point (2-tab layout)
+├── frontend/                       # React + TypeScript workspace (Vite, Mantine)
+├── Dockerfile, docker-compose.yml  # Container build + Caddy (see DEPLOY.md)
 ├── requirements.txt
 ├── configs/                        # YAML configs
 ├── src/
+│   ├── api/                        # FastAPI app: sessions, routes, rate limit
+│   ├── services/                   # Workspace actions with no UI (analysis, intake)
+│   ├── project/                    # Project model and file format
 │   ├── core/
 │   │   ├── config.py               # AppConfig dataclass (Pydantic)
 │   │   ├── state.py                # AgentState TypedDict
@@ -119,7 +123,7 @@ hydroassist/
 │   │   ├── calculator.py           # Reports results / requests missing inputs
 │   │   └── method_selection.py     # Deterministic method-suggestion rules
 │   ├── retrieval/
-│   │   ├── embeddings.py           # Sentence-transformers (all-MiniLM-L6-v2)
+│   │   ├── embeddings.py           # ONNX all-MiniLM-L6-v2, via chromadb
 │   │   ├── vectorstore.py          # ChromaDB manager
 │   │   └── retriever.py            # Metadata-filtered semantic search
 │   ├── ingestion/
@@ -162,10 +166,8 @@ hydroassist/
 │   │   ├── test_validator.py             # 24
 │   │   ├── test_plots_report.py          # 34
 │   │   └── test_method_selection.py      # 70
-│   └── integration/                # 52 tests
-│       ├── test_chat_calculator_bridge.py  # 26
-│       ├── test_end_to_end_journey.py      # 12
-│       └── test_app_smoke.py               # 14 (Streamlit AppTest)
+│   ├── integration/                # agents, graph, retrieval regression
+│   └── api/                        # HTTP API tests (FastAPI TestClient)
 └── data/
     ├── raw/                        # USGS PDFs, AQTESOLV metadata
     ├── processed/                  # Chunked documents
@@ -316,11 +318,15 @@ Key implementation decisions grounded in the original paper:
 
 ## Tests
 
-795 tests, all passing; 75% statement coverage of `src/`.
+1,182 Python tests and 54 frontend unit tests, plus 3 Playwright browser tests.
 
 ```bash
-pytest tests/ -q                 # everything (~33 s)
-pytest tests/ -q -m "not slow"   # skip the Streamlit UI smoke tests
+pytest tests/ -q                 # backend, API and integration
+pytest tests/ -q -m "not slow"   # skip the slow end-to-end tests
+
+cd frontend
+npm test                         # component tests (Vitest + Testing Library)
+npm run build && npm run e2e     # browser tests (Playwright, real API, consultant off)
 ```
 
 Run through `python -m pytest` if the venv's `.exe` shims carry a stale path.
@@ -364,7 +370,7 @@ Run through `python -m pytest` if the venv's `.exe` shims carry a stale path.
 |------|-------|----------------|
 | `test_chat_calculator_bridge.py` | 26 | Agents with stubbed LLM + retriever |
 | `test_end_to_end_journey.py` | 18 | Full journey through the compiled LangGraph |
-| `test_app_smoke.py` | 14 | Streamlit `AppTest` — renders the real app |
+| `tests/api/` | 112 | The HTTP API through FastAPI's TestClient — sessions, projects, fits, chat, rate limit |
 
 No test needs a network connection or an API key. The LLM and vector store are
 stubbed; the calculators, graph, routing and state reducers are real.
@@ -447,9 +453,17 @@ it is **not** what produced the bundled store.
 ### 4. Launch
 
 ```bash
-streamlit run app.py
-# Opens at http://localhost:8501
+# Build the browser workspace once
+cd frontend && npm ci && npm run build && cd ..
+
+# Serve the API and the built workspace together
+python -m uvicorn src.api.app:app --port 8000
+# Opens at http://localhost:8000
 ```
+
+For frontend work with hot reload, keep the API running as above and, in a second
+terminal, run `cd frontend && npm run dev` — it serves http://localhost:5173 and
+proxies `/api` to the API.
 
 ---
 
@@ -531,15 +545,24 @@ llm:
 - [x] **Boulton (1963)** — unconfined
 - [x] **Warren-Root (1963)** — fractured
 - [x] **Bourdet log-derivative** driving data-based method selection
-- [ ] Theis, Cooper-Jacob and Papadopulos-Cooper ported onto the template
-- [ ] Recovery analysis (Theis 1935 Eq. 7 / Agarwal equivalent time)
+- [x] Theis, Cooper-Jacob and Papadopulos-Cooper ported onto the template
+- [x] Recovery analysis — Theis (1935) recovery, Eq. 7
 - [ ] Step-drawdown (Birsoy-Summers 1980)
 - [ ] Neuman (1974) unconfined — needs a transcendental root series
 - [ ] Forward simulation / test design
 - [ ] Slug tests — a different input shape, and Stehfest is the wrong inverter
-- [ ] Cloud deployment (Docker; AWS ECS Fargate if approved)
-- [ ] Practitioner data model: projects, named wells, logger import
+- [ ] Deployment — Docker + Caddy on Oracle Cloud Always Free (files ready; see DEPLOY.md)
+- [x] Projects — tests, readings and analyses saved as a file, compared by AICc
+- [ ] Named wells with coordinates, logger import
 - [ ] IIT KGP email authentication (deferred)
+
+### Phase 5 — Web application (In progress)
+- [x] Workspace logic extracted into UI-free services
+- [x] FastAPI HTTP API with per-visitor sessions
+- [x] React + TypeScript workspace replacing Streamlit (see PARITY.md)
+- [x] Consultant rate limit, and a fallback when the model is unavailable
+- [x] Browser end-to-end tests (Playwright)
+- [ ] Deploy to Oracle Cloud Always Free
 
 ---
 
@@ -560,11 +583,12 @@ llm:
 
 | Package | Purpose |
 |---|---|
-| `streamlit` | Web interface |
+| `fastapi`, `uvicorn` | HTTP API |
+| React, Mantine, Plotly.js (`frontend/`) | Browser workspace |
 | `langchain`, `langgraph` | Multi-agent orchestration |
 | `langchain-google-genai` | Gemini 2.5 Flash LLM |
 | `chromadb` | Vector store (RAG) |
-| `sentence-transformers` | Local embeddings (all-MiniLM-L6-v2) |
+| `onnxruntime` (via `chromadb`) | Local embeddings (ONNX all-MiniLM-L6-v2) |
 | `scipy` | `curve_fit` (TRF fitting), `expn` (Theis W(u)), `kv` (Bessel K₀/K₁ for Stehfest) |
 | `numpy` | Array operations, polyfit (CJ slope) |
 | `pandas` | CSV processing and tabular data |

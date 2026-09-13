@@ -1,0 +1,26 @@
+# HTTPS for HydroAssist. Caddy obtains and renews the Let's Encrypt certificate
+# for $DOMAIN automatically, provided ports 80 and 443 reach this machine.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Private until the licensing question is settled: the consultant's answers
+	# quote the indexed publisher papers. See DEPLOY.md.
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	# The app accepts uploads up to 50 MB; leave room for the multipart envelope.
+	request_body {
+		max_size 60MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy app:8000
+}

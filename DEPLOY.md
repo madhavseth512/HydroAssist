@@ -1,63 +1,168 @@
-# Deploying HydroAssist on Streamlit Community Cloud
+# Deploying HydroAssist on Oracle Cloud Always Free
 
-The free-tier target. Streamlit Community Cloud is free, builds straight from a
-GitHub repository, and supports the persistent WebSocket connection Streamlit
-needs. (Hugging Face Spaces offers more RAM but now charges for Docker Spaces, and
-AWS App Runner cannot hold Streamlit's WebSocket at all.)
+HydroAssist runs as two containers on one small VM:
 
-## What had to change to fit the free tier
+- **app** — FastAPI, serving the API and the built React workspace
+- **Caddy** — HTTPS, via a free Let's Encrypt certificate, plus basic auth
 
-| Constraint | What was done |
+The whole setup costs nothing.
+
+```
+Browser ──HTTPS──▶ Caddy (TLS, basic auth) ──▶ app: FastAPI + React build ──▶ Gemini (free tier)
+```
+
+## Why this host
+
+Checked on 11 September 2026:
+
+| Option | Why not |
 |---|---|
-| Roughly 0.7–2.7 GB RAM from a shared pool | Removed `sentence-transformers` / `torch`. Queries now use ChromaDB's ONNX build of the same `all-MiniLM-L6-v2` model — the one the index was always built with. Retrieval is unchanged: 12/12 benchmark queries return the identical top-5 (`tests/integration/test_retrieval_regression.py`). **Measured in a clean install from `requirements.txt`: 977 MB on disk (was 1.7 GB), and 415 MB peak RAM** for a full workload — booting the chat graph, four retrievals, all six fits, the derivative plot and a PDF. |
-| Builds from the repository, no persistent disk | `data/vectordb/` (38 MB) is committed. Without it the app boots with an empty knowledge base and the consultant answers nothing. |
-| No `.env` file on the host | The Gemini key goes in the app's Secrets; Streamlit exposes it as the `GEMINI_API_KEY` environment variable the config already reads. |
+| Render / Koyeb free | 512 MB RAM and 0.1 CPU: out-of-memory risk, and fits would crawl |
+| Google Cloud Run / Azure Container Apps | They bill the card on file once the free grant is used up |
+| Hugging Face Spaces, Fly.io, Railway | No free option for an app like this |
+| **Oracle Cloud Always Free** | **Ampere A1: 2 OCPU and 12 GB RAM.** Measured peak use is about 415 MB. |
 
-## Steps
+Oracle's risks, stated plainly:
+- **Allowance changes:** Oracle halved the Always Free allowance without notice in June 2026.
+- **Idle reclaim:** Oracle may reclaim Always Free instances it considers idle. Check the current Always Free documentation.
+- **Card required:** sign-up asks for a card for identity verification. It is not charged while the account stays on Always Free — **never click "Upgrade"**.
 
-1. **Push the branch to GitHub.** The repository can be private — Community Cloud
-   can deploy from a private repo, which is also the safer choice while the
-   publisher PDFs under `knowledge source/` remain in the history (see below).
-2. Go to <https://share.streamlit.io>, sign in with GitHub, and choose
-   **Create app → Deploy a public app from GitHub**.
-3. Fill in:
-   - **Repository:** `madhavseth512/HydroAssist`
-   - **Branch:** the branch you pushed
-   - **Main file path:** `app.py`
-4. Open **Advanced settings**:
-   - **Python version: 3.11.** Verified on a clean 3.11 install from
-     `requirements.txt`, which resolves to the versions the host will get
-     (Streamlit 1.63, chromadb 1.5.9): the full suite passes — 805 unit and
-     integration tests plus the 14 Streamlit UI tests that boot the real
-     `app.py` — with no deprecation warnings raised. 3.14 is only what the local
-     venv happens to use.
-   - **Secrets:** paste the contents of `.streamlit/secrets.toml.example` with
-     your real key.
-5. **Deploy.** The first build installs dependencies (a few minutes).
+## What you need
 
-## What to expect
+- An Oracle Cloud account, set up in step 1.
+- A free DuckDNS subdomain, set up in step 3.
+- A **private** copy of this repository on GitHub, needed from step 4 (see the licensing warning at the end).
+- A Gemini API key.
 
-- **First visitor after a cold start waits longer.** ChromaDB downloads its ONNX
-  model (~80 MB) on first use and caches it for the life of the container.
-- **The app sleeps after 12 hours without traffic.** The next visitor wakes it,
-  with another cold start.
-- **Uploaded CSVs and results do not persist.** Nothing is saved between sessions
-  on the free tier — which is also why saved projects are planned as a file the
-  user downloads and re-opens rather than server-side storage.
+## 1. Create the VM
 
-## Verifying the deployment
+1. Sign up at <https://www.oracle.com/cloud/free/> and choose a home region close
+   to your users. Always Free resources are only available in your home region.
+2. Go to **Compute → Instances → Create instance**:
+   - **Image:** Canonical Ubuntu 24.04.
+   - **Shape:** Ampere, `VM.Standard.A1.Flex` with **2 OCPU and 12 GB memory**.
+   - **Networking:** create a VCN with a public subnet, and assign a public IPv4 address.
+   - **SSH keys:** upload your public key, or download the generated one.
+3. Note the instance's **public IP address**.
 
-1. The page loads and the sidebar shows the model and message count.
-2. Ask the consultant *"What are the assumptions of the Theis method?"* — the
-   answer should cite sources in the **Retrieved Sources** expander. An answer
-   saying it lacks information means the vector store did not deploy.
-3. Upload `tests/theis_cooper_jacob_sample.csv`, set Q = 500 m³/day and r = 50 m,
-   and run **Theis (1935)**. Expect T ≈ 215.3 m²/day and S ≈ 5.05×10⁻⁵.
+> Ampere capacity is sometimes exhausted in popular regions. If creation fails
+> with "Out of capacity", retry later or pick another availability domain.
 
-## Before making the app public
+## 2. Open ports 80 and 443 — in two places
 
-`knowledge source/` contains roughly thirty publisher PDFs (SPE, Elsevier,
-Wiley/AGU) tracked in git. The app does not need them at runtime — only the built
-index — but they are in the repository and its history. Deploying from a private
-repository avoids redistributing them; making the repository public does not. This
-is a licensing decision, not a technical one, and should be settled first.
+Oracle blocks traffic at the network **and** on the VM itself. Both must be
+opened, or Caddy cannot obtain a certificate.
+
+**a. Network security list.** Open **Networking → Virtual cloud networks → your VCN → Security Lists → Default**. Add two ingress rules, both with source `0.0.0.0/0` and protocol TCP: one for destination port **80** and one for port **443**.
+
+**b. The VM's firewall.** Oracle's Ubuntu images ship `iptables` rules that reject new inbound connections other than SSH:
+
+```bash
+ssh ubuntu@<public-ip>
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+## 3. Point a domain at the VM
+
+1. Sign in at <https://www.duckdns.org>.
+2. Create a subdomain, for example `hydroassist-kgp`.
+3. Set its IP to the VM's public IP.
+
+Your site will be `https://hydroassist-kgp.duckdns.org`.
+
+## 4. Install Docker and get the code
+
+On the VM:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker ubuntu && newgrp docker
+docker compose version            # confirms the compose plugin is present
+```
+
+The repository is private, so give the VM a read-only **deploy key**:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/hydroassist_deploy -N ""
+cat ~/.ssh/hydroassist_deploy.pub
+```
+
+Add that public key to the GitHub repository under **Settings → Deploy keys**, leaving write access **off**. Then clone:
+
+```bash
+GIT_SSH_COMMAND="ssh -i ~/.ssh/hydroassist_deploy" \
+  git clone git@github.com:<you>/HydroAssist.git ~/hydroassist
+cd ~/hydroassist
+```
+
+## 5. Configure
+
+```bash
+cp .env.example .env
+docker run --rm caddy:2 caddy hash-password --plaintext 'choose-a-password'
+nano .env
+```
+
+Fill in `.env`:
+- `GEMINI_API_KEY`
+- `DOMAIN` — for example `hydroassist-kgp.duckdns.org`
+- `BASIC_AUTH_USER`
+- `BASIC_AUTH_HASH` — the hash printed above, **inside single quotes**, because it contains `$`
+
+`.env` never leaves the VM. It is excluded from git and from the Docker build context.
+
+## 6. Start
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+The first build takes several minutes on the Ampere VM. It installs the Python dependencies, builds the React workspace, and downloads the ONNX embedding model into the image. Caddy obtains the certificate once the app is healthy.
+
+## Verify
+
+Run the smoke check from the VM. It checks health, a session, an upload, a Theis
+fit against the golden value and the PDF report, and names the first step that
+fails:
+
+```bash
+python3 scripts/smoke_deploy.py https://<your-domain> --user <user> --password '<password>'
+```
+
+Then check in a browser:
+
+1. `docker compose ps` — both services are running, and `app` is `healthy`.
+2. Open `https://<your-domain>`. The browser asks for the basic-auth credentials, then loads the workspace.
+3. Choose `tests/theis_cooper_jacob_sample.csv` from your local copy. Leave Q = 500 m³/day and r = 50 m, and run **Theis (1935)**. Expect **T ≈ 215.29 m²/day** and S ≈ 5.05×10⁻⁵.
+4. Click **Download report**. A PDF downloads.
+5. Open **Consultant** and ask *"What are the assumptions of the Theis method?"* The answer should list **Sources consulted**. If the answer says it lacks information, the vector store did not deploy.
+
+## Updating
+
+```bash
+cd ~/hydroassist
+GIT_SSH_COMMAND="ssh -i ~/.ssh/hydroassist_deploy" git pull
+docker compose up -d --build
+```
+
+Sessions live in memory. A redeploy ends open sessions, so anyone mid-analysis loses unsaved work; a saved project file reopens as normal.
+
+## Operating notes
+
+- **Gemini free tier.** About 1,500 requests a day, and one question can cost several model calls. The app therefore caps the consultant at 20 questions per visitor per 10 minutes and 500 per day in total. It says so plainly when a cap is reached, and the calculators are never limited. Tune the caps in `.env` (see `.env.example`). On the free tier, Google may use conversations to improve its products; the chat panel tells visitors this.
+- **No consultant?** If the key is missing or the model is unreachable, the workspace still works — upload, fit, report, compare — and the chat explains why it cannot answer.
+- **`production.yaml` is not used.** Its retrieval `similarity_threshold` is 0.75, against 0.2 in `default.yaml`. Every test, including the retrieval regression, ran against `default`, so the image sets `HYDROASSIST_ENV=default`. Switching would noticeably reduce the sources the consultant finds, and should be measured first.
+- **Memory.** One worker, with sessions capped at 200 and expired after two idle hours. The VM has ample headroom.
+
+## Before making the site public
+
+`knowledge source/` contains roughly thirty publisher PDFs (SPE, Elsevier, Wiley/AGU) tracked in git.
+
+- **Kept out of the image.** `.dockerignore` excludes them, and the Dockerfile copies only the built index.
+- **Still quoted.** The consultant's answers quote passages from them.
+- **Hence private.** The repository stays private, and the site sits behind basic auth.
+
+Removing the auth, or making the repository public, is a licensing decision, not a technical one, and should be settled first.
