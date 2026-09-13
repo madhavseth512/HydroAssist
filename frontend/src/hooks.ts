@@ -183,6 +183,41 @@ export function useRunAnalysis() {
   })
 }
 
+/** Record the current result against the active test. */
+export function useSaveAnalysis() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.saveAnalysis(),
+    onSuccess: (comparison) => {
+      queryClient.setQueryData(keys.comparison(comparison.test_id), comparison)
+      queryClient.invalidateQueries({ queryKey: keys.project })
+    },
+    onError: (error) => reportError(error, 'The analysis was not saved'),
+  })
+}
+
+/** The hand-matched curve. Called when a slider is released, not on every
+ * pixel of the drag, so the free-tier server is not asked for a figure per
+ * mouse movement. */
+export function useManualMatch() {
+  return useMutation({
+    mutationFn: ({ T, S }: { T: number; S: number | null }) => api.manualMatch(T, S),
+    onError: (error) => reportError(error, 'Manual matching failed'),
+  })
+}
+
+export function useRemoveAnalysis(testId: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (analysisId: string) => api.removeAnalysis(testId!, analysisId),
+    onSuccess: (comparison) => {
+      queryClient.setQueryData(keys.comparison(comparison.test_id), comparison)
+      queryClient.invalidateQueries({ queryKey: keys.project })
+    },
+    onError: (error) => reportError(error),
+  })
+}
+
 export function useSaveSetup(testId: string | undefined) {
   const queryClient = useQueryClient()
   return useMutation({

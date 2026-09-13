@@ -8,7 +8,9 @@
 import { AppShell, Badge, Burger, Group, Stack, Text, Title } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 
+import { ComparePanel } from './panels/ComparePanel'
 import { DataPanel } from './panels/DataPanel'
+import { ResultsPanel } from './panels/ResultsPanel'
 import { SetupPanel } from './panels/SetupPanel'
 import { ProjectSidebar } from './panels/ProjectSidebar'
 import { useSession } from './hooks'
@@ -52,6 +54,8 @@ export function App() {
         <Stack gap="md">
           <DataPanel />
           <SetupPanel />
+          <ResultsPanel />
+          <ComparePanel />
         </Stack>
       </AppShell.Main>
     </AppShell>
