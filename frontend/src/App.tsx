@@ -2,12 +2,14 @@
  * The workspace shell.
  *
  * Layout follows the decision taken in planning — chat drives, the form
- * confirms: the project on the left, the analysis in the centre, and (in a
- * later slice) the consultation in a drawer that is always one click away.
+ * confirms: the project on the left, the analysis in the centre, and the
+ * consultation in a drawer that is always one click away.
  */
-import { AppShell, Badge, Burger, Group, Stack, Text, Title } from '@mantine/core'
+import { AppShell, Badge, Burger, Button, Group, Stack, Text, Title } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
+import { IconMessageCircle } from '@tabler/icons-react'
 
+import { ChatDrawer } from './panels/ChatDrawer'
 import { ComparePanel } from './panels/ComparePanel'
 import { DataPanel } from './panels/DataPanel'
 import { ResultsPanel } from './panels/ResultsPanel'
@@ -19,6 +21,7 @@ export function App() {
   // Creates the session on first contact; every later request carries its cookie.
   const session = useSession()
   const [navOpen, nav] = useDisclosure()
+  const [chatOpen, chat] = useDisclosure(false)
 
   return (
     <AppShell
@@ -36,9 +39,17 @@ export function App() {
               Pumping test analysis that explains itself
             </Text>
           </Group>
-          {session.data && (
-            <Badge variant="light" color="blue">{session.data.project.summary}</Badge>
-          )}
+          <Group gap="xs" wrap="nowrap">
+            {session.data && (
+              <Badge variant="light" color="blue" visibleFrom="sm">
+                {session.data.project.summary}
+              </Badge>
+            )}
+            <Button size="xs" leftSection={<IconMessageCircle size={16} />}
+                    onClick={chat.open}>
+              Consultant
+            </Button>
+          </Group>
         </Group>
       </AppShell.Header>
 
@@ -58,6 +69,8 @@ export function App() {
           <ComparePanel />
         </Stack>
       </AppShell.Main>
+
+      <ChatDrawer opened={chatOpen} onClose={chat.close} />
     </AppShell>
   )
 }

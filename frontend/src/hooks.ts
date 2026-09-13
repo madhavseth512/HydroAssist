@@ -218,6 +218,46 @@ export function useRemoveAnalysis(testId: string | undefined) {
   })
 }
 
+// ── Conversation ─────────────────────────────────────────────────────────────
+
+function useChatMutation<TVars>(mutationFn: (vars: TVars) => Promise<unknown>,
+                                title: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: (state) => {
+      queryClient.setQueryData(keys.chat, state)
+      // The method list's default follows what the conversation settled on.
+      queryClient.invalidateQueries({ queryKey: ['methods'] })
+    },
+    onError: (error) => reportError(error, title),
+  })
+}
+
+export function useSendMessage() {
+  return useChatMutation((message: string) => api.sendMessage(message),
+                         'The consultant did not answer')
+}
+
+export function useConfirmMethod() {
+  return useChatMutation((method: string) => api.confirmMethod(method),
+                         'The method was not set')
+}
+
+export function useResetChat() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.resetChat(),
+    onSuccess: (state) => {
+      queryClient.setQueryData(keys.chat, state)
+      // The server clears the last result along with the conversation.
+      queryClient.removeQueries({ queryKey: keys.result })
+      queryClient.invalidateQueries({ queryKey: ['methods'] })
+    },
+    onError: (error) => reportError(error),
+  })
+}
+
 export function useSaveSetup(testId: string | undefined) {
   const queryClient = useQueryClient()
   return useMutation({
