@@ -1,8 +1,9 @@
-"""Glue between the Streamlit workspace and the project model.
+"""Glue between the workspace form and the project model.
 
-Kept free of Streamlit so it can be tested directly; app.py only wires these into
-widgets. The Step 2 widget keys live here too, because they are the contract
-between what a saved project contains and what the form shows when it reopens.
+The Step 2 keys and bounds live here because they are the contract between what a
+saved project contains and what the setup form shows when it reopens; the HTTP
+API's SetupModel converts through them. (They began as the Streamlit app's widget
+keys, which is where the names come from.)
 """
 
 from typing import Mapping, Optional
@@ -14,7 +15,7 @@ from src.project.model import Project, PumpingTest, TestSetup
 Q_TO_SI = {"m³/day": 1 / 86400, "m³/hour": 1 / 3600, "m³/s": 1.0, "L/s": 1e-3}
 Q_UNITS = list(Q_TO_SI)
 
-# Step 2 widget keys in app.py.
+# Step 2 form keys (originally the Streamlit widget keys).
 KEY_Q = "q_input"
 KEY_Q_UNIT = "q_unit"
 KEY_R = "r_input"
@@ -37,8 +38,8 @@ DEFAULTS = {KEY_Q: 500.0, KEY_Q_UNIT: "m³/day", KEY_R: 50.0,
             KEY_RW: 0.15, KEY_RC: 0.10,
             KEY_TEST_TYPE: "constant_rate", KEY_TP: 24.0, KEY_CLOCK: "since_stop"}
 
-# The min/max each widget declares. A reopened value outside them would make
-# Streamlit raise when the widget renders, so values are clamped on the way in.
+# The range each form input accepts. A value outside it — from a hand-edited or
+# older project file — is clamped on the way in rather than shown out of range.
 BOUNDS = {KEY_Q: (0.0001, 100000.0), KEY_R: (0.1, 5000.0),
           KEY_RW: (0.01, 5.0), KEY_RC: (0.01, 5.0), KEY_TP: (0.01, 10000.0)}
 
@@ -57,9 +58,9 @@ def _clamp(key: str, value: float) -> float:
 
 
 def setup_from_inputs(values: Mapping) -> TestSetup:
-    """The Step 2 form as a TestSetup. Missing keys fall back to the defaults —
-    Streamlit drops the state of widgets not rendered in a run, which happens to
-    the well-radius inputs whenever the method does not need them."""
+    """The Step 2 form as a TestSetup. Missing keys fall back to the defaults, so
+    a partial form — the well radii are absent when the method does not need
+    them — still describes a complete test."""
     unit = values.get(KEY_Q_UNIT, DEFAULTS[KEY_Q_UNIT])
     q = float(values.get(KEY_Q, DEFAULTS[KEY_Q]))
     test_type = values.get(KEY_TEST_TYPE, DEFAULTS[KEY_TEST_TYPE])

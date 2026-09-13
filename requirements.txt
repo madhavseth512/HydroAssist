@@ -18,12 +18,10 @@ pypdf>=4.0.0
 beautifulsoup4>=4.12.0
 
 # Web Framework
-# The HTTP API that replaces the Streamlit script (plan Phase 5). Streamlit
-# stays until the React frontend reaches parity, then goes with app.py.
+# FastAPI serves the HTTP API and the built React workspace (frontend/).
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9   # file uploads
-streamlit>=1.33.0
 
 # HTTP & Scraping
 requests>=2.31.0
@@ -39,7 +37,7 @@ pydantic>=2.7.0
 scipy>=1.13.0          # curve_fit, expn (Theis W(u) well function), optimization
 numpy>=1.26.0          # polyfit, linear algebra, array operations
 matplotlib>=3.8.0      # static fallback plots
-plotly>=5.22.0         # interactive diagnostic plots and type curves (Streamlit native)
+plotly>=5.22.0         # diagnostic figures, sent to the browser as Plotly JSON
 reportlab>=4.2.0       # PDF report generation
 openpyxl>=3.1.0        # Excel export of results and data tables
 pandas>=2.2.0          # CSV inspection, formatting, and tabular data handling

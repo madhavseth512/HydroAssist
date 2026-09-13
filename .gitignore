@@ -45,14 +45,12 @@ data/raw/usgs/*.pdf
 data/raw/aqtesolv/*.json
 data/raw/aqtesolv/*.html
 data/processed/
-# data/vectordb/ is deliberately COMMITTED: a hosted deploy (Streamlit Community
-# Cloud) builds from the repository, so an ignored store would boot an app with an
-# empty knowledge base. It is 38 MB and read-only at runtime. Only the built index
-# ships; the source PDFs under "knowledge source/" are not needed to run the app.
+# data/vectordb/ is deliberately COMMITTED: the Docker image copies it, so an
+# ignored store would boot an app with an empty knowledge base. It is 38 MB and
+# read-only at runtime. Only the built index ships; the source PDFs under
+# "knowledge source/" are not needed to run the app.
 data/vectordb_dev/
 
-# Streamlit secrets hold the Gemini API key.
-.streamlit/secrets.toml
 *.db
 *.sqlite
 

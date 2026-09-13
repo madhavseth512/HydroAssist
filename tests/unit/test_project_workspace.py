@@ -2,7 +2,7 @@
 
 These are the rules that decide whether a reopened project looks the way it was
 left: the Step 2 form must come back with the same Q in the same unit, values
-must never land outside a widget's bounds (Streamlit raises if they do), and a
+must never land outside the form's bounds, and a
 saved analysis must record the setup its fit actually used rather than whatever
 the form shows at the moment of saving.
 """
@@ -61,7 +61,7 @@ class TestFormRoundTrip:
         assert values[KEY_Q_UNIT] == "L/s"
 
     def test_missing_keys_fall_back_to_defaults(self):
-        """Streamlit drops the state of widgets not rendered in a run."""
+        """A partial form — no well radii for a method that needs none."""
         setup = setup_from_inputs({})
         assert setup.Q_entered == DEFAULTS[KEY_Q]
         assert setup.r_w_m == DEFAULTS[KEY_RW]
@@ -80,7 +80,7 @@ class TestFormRoundTrip:
         assert values[KEY_Q] == pytest.approx(500.0)
 
     def test_values_are_clamped_to_widget_bounds(self):
-        """Out-of-range values would make Streamlit raise on render."""
+        """A hand-edited or older file must not put the form out of range."""
         setup = TestSetup(Q_m3s=None, Q_entered=1e9, Q_unit="m³/day",
                           r_m=1e6, r_w_m=0.0001, r_c_m=99.0)
         values = inputs_from_setup(setup)

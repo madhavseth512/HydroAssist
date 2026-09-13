@@ -1,6 +1,6 @@
 """The app must run with torch and transformers absent.
 
-The deploy target (Streamlit Community Cloud) installs only requirements.txt,
+The deploy target (the Docker image) installs only requirements.txt,
 which no longer includes sentence-transformers, torch or transformers. But a
 developer's local venv may still have them from before, and one dependency imports
 them opportunistically: langchain_core/language_models/base.py does
