@@ -166,6 +166,23 @@ export function useUploadReadings(testId: string | undefined) {
   })
 }
 
+/** Run a fit. The server stores the setup on the test before fitting, so the
+ * form, the project and the result describe the same test afterwards. */
+export function useRunAnalysis() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ method, setup }: { method: string; setup: Setup }) =>
+      api.run(method, setup),
+    onSuccess: (result) => {
+      queryClient.setQueryData(keys.result, result)
+      queryClient.invalidateQueries({ queryKey: keys.project })
+      // The result is published into the conversation on the server.
+      queryClient.invalidateQueries({ queryKey: keys.chat })
+    },
+    onError: (error) => reportError(error, 'The analysis could not run'),
+  })
+}
+
 export function useSaveSetup(testId: string | undefined) {
   const queryClient = useQueryClient()
   return useMutation({

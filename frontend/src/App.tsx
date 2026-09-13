@@ -9,6 +9,7 @@ import { AppShell, Badge, Burger, Group, Stack, Text, Title } from '@mantine/cor
 import { useDisclosure } from '@mantine/hooks'
 
 import { DataPanel } from './panels/DataPanel'
+import { SetupPanel } from './panels/SetupPanel'
 import { ProjectSidebar } from './panels/ProjectSidebar'
 import { useSession } from './hooks'
 
@@ -50,6 +51,7 @@ export function App() {
       <AppShell.Main>
         <Stack gap="md">
           <DataPanel />
+          <SetupPanel />
         </Stack>
       </AppShell.Main>
     </AppShell>
