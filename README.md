@@ -410,6 +410,9 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
+
+# Only to rebuild the knowledge base, or to run tests/unit/test_ingestion.py:
+pip install -r requirements-ingest.txt
 ```
 
 ### 2. Configure Environment
@@ -596,6 +599,7 @@ llm:
 | `matplotlib` | Static figures embedded in PDF reports |
 | `reportlab` | PDF report generation |
 | `pypdf` | PDF text extraction (ingestion) |
+| `langchain-text-splitters` (`requirements-ingest.txt`) | Chunking, when rebuilding the knowledge base. Not installed by the app or the image. |
 | `pydantic` | AppConfig validation |
 
 ---
