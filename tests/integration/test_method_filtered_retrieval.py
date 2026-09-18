@@ -118,9 +118,12 @@ class TestTheCorpusIsActuallyTagged:
         from src.retrieval.vectorstore import VectorStoreManager
 
         config = load_config()
+        # read_only, or merely opening the store writes a lock row into a 34 MB
+        # tracked binary and running the suite leaves the repository dirty.
         store = VectorStoreManager(
             persist_directory=config.vectorstore.persist_directory,
-            collection_name=config.vectorstore.collection_name)
+            collection_name=config.vectorstore.collection_name,
+            read_only=True)
         metadatas = store.collection.get(include=["metadatas"])["metadatas"]
 
         untagged = [m for m in metadatas if m.get("method") in (None, "", "multiple")]
