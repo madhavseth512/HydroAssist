@@ -13,7 +13,29 @@ import shutil
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# This script prints ✅ and ❌, which a cp1252 Windows console cannot encode: the
+# UnicodeEncodeError aborted the run and left the database in place while the
+# caller went on believing it had been deleted.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from src.core.config import load_config
+
+
+def _release_chromadb() -> None:
+    """Close ChromaDB's handles on the store, so it can be deleted."""
+    try:
+        import gc
+
+        from chromadb.api.shared_system_client import SharedSystemClient
+
+        SharedSystemClient.clear_system_cache()
+        gc.collect()
+    except Exception:
+        # Nothing opened it, or this ChromaDB has no such cache: the delete
+        # below will report anything that actually blocks it.
+        pass
 
 
 def main():
@@ -81,20 +103,25 @@ def main():
             print(f"Could not read stats: {e}")
             print()
 
-        # Confirm again
-        response = input("Are you sure you want to DELETE this database? Type 'yes' to confirm: ")
+        # No second prompt. --confirm is already required — the script refuses
+        # to run without it — so asking again only meant that from a script or a
+        # rebuild pipeline input() raised EOFError, the delete never happened,
+        # and the next command ingested into a database the caller believed was
+        # empty. The flag is the confirmation.
 
-        if response.lower() != 'yes':
-            print("❌ Aborted")
-            sys.exit(0)
+        # Let go of the store before deleting it. Reading the stats above opened
+        # it, and on Windows an open file cannot be removed: the delete failed
+        # with WinError 32 while reporting the database as reset.
+        _release_chromadb()
 
-        # Delete
         print(f"Deleting: {db_path}")
         try:
             shutil.rmtree(db_path)
             print("✅ Database reset complete")
         except Exception as e:
             print(f"❌ Failed to delete database: {e}")
+            print("   Close anything else using the store, or delete the "
+                  "directory by hand.")
             sys.exit(1)
 
     else:

@@ -182,16 +182,44 @@ class TestFullJourney:
         assert chat.state["method_suggestion"]["method"] == PAPADOPULOS_COOPER
         assert chat.state["selected_method"] == PAPADOPULOS_COOPER
 
-    def test_confirm_method_is_what_unlocks_filtering(self, wired):
+    def test_confirm_method_is_what_unlocks_aquifer_filtering(self, wired):
+        """Filtering by aquifer type excludes papers that cross types, so it
+        waits until the user has committed to a method. A general question is
+        therefore never narrowed by aquifer."""
+        chat, manager_llm, _, retriever = wired
+        manager_llm.responses = [_classification("consultation")]
+
+        chat.send_message("what is transmissivity?")
+        assert retriever.calls[-1] is None
+
+        chat.confirm_method(THEIS)
+        chat.send_message("and how is it measured?")
+        assert retriever.calls[-1] == {"aquifer": "confined"}
+
+    def test_naming_a_method_narrows_the_search_to_its_papers(self, wired):
+        """Unlike the aquifer filter, this one applies from the first question:
+        the user said which method they mean, and the corpus is tagged, so the
+        search goes to those papers. A filtered search that finds nothing is
+        retried unfiltered by the retriever."""
         chat, manager_llm, _, retriever = wired
         manager_llm.responses = [_classification("consultation")]
 
         chat.send_message("explain the Theis assumptions")
-        assert retriever.calls[-1] is None
+
+        clause = retriever.calls[-1]
+        assert "aquifer" not in json.dumps(clause)
+        assert "method_theis_1935" in json.dumps(clause)
+
+    def test_both_filters_apply_once_a_method_is_confirmed(self, wired):
+        chat, manager_llm, _, retriever = wired
+        manager_llm.responses = [_classification("consultation")]
 
         chat.confirm_method(THEIS)
         chat.send_message("and the Cooper-Jacob ones?")
-        assert retriever.calls[-1] == {"aquifer": "confined"}
+
+        clause = retriever.calls[-1]
+        assert clause["$and"][0] == {"aquifer": "confined"}
+        assert "method_cooper_jacob_1946" in json.dumps(clause["$and"][1])
 
     def test_new_upload_clears_the_stale_result(self, wired):
         chat, _, _, _ = wired

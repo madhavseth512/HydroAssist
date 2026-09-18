@@ -574,11 +574,12 @@ llm:
 | Issue | Impact | Status |
 |---|---|---|
 | `knowledge source/` contains paywalled publisher PDFs tracked in git | Redistribution of copyrighted material from a public repo | **Open** — needs `git rm --cached` plus a DOI manifest |
-| `method` metadata is `multiple` for 3,837 of 3,843 chunks | Method-level retrieval filtering is ineffective | Open |
+| ~~`method` metadata is `multiple` for 3,837 of 3,843 chunks~~ | Method-level retrieval filtering was ineffective | **Fixed** — `configs/corpus_methods.yaml` tags each paper; chunks carry a flag per method and the consultant filters on it when a question names one. Assignments are `reviewed: false` until a hydrogeologist confirms them |
 | ~~`canonical_method("Hantush-Jacob")` resolves to Cooper-Jacob~~ | Shared surname | **Fixed** — implementing the method resolved it; the longer alias now wins |
-| Agarwal (recovery) and one other PDF are image-only scans | They contributed **zero** chunks to the knowledge base; the recovery paper is effectively absent | Open — needs OCR or a public-domain substitute |
+| ~~Agarwal (recovery) and one other PDF are image-only scans~~ | They contributed **zero** chunks; the recovery paper was absent | **Fixed** — OCR (pypdfium2 + Tesseract) recovered 20/20 and 14/14 pages. Ingestion now reports any document that yields too little instead of skipping it |
+| Boulton, Warren-Root, Papadopulos-Cooper and recovery have no published table in the corpus | They are checked against analytical limits and their own forward models, not against values published elsewhere | Open — `tests/validation/` covers Theis, Cooper-Jacob and Hantush-Jacob; the rest needs AQTESOLV or new references |
 | Stehfest loses relative accuracy on decaying functions | Fine for drawdown, which grows; wrong for slug-test head recovery, which decays | Documented in `laplace.py`; slug tests will need de Hoog |
-| `src/ingestion/`, `src/utils/citations.py`, `src/utils/metadata.py` untested | 0% coverage on the ingestion path | Open |
+| `src/utils/citations.py`, `src/utils/metadata.py` untested | No coverage on those helpers | Open — `src/ingestion/` itself is now covered by `tests/unit/test_ingestion.py` |
 
 ---
 

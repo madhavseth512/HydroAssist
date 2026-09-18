@@ -11,3 +11,19 @@
 # langchain 1.x moved it into its own package, so ingestion broke silently until
 # it was named here.
 langchain-text-splitters>=0.3
+
+# OCR, for the papers that are scans with no text layer.
+#
+# pypdfium2 renders a page to an image with no external program (Apache/BSD).
+# PyMuPDF renders as well but is AGPL; ocrmypdf needs Ghostscript installed
+# system-wide and rewrites the whole PDF when only the text is wanted.
+pypdfium2>=4.30
+pytesseract>=0.3.10
+#
+# pytesseract is only a wrapper: Tesseract itself is a program, and has to be
+# installed separately —
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+#   Debian/Ubuntu: apt install tesseract-ocr
+#   macOS: brew install tesseract
+# `python -c "from src.ingestion.processors.ocr import check_tooling;
+#  print(check_tooling().instructions)"` says what is missing.

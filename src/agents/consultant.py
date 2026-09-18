@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agents.base import BaseAgent
 from src.core.state import AgentState
 from src.core.config import AppConfig
+from src.retrieval.method_filter import filter_for_question as method_filter_for_question
 from src.retrieval.retriever import Retriever
 from src.prompts.consultant_prompts import (
     CONSULTANT_SYSTEM_PROMPT,
@@ -82,6 +83,18 @@ class ConsultantAgent(BaseAgent):
             if aquifer_context != "unknown":
                 metadata_filters["aquifer"] = aquifer_context
                 self.logger.info(f"Filtering by aquifer: {aquifer_context}")
+
+        # When the question names a method, prefer the papers about it. Until
+        # the corpus was tagged this was impossible: every chunk said "multiple",
+        # so a question about Hantush competed with 483 chunks of Neuman. A
+        # filtered search that finds nothing is retried unfiltered by the
+        # retriever, so this narrows without being able to silence an answer.
+        method_filter = method_filter_for_question(question)
+        if method_filter:
+            if metadata_filters:
+                metadata_filters = {"$and": [metadata_filters, method_filter]}
+            else:
+                metadata_filters = method_filter
 
         # Retrieve relevant documents
         try:

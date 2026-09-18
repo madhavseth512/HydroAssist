@@ -13,6 +13,7 @@ loads and agrees with the settings the suite actually ran against.
 from pathlib import Path
 
 import pytest
+import yaml
 
 from src.core.config import load_config
 
@@ -24,8 +25,21 @@ TESTED_TOP_K = 5
 TESTED_STORE = "./data/vectordb"
 
 
+# The sections an application config defines. `configs/` also holds data that is
+# not configuration — corpus_methods.yaml, which says what each paper is about —
+# and feeding that to load_config() would produce an AppConfig of pure defaults
+# rather than an error.
+APP_SECTIONS = {"retrieval", "vectorstore", "llm", "ingestion", "logging"}
+
+
 def _config_names():
-    return sorted(p.stem for p in CONFIG_DIR.glob("*.yaml"))
+    """The files in configs/ that are application configuration."""
+    names = []
+    for path in sorted(CONFIG_DIR.glob("*.yaml")):
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if isinstance(data, dict) and APP_SECTIONS & set(data):
+            names.append(path.stem)
+    return names
 
 
 class TestWhatShips:
@@ -34,7 +48,9 @@ class TestWhatShips:
         assert "default" in _config_names()
 
     def test_no_untested_variants(self):
-        """A new config file is only safe once it is in TESTED_* below."""
+        """A new application config is only safe once it is in TESTED_* below.
+        Data files in configs/ — the corpus manifest — are not configuration and
+        are not counted here; `tests/unit/test_corpus_methods.py` covers that."""
         assert _config_names() == ["default"], (
             "configs/ holds a variant the suite does not exercise; either test it "
             "or delete it")

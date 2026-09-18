@@ -4,9 +4,21 @@ import re
 from pathlib import Path
 from typing import List, Dict, Optional
 from pypdf import PdfReader
+from src.ingestion.processors.ocr import DEFAULT_DPI, OCRUnavailable, ocr_pdf_pages
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# A page holding less than this has no usable text layer: it is a scan, a figure
+# or a title page. Ingestion drops such pages, so it is also the point at which
+# OCR is worth its second a page.
+MIN_PAGE_CHARS = 100
+
+# How a document's pages may be read.
+OCR_NEVER = "never"     # text layer only — what every caller did before OCR existed
+OCR_AUTO = "auto"       # OCR only the pages the text layer failed on
+OCR_ALWAYS = "always"   # OCR every page, ignoring the text layer
+OCR_MODES = (OCR_NEVER, OCR_AUTO, OCR_ALWAYS)
 
 
 class PDFProcessor:
@@ -19,7 +31,10 @@ class PDFProcessor:
     def extract_text_with_pages(
         self,
         pdf_path: str,
-        clean_text: bool = True
+        clean_text: bool = True,
+        ocr: str = OCR_NEVER,
+        min_chars: int = MIN_PAGE_CHARS,
+        dpi: int = DEFAULT_DPI,
     ) -> List[Dict[str, any]]:
         """
         Extract text from PDF with page-level metadata.
@@ -27,14 +42,29 @@ class PDFProcessor:
         Args:
             pdf_path: Path to PDF file
             clean_text: Whether to clean extracted text
+            ocr: OCR_NEVER (default), OCR_AUTO to recognise only the pages whose
+                text layer yielded less than `min_chars`, or OCR_ALWAYS.
+                OCR_AUTO is what the corpus scripts use: two papers in
+                `knowledge source/` are pure scans and several more carry a text
+                layer thin enough to be useless.
+            min_chars: The yield below which a page counts as having no text.
+            dpi: Rendering resolution for OCR.
 
         Returns:
-            List of dicts with 'page', 'text', and 'has_equations' keys
+            List of dicts with 'page', 'text', 'has_equations' and 'ocr' keys,
+            the last saying whether the text was recognised rather than read.
+
+        Raises:
+            OCRUnavailable: if OCR is asked for and the tooling is missing.
         """
         pdf_path = Path(pdf_path)
 
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+        if ocr not in OCR_MODES:
+            raise ValueError(f"Unknown ocr mode {ocr!r}; expected one of "
+                             f"{', '.join(OCR_MODES)}.")
 
         logger.info(f"Processing PDF: {pdf_path.name}")
 
@@ -59,8 +89,13 @@ class PDFProcessor:
                 pages_data.append({
                     'page': page_num + 1,  # 1-indexed
                     'text': text,
-                    'has_equations': has_equations
+                    'has_equations': has_equations,
+                    'ocr': False
                 })
+
+            if ocr != OCR_NEVER:
+                self._recognise_pages(pdf_path, pages_data, ocr, min_chars, dpi,
+                                      clean_text)
 
             logger.info(f"Successfully extracted text from {len(pages_data)} pages")
 
@@ -69,6 +104,43 @@ class PDFProcessor:
         except Exception as e:
             logger.error(f"Failed to process PDF {pdf_path}: {e}")
             raise
+
+    def _recognise_pages(
+        self,
+        pdf_path: Path,
+        pages_data: List[Dict],
+        ocr: str,
+        min_chars: int,
+        dpi: int,
+        clean_text: bool,
+    ) -> None:
+        """Fill in the pages the text layer could not supply, in place.
+
+        A recognised page replaces the extracted one only when it yields more
+        text: OCR of a page that was already readable is usually worse than the
+        text layer, and on a blank page it returns noise.
+        """
+        wanted = [page['page'] for page in pages_data
+                  if ocr == OCR_ALWAYS or len(page['text'] or "") < min_chars]
+
+        if not wanted:
+            return
+
+        logger.info(f"{pdf_path.name}: OCR for {len(wanted)} of "
+                    f"{len(pages_data)} pages")
+
+        recognised = ocr_pdf_pages(str(pdf_path), wanted, dpi=dpi)
+
+        by_number = {page['page']: page for page in pages_data}
+        for page_number, text in recognised.items():
+            page = by_number[page_number]
+            if clean_text:
+                text = self._clean_text(text)
+            if len(text) <= len(page['text'] or ""):
+                continue
+            page['text'] = text
+            page['has_equations'] = self._detect_equations(text)
+            page['ocr'] = True
 
     def _clean_text(self, text: str) -> str:
         """

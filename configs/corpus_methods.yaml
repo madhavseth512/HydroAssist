@@ -1,0 +1,253 @@
+# Which method each paper in `knowledge source/` is about.
+#
+# Every chunk in the knowledge base carried the tag "multiple" — 3,837 of 3,843 —
+# so the consultant could not narrow a search to the papers that discuss the
+# method being asked about. The tag is per document, not per chunk: a paper is
+# about one method or a small family of them, and a 1,000-character chunk of a
+# derivation often never names it.
+#
+# Ids: `implemented` must match src/calculator/registry.py exactly, so filtering
+# by the method a user is running works. `other` is the rest of the corpus —
+# methods and topics HydroAssist cannot compute but the consultant can discuss.
+#
+# `reviewed: false` marks an assignment made from the paper's title page that a
+# hydrogeologist has not yet confirmed.
+
+vocabulary:
+
+  # Must equal the registry's method ids; tests/unit/test_corpus_methods.py checks it.
+  implemented:
+    - theis_1935
+    - theis_recovery_1935
+    - cooper_jacob_1946
+    - papadopulos_cooper_1967
+    - hantush_jacob_1955
+    - boulton_1963
+    - warren_root_1963
+
+  # In the corpus, not in the calculator.
+  other:
+    - agarwal_1980              # equivalent time for buildup/recovery
+    - akindunni_1992            # unsaturated-saturated response
+    - aqtesolv_guide            # the AQTESOLV for Windows manual
+    - barenblatt_1960           # double porosity, the original
+    - barker_1988               # generalised radial flow, fractional dimension
+    - birsoy_summers_1980       # step drawdown and intermittent pumping
+    - butler_1988               # pumping tests in non-uniform aquifers
+    - cooley_1973               # water-table aquitard
+    - dagan_1967                # permeability and effective porosity
+    - dougherty_babu_1984       # partial penetration, double porosity
+    - gringarten_1971           # single horizontal fracture (dissertation)
+    - gringarten_ramey_1974     # single horizontal fracture (paper)
+    - halepaska_1972            # partial penetration, thick leaky
+    - hantush_1955_steady       # steady three-dimensional flow
+    - hantush_1955_strip        # Green's functions for an infinite strip
+    - hantush_1960              # modified theory of leaky aquifers
+    - hantush_1967              # relatively thick leaky aquifers
+    - horizontal_well           # horizontal and slanted wells
+    - moench_1984               # fissured reservoir with fracture skin
+    - moench_1985               # large-diameter well, storative aquitard
+    - moench_1995               # Neuman and Boulton combined
+    - moench_1996               # improved Laplace transform solution
+    - moench_1997               # finite diameter, anisotropic water table
+    - murdoch_1994              # interceptor trench
+    - neuman_1974               # delayed yield, unconfined
+    - neuman_1975               # anisotropic unconfined
+    - neuman_1979               # perspective on delayed yield
+    - neuman_1987               # determining specific yield
+    - neuman_witherspoon_1969   # leaky multiple-aquifer systems
+    - novakowski_1989           # wellbore storage with finite-thickness skin
+    - observation_well_response # response time of an observation well
+    - sinusoidal_pumping        # periodic pumping tests
+    - tartakovsky_neuman_2007   # three-dimensional saturated-unsaturated
+    - wtaq_1999                 # the USGS WTAQ program
+    - general_reference         # handbooks and procedure guides, many methods
+
+papers:
+
+  # ── Confined ────────────────────────────────────────────────────────────────
+  "Theis-1935.pdf":
+    methods: [theis_1935]
+    note: USGS Ground Water Notes reprint of the 1935 paper
+    reviewed: false
+  "Eos  Transactions American Geophysical Union - August 1946 - Cooper - A generalized graphical method for evaluating.pdf":
+    methods: [cooper_jacob_1946]
+    reviewed: false
+  "52485_Novakowski-1989-Water-Resources-Research.pdf":
+    methods: [novakowski_1989, papadopulos_cooper_1967]
+    note: composite model for wellbore storage and a finite-thickness skin
+    reviewed: false
+  "1-s2.0-002216948890025X-main.pdf":
+    methods: [butler_1988]
+    note: Butler 1988, radially symmetric non-uniform case
+    reviewed: false
+  "1-s2.0-0022169491901322-main.pdf":
+    methods: [butler_1988]
+    note: Butler and Liu 1991, the linear strip case
+    reviewed: false
+  "Estimating_aquifer_hydraulic_properties.pdf":
+    methods: [sinusoidal_pumping]
+    note: Rasmussen, sinusoidal pumping at the Savannah River site
+    reviewed: false
+  "Water Resources Research - November 1994 - Murdoch - Transient analyses of an interceptor trench.pdf":
+    methods: [murdoch_1994]
+    reviewed: false
+  "spe-14251-pa.pdf":
+    methods: [horizontal_well]
+    note: Daviau, pressure analysis for horizontal wells
+    reviewed: false
+  "spe-15116-ms.pdf":
+    methods: [horizontal_well]
+    note: Clonts and Ramey, wells with horizontal drainholes
+    reviewed: false
+  "spe-16378-pa.pdf":
+    methods: [horizontal_well]
+    note: Ozkan and Raghavan, horizontal-well pressure analysis
+    reviewed: false
+
+  # ── Leaky confined ──────────────────────────────────────────────────────────
+  "Eos  Transactions American Geophysical Union - February 1955 - Hantush - Non‐steady radial flow in an infinite leaky.pdf":
+    methods: [hantush_jacob_1955]
+    note: the paper the leaky calculator implements
+    reviewed: false
+  "Eos  Transactions American Geophysical Union - February 1955 - Hantush - Non‐steady green s functions for an infinite strip.pdf":
+    methods: [hantush_1955_strip]
+    reviewed: false
+  "Eos  Transactions American Geophysical Union - April 1955 - Hantush - Steady three‐dimensional flow to a well in a.pdf":
+    methods: [hantush_1955_steady]
+    reviewed: false
+  "Journal of Geophysical Research  1896-1977 - November 1960 - Hantush - Modification of the theory of leaky aquifers.pdf":
+    methods: [hantush_1960]
+    reviewed: false
+  "Water Resources Research - June 1967 - Hantush - Flow of groundwater in relatively thick leaky aquifers.pdf":
+    methods: [hantush_1967]
+    reviewed: false
+  "Water Resources Research - April 1973 - Cooley - Effect of a water table aquitard on drawdown in an underlying pumped.pdf":
+    methods: [cooley_1973]
+    reviewed: false
+  "Water Resources Research - August 1969 - Neuman - Applicability of Current Theories of Flow in Leaky Aquifers.pdf":
+    methods: [neuman_witherspoon_1969]
+    reviewed: false
+  "Water Resources Research - August 1969 - Neuman - Theory of Flow in a Confined Two Aquifer System.pdf":
+    methods: [neuman_witherspoon_1969]
+    reviewed: false
+  "Water Resources Research - February 1968 - Neuman - Theory of flow in aquicludes adjacent to slightly leaky aquifers.pdf":
+    methods: [neuman_witherspoon_1969]
+    note: same programme of work, 1968
+    reviewed: false
+  "Water Resources Research - October 1972 - Neuman - Field determination of the hydraulic properties of leaky multiple.pdf":
+    methods: [neuman_witherspoon_1969]
+    note: field determination, 1972
+    reviewed: false
+  "Water Resources Research - August 1985 - Moench - Transient Flow to a Large‐Diameter Well in an Aquifer With Storative.pdf":
+    methods: [moench_1985, papadopulos_cooper_1967]
+    reviewed: false
+  "Water Resources Research - October 1972 - Halepaska - Drawdown distribution around wells partially penetrating thick leaky.pdf":
+    methods: [halepaska_1972]
+    reviewed: false
+
+  # ── Unconfined ──────────────────────────────────────────────────────────────
+  "Water Resources Research - April 1974 - Neuman - Effect of partial penetration on flow in unconfined aquifers considering.pdf":
+    methods: [neuman_1974]
+    note: the delayed-yield paper the roadmap targets
+    reviewed: false
+  "Water Resources Research - April 1975 - Neuman - Analysis of pumping test data from anisotropic unconfined aquifers.pdf":
+    methods: [neuman_1975]
+    reviewed: false
+  "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield.pdf":
+    methods: [neuman_1979, boulton_1963]
+    reviewed: false
+  "Groundwater - November 1987 - Neuman - On Methods of Determining Specific Yield.pdf":
+    methods: [neuman_1987]
+    reviewed: false
+  "Groundwater - May 1995 - Moench - Combining the Neuman and Boulton Models for Flow to a Well in an Unconfined Aquifer.pdf":
+    methods: [moench_1995, neuman_1974, boulton_1963]
+    reviewed: false
+  "Groundwater - July 1996 - Moench - Flow to a Well in a Water‐Table Aquifer  An Improved Laplace Transform Solution.pdf":
+    methods: [moench_1996]
+    reviewed: false
+  "Water Resources Research - 1997 - Moench - Flow to a well of finite diameter in a homogeneous  anisotropic water table.pdf":
+    methods: [moench_1997]
+    reviewed: false
+  "Groundwater - November 1992 - Akindunni - Unsaturated and Saturated Flow in Response to Pumping of an Unconfined Aquifer .pdf":
+    methods: [akindunni_1992]
+    reviewed: false
+  "Tartakovsky_et_al-2007-Water_Resources_Research.pdf":
+    methods: [tartakovsky_neuman_2007]
+    reviewed: false
+  "Water Resources Research - December 1967 - Dagan - A method of determining the permeability and effective porosity of.pdf":
+    methods: [dagan_1967]
+    reviewed: false
+  "2002-ZZpaper2001WR000401.pdf":
+    methods: [horizontal_well]
+    note: Zhan, horizontal or slanted well in an unconfined aquifer
+    reviewed: false
+  "pp1629ver2.pdf":
+    methods: [moench_1997, neuman_1974]
+    note: USGS PP 1629, the Cape Cod test analysed with Moench's model
+    reviewed: false
+  "31032.pdf":
+    methods: [aqtesolv_guide, general_reference]
+    note: the AQTESOLV manual; its worked examples are the validation fixtures
+    reviewed: false
+  "wri99-4225.pdf":
+    methods: [wtaq_1999, neuman_1974, moench_1997, theis_1935]
+    aquifer: unconfined
+    note: |
+      The WTAQ program documentation. This file is byte-identical in
+      "General" and "Unconfined Aquifer"; both copies share a doc_id, so
+      whichever was read last decided the aquifer tag for its 238 chunks —
+      today "unconfined". Named here so the tag stops depending on the order
+      the directory happens to be read in.
+    reviewed: false
+
+  # ── Fractured ───────────────────────────────────────────────────────────────
+  "spe-426-pa.pdf":
+    methods: [warren_root_1963]
+    reviewed: false
+  "PDF_Ppr_BARENBLATT_(1960)_Seepage_of_Homo_Liquids_in_Fissured_Rocks.pdf":
+    methods: [barenblatt_1960]
+    reviewed: false
+  "Gringarten71.pdf":
+    methods: [gringarten_1971]
+    note: the dissertation — single horizontal fracture, partial penetration
+    reviewed: false
+  "Unsteady-State_Pressure_Distributions_Created_by_a.pdf":
+    methods: [gringarten_ramey_1974]
+    note: scanned; recovered by OCR
+    reviewed: false
+  "Water Resources Research - August 1984 - Dougherty - Flow to a Partially Penetrating Well in a Double‐Porosity Reservoir.pdf":
+    methods: [dougherty_babu_1984]
+    reviewed: false
+  "WR024i010p01796.pdf":
+    methods: [barker_1988]
+    note: Barker, generalised radial flow in fractured rock
+    reviewed: false
+  "ML032580008.pdf":
+    methods: [moench_1984]
+    note: NRC contractor letter enclosing Williams's comment on Moench's
+      double-porosity model with fracture skin
+    reviewed: false
+
+  # ── Step drawdown ───────────────────────────────────────────────────────────
+  "Groundwater - March 1980 - Birsoy - Determination of Aquifer Parameters from Step Tests and Intermittent Pumping Data.pdf":
+    methods: [birsoy_summers_1980]
+    reviewed: false
+
+  # ── General ─────────────────────────────────────────────────────────────────
+  "52485_SPE-9289-Agarwal-buildup.pdf":
+    methods: [agarwal_1980, theis_recovery_1935]
+    note: scanned; recovered by OCR. The equivalent-time paper recovery cites.
+    reviewed: false
+  "ISWSB-49.pdf":
+    methods: [general_reference, theis_1935, cooper_jacob_1946, hantush_jacob_1955]
+    note: Walton, Illinois State Water Survey Bulletin 49 — many methods
+    reviewed: false
+  "sopaqu.pdf":
+    methods: [general_reference, theis_1935, cooper_jacob_1946]
+    note: EPA guidance on conducting aquifer pumping tests
+    reviewed: false
+  "1-s2.0-0022169477901378-main.pdf":
+    methods: [observation_well_response]
+    note: observation-well response time and its effect on analysis
+    reviewed: false
