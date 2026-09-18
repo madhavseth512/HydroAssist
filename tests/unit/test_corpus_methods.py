@@ -79,8 +79,9 @@ class TestCoverage:
 
     def test_boulton_is_covered_only_at_second_hand(self, manifest):
         """Boulton (1963) is implemented, but his own paper is not in the
-        corpus: the consultant can cite only Neuman's 1979 perspective on
-        delayed yield and Moench's 1995 combination of the two models.
+        corpus. The consultant can cite only Neuman's 1979 perspective on
+        delayed yield, Moench's 1995 combination of the two models, and the
+        AQTESOLV manual's account of the solution.
 
         Recorded so the gap stays deliberate. If Boulton (1963) is ever added,
         this fails and the list gets updated.
@@ -89,11 +90,18 @@ class TestCoverage:
                         if "boulton_1963" in entry.get("methods", []))
 
         assert tagged == [
+            "31032.pdf",
             "Groundwater - May 1995 - Moench - Combining the Neuman and Boulton "
             "Models for Flow to a Well in an Unconfined Aquifer.pdf",
             "Water Resources Research - August 1979 - Neuman - Perspective on  "
             "Delayed yield.pdf",
         ]
+
+    def test_every_paper_has_been_reviewed(self, manifest):
+        """The tags began as guesses from each paper's title page. They were
+        confirmed on 19 September 2026; a new paper added later arrives
+        unreviewed and fails here until someone has looked at it."""
+        assert manifest.unreviewed() == []
 
 
 class TestLookups:
