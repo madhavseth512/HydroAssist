@@ -108,6 +108,26 @@ class Retriever:
         metadatas = results.get("metadatas", [[]])[0]
         distances = results.get("distances", [[]])[0]
 
+        # A filter that matches nothing is not an error, so the fallback above
+        # never sees it — the query succeeds and returns an empty list, and the
+        # consultant answers "I don't have enough information" about a corpus
+        # that does. Asking about a method no paper is tagged with is exactly
+        # that case. Retry without the filter instead.
+        if not documents and metadata_filters:
+            logger.info("Metadata filters matched nothing; retrying without them")
+            try:
+                results = self.vectorstore.query(
+                    query_embeddings=[query_embedding],
+                    n_results=top_k,
+                    include=["documents", "metadatas", "distances"]
+                )
+                documents = results.get("documents", [[]])[0]
+                metadatas = results.get("metadatas", [[]])[0]
+                distances = results.get("distances", [[]])[0]
+            except Exception as e:
+                logger.error(f"Unfiltered retry failed: {e}")
+                return []
+
         if not documents:
             logger.warning("No documents retrieved")
             return []
