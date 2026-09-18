@@ -73,7 +73,9 @@ def load_config(config_name: Optional[str] = None) -> AppConfig:
     Load configuration from YAML file.
 
     Args:
-        config_name: Name of config file (default, development, production)
+        config_name: Name of a file in configs/. Only `default` ships: the app is
+                    tested against it, and an untested variant that quietly changed
+                    retrieval would be indistinguishable from a bug.
                     If None, uses HYDROASSIST_ENV environment variable or 'default'
 
     Returns:

@@ -154,7 +154,7 @@ Sessions live in memory. A redeploy ends open sessions, so anyone mid-analysis l
 
 - **Gemini free tier.** About 1,500 requests a day, and one question can cost several model calls. The app therefore caps the consultant at 20 questions per visitor per 10 minutes and 500 per day in total. It says so plainly when a cap is reached, and the calculators are never limited. Tune the caps in `.env` (see `.env.example`). On the free tier, Google may use conversations to improve its products; the chat panel tells visitors this.
 - **No consultant?** If the key is missing or the model is unreachable, the workspace still works — upload, fit, report, compare — and the chat explains why it cannot answer.
-- **`production.yaml` is not used.** Its retrieval `similarity_threshold` is 0.75, against 0.2 in `default.yaml`. Every test, including the retrieval regression, ran against `default`, so the image sets `HYDROASSIST_ENV=default`. Switching would noticeably reduce the sources the consultant finds, and should be measured first.
+- **One configuration.** `configs/default.yaml` is the only config, and it is what every test runs against, so the image sets `HYDROASSIST_ENV=default`. Untested `production.yaml` and `development.yaml` variants were deleted: the first set the retrieval `similarity_threshold` to 0.75 against 0.2, which would have cut the sources the consultant finds and looked like a broken knowledge base. `tests/unit/test_config.py` fails if an untested variant reappears.
 - **Memory.** One worker, with sessions capped at 200 and expired after two idle hours. The VM has ample headroom.
 
 ## Before making the site public
