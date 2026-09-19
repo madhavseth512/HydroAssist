@@ -1,5 +1,5 @@
 {
-  "_provenance": "Top-5 chunk ids captured with the sentence-transformers (torch) query embedder, before switching queries to ChromaDB's ONNX DefaultEmbeddingFunction.\nRe-recorded 2026-09-19 against 4,017 chunks \u2014 OCR recovered the two scanned papers and five thin text layers; papers tagged by method. The query embedder is unchanged; the corpus is not.",
+  "_provenance": "Top-5 chunk ids captured with the sentence-transformers (torch) query embedder, before switching queries to ChromaDB's ONNX DefaultEmbeddingFunction.\nRe-recorded 2026-09-19 against 4,017 chunks \u2014 OCR recovered the two scanned papers and five thin text layers; papers tagged by method. The query embedder is unchanged; the corpus is not.\nRe-recorded 2026-09-19 against 4,017 chunks \u2014 at most 2 chunks per paper, so one long document cannot fill an answer. The query embedder is unchanged; the corpus is not.",
   "queries": {
     "What are the assumptions of the Theis method?": [
       {
@@ -19,8 +19,8 @@
         "score": 0.40290355682373047
       },
       {
-        "chunk_id": "31032_page_16_chunk_2",
-        "score": 0.3984144330024719
+        "chunk_id": "Water Resources Research - February 1968 - Neuman - Theory of flow in aquicludes adjacent to slightly leaky aquifers_page_2_chunk_3",
+        "score": 0.39600563049316406
       }
     ],
     "When is the Cooper-Jacob approximation valid?": [
@@ -33,16 +33,16 @@
         "score": 0.5054615139961243
       },
       {
-        "chunk_id": "1-s2.0-002216948890025X-main_page_8_chunk_0",
-        "score": 0.5050287842750549
-      },
-      {
         "chunk_id": "31032_page_66_chunk_0",
         "score": 0.4896653890609741
       },
       {
         "chunk_id": "1-s2.0-0022169491901322-main_page_8_chunk_1",
         "score": 0.4831184148788452
+      },
+      {
+        "chunk_id": "1-s2.0-0022169491901322-main_page_8_chunk_2",
+        "score": 0.46012842655181885
       }
     ],
     "How does wellbore storage affect early drawdown in a large-diameter well?": [
@@ -99,16 +99,16 @@
         "score": 0.7436825633049011
       },
       {
-        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_10_chunk_1",
-        "score": 0.7307195663452148
+        "chunk_id": "Tartakovsky_et_al-2007-Water_Resources_Research_page_2_chunk_0",
+        "score": 0.7180249691009521
       },
       {
-        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_3_chunk_3",
-        "score": 0.7285484671592712
+        "chunk_id": "Water Resources Research - April 1975 - Neuman - Analysis of pumping test data from anisotropic unconfined aquifers_page_2_chunk_0",
+        "score": 0.7062510251998901
       },
       {
-        "chunk_id": "Water Resources Research - August 1979 - Neuman - Perspective on  Delayed yield_page_9_chunk_1",
-        "score": 0.7284444570541382
+        "chunk_id": "Groundwater - November 1992 - Akindunni - Unsaturated and Saturated Flow in Response to Pumping of an Unconfined Aquifer _page_1_chunk_5",
+        "score": 0.7059735655784607
       }
     ],
     "How is specific yield determined from a pumping test?": [
@@ -147,12 +147,12 @@
         "score": 0.6734381914138794
       },
       {
-        "chunk_id": "ML032580008_page_7_chunk_0",
-        "score": 0.6722345352172852
+        "chunk_id": "spe-426-pa_page_2_chunk_0",
+        "score": 0.6588811874389648
       },
       {
-        "chunk_id": "ML032580008_page_6_chunk_8",
-        "score": 0.6622290015220642
+        "chunk_id": "PDF_Ppr_BARENBLATT_(1960)_Seepage_of_Homo_Liquids_in_Fissured_Rocks_page_6_chunk_2",
+        "score": 0.6448981761932373
       }
     ],
     "How do you analyse a step-drawdown test?": [
@@ -217,8 +217,8 @@
         "score": 0.49151551723480225
       },
       {
-        "chunk_id": "Water Resources Research - April 1974 - Neuman - Effect of partial penetration on flow in unconfined aquifers considering_page_6_chunk_1",
-        "score": 0.49033355712890625
+        "chunk_id": "ISWSB-49_page_13_chunk_3",
+        "score": 0.4881613254547119
       }
     ],
     "What is the difference between storativity and specific yield?": [

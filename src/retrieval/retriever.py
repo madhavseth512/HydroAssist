@@ -1,5 +1,7 @@
 """Metadata-filtered similarity search with re-ranking."""
 
+from collections import Counter
+
 import time
 from typing import List, Dict, Optional
 from src.retrieval.embeddings import embeddings_manager
@@ -8,6 +10,12 @@ from src.core.config import AppConfig
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# Most chunks any one paper may contribute to an answer. Two leaves room for a
+# document to make its point twice while still citing several sources: the
+# consultant's value is that it argues from the literature, and an answer drawn
+# entirely from one document does not.
+MAX_PER_DOCUMENT = 2
 
 
 class Retriever:
@@ -39,7 +47,8 @@ class Retriever:
         query: str,
         top_k: Optional[int] = None,
         metadata_filters: Optional[Dict] = None,
-        similarity_threshold: Optional[float] = None
+        similarity_threshold: Optional[float] = None,
+        max_per_document: int = MAX_PER_DOCUMENT
     ) -> List[Dict]:
         """
         Retrieve relevant chunks with metadata filtering.
@@ -49,6 +58,8 @@ class Retriever:
             top_k: Number of results to return (default from config)
             metadata_filters: e.g., {"aquifer": "confined", "type": "theory"}
             similarity_threshold: Minimum similarity score (0-1)
+            max_per_document: Most chunks any one paper may contribute; 0 to
+                allow a single document to fill the answer.
 
         Returns:
             List of dicts with keys: {content, metadata, score}
@@ -77,7 +88,12 @@ class Retriever:
         # Query vector store with metadata filtering
         try:
             # Request more results than needed for filtering
+            # Fetch beyond top_k so the per-document cap and the threshold
+            # have something to choose from; without this, capping just
+            # returns fewer results.
             fetch_k = top_k * 2 if metadata_filters else top_k
+            if max_per_document > 0:
+                fetch_k = max(fetch_k, top_k * 4)
 
             results = self.vectorstore.query(
                 query_embeddings=[query_embedding],
@@ -118,7 +134,7 @@ class Retriever:
             try:
                 results = self.vectorstore.query(
                     query_embeddings=[query_embedding],
-                    n_results=top_k,
+                    n_results=fetch_k,
                     include=["documents", "metadatas", "distances"]
                 )
                 documents = results.get("documents", [[]])[0]
@@ -152,6 +168,10 @@ class Retriever:
         # Sort by score (highest first)
         formatted_results.sort(key=lambda x: x["score"], reverse=True)
 
+        # Then spread the answer across papers, before cutting to top_k.
+        formatted_results = self._limit_per_document(formatted_results, top_k,
+                                                     max_per_document)
+
         # Limit to top_k after filtering
         formatted_results = formatted_results[:top_k]
 
@@ -169,6 +189,47 @@ class Retriever:
             logger.warning(f"No documents retrieved in {elapsed:.2f}s")
 
         return formatted_results
+
+    @staticmethod
+    def _document_of(result: Dict) -> str:
+        """The paper a chunk came from. doc_id is "<pdf stem>_page_<n>"."""
+        doc_id = str(result.get("metadata", {}).get("doc_id", ""))
+        return doc_id.rsplit("_page_", 1)[0] if "_page_" in doc_id else doc_id
+
+    def _limit_per_document(self, results: List[Dict], top_k: int,
+                            max_per_document: int) -> List[Dict]:
+        """At most `max_per_document` chunks from any one paper.
+
+        Without this, one long document can take every slot. The AQTESOLV
+        manual is 503 of 4,017 chunks and lists assumptions in the phrasing
+        people ask questions in, so "the assumptions of the Hantush-Jacob
+        method" returned five chunks of manual and never Hantush — his paper
+        ranked 15th, and Theis's own paper ranked 30th on the same question
+        about Theis. The answer was drawn from one source and cited no
+        literature.
+
+        Chunks displaced this way are kept and appended, so a query that simply
+        has no other source still returns as many results as before.
+        """
+        if max_per_document <= 0:
+            return results
+
+        kept, displaced, seen = [], [], Counter()
+        for result in results:
+            document = self._document_of(result)
+            if seen[document] < max_per_document:
+                seen[document] += 1
+                kept.append(result)
+            else:
+                displaced.append(result)
+
+        if len(kept) < top_k:
+            # Backfilling appends chunks that outscore what is already kept, so
+            # the list has to be put back in order: the consultant's prompt and
+            # the sources panel both present these as a ranking.
+            kept.extend(displaced[:top_k - len(kept)])
+            kept.sort(key=lambda result: result["score"], reverse=True)
+        return kept
 
     def _deduplicate_chunks(self, results: List[Dict]) -> List[Dict]:
         """

@@ -113,6 +113,24 @@ Fill in `.env`:
 
 `.env` never leaves the VM. It is excluded from git and from the Docker build context.
 
+**Your DuckDNS token is not one of these.** Nothing in HydroAssist reads it; it
+is the password to your subdomain, and it has one job here — putting the current
+IP back into DNS if Oracle ever gives the instance a different one. An instance
+that is stopped and started can come back on a new address, and the site then
+resolves to nothing until DNS is corrected.
+
+Either fix it by hand at duckdns.org when it happens, or have the VM do it:
+
+```bash
+# Keeps the subdomain pointed at this machine. Token stays on the VM.
+( crontab -l 2>/dev/null
+  echo "*/5 * * * * curl -fsS 'https://www.duckdns.org/update?domains=<subdomain>&token=<token>&ip=' >/dev/null" \
+) | crontab -
+```
+
+Leaving `ip=` empty tells DuckDNS to use the address the request came from, so
+the VM always registers itself.
+
 ## 6. Start
 
 ```bash
@@ -149,6 +167,17 @@ docker compose up -d --build
 ```
 
 Sessions live in memory. A redeploy ends open sessions, so anyone mid-analysis loses unsaved work; a saved project file reopens as normal.
+
+## When the build or the site misbehaves
+
+| What you see | What it means |
+|---|---|
+| `ERROR: No matching distribution found for langchain>=0.3.0` — or any package, with `(from versions: none)` | Not a dependency problem. `from versions: none` means pip reached no index at all, so it is the network. It happens when Docker's networking is not up yet, or the VM briefly has no route out. Wait a minute and run `docker compose up -d --build` again; do not edit `requirements.txt`. Check with `docker run --rm python:3.11-slim pip index versions pypi`. |
+| Caddy logs `could not get certificate` or keeps retrying | Ports 80 and 443 are not open in **both** places — the VCN security list *and* the VM's own `iptables` (step 2). Let's Encrypt must reach the VM on 80. Also confirm the DuckDNS record points at this machine: `dig +short <your-domain>`. |
+| The site resolves nowhere after a stop/start | Oracle gave the instance a new public IP. Update it at duckdns.org, or install the cron above. |
+| `docker compose up` is killed partway through the build | The Ampere VM ran out of memory building the frontend. Give Docker swap: `sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`. |
+| The consultant answers "not enough information" for everything | The vector store did not reach the image. Check `data/vectordb/` exists in the clone; it is committed, so a shallow or partial clone is the usual cause. |
+| The workspace loads but every action fails | `.env` is missing or unreadable. `docker compose logs app` shows it; the API needs `GEMINI_API_KEY` at start-up. |
 
 ## Operating notes
 

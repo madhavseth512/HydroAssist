@@ -128,3 +128,80 @@ class TestTheCorpusIsActuallyTagged:
 
         untagged = [m for m in metadatas if m.get("method") in (None, "", "multiple")]
         assert not untagged, f"{len(untagged)} chunks still untagged"
+
+
+class TestOneDocumentCannotFillTheAnswer:
+    """Tagging the AQTESOLV manual with the implemented methods made it eligible
+    for every method question, and at 503 of 4,017 chunks — phrased exactly as
+    people ask — it took all five slots. Hantush's own paper ranked 15th on a
+    question about Hantush-Jacob, and Theis's ranked 30th on a question about
+    Theis, so the consultant answered from a software manual and cited no
+    literature at all.
+    """
+
+    @pytest.mark.parametrize("question,least_papers", [
+        ("What are the assumptions of the Hantush-Jacob method?", 3),
+        ("What are the assumptions of the Theis method?", 3),
+        # Only the manual and Walton's bulletin carry the Cooper-Jacob tag
+        # closely enough to rank; two is all this corpus can offer.
+        ("When should I use Cooper-Jacob?", 2),
+    ])
+    def test_a_method_question_draws_on_several_papers(self, retriever, question,
+                                                       least_papers):
+        hits = retriever.retrieve(question, top_k=5, similarity_threshold=0.0,
+                                  metadata_filters=filter_for_question(question))
+
+        papers = {h["metadata"]["doc_id"].rsplit("_page_", 1)[0] for h in hits}
+        assert len(papers) >= least_papers, f"answer drawn from {len(papers)} paper(s)"
+
+    def test_results_stay_ranked_by_score(self, retriever):
+        """Backfilling after the cap appends chunks that outscore what is
+        already kept, so the list must be re-sorted: both the prompt and the
+        sources panel present these in order."""
+        for question in ["When should I use Cooper-Jacob?",
+                         "What are the assumptions of the Theis method?"]:
+            hits = retriever.retrieve(question, top_k=5, similarity_threshold=0.0,
+                                      metadata_filters=filter_for_question(question))
+            scores = [h["score"] for h in hits]
+
+            assert scores == sorted(scores, reverse=True), question
+
+    def test_no_paper_exceeds_the_cap(self, retriever):
+        from collections import Counter
+
+        from src.retrieval.retriever import MAX_PER_DOCUMENT
+
+        hits = retriever.retrieve("What are the assumptions of the Theis method?",
+                                  top_k=5, similarity_threshold=0.0)
+        counts = Counter(h["metadata"]["doc_id"].rsplit("_page_", 1)[0] for h in hits)
+
+        assert max(counts.values()) <= MAX_PER_DOCUMENT
+
+    def test_the_primary_paper_is_reachable_again(self, retriever):
+        """The case that exposed this: Hantush's 1955 paper, which the manual
+        had pushed out of the answer entirely."""
+        question = "What are the assumptions of the Hantush-Jacob method?"
+        hits = retriever.retrieve(question, top_k=5, similarity_threshold=0.0,
+                                  metadata_filters=filter_for_question(question))
+
+        assert any("Hantush" in h["metadata"]["doc_id"] for h in hits)
+
+    def test_the_cap_can_be_lifted(self, retriever):
+        """0 restores the old behaviour, for a caller that wants depth from one
+        source rather than breadth."""
+        question = "What are the assumptions of the Theis method?"
+        hits = retriever.retrieve(question, top_k=5, similarity_threshold=0.0,
+                                  metadata_filters=filter_for_question(question),
+                                  max_per_document=0)
+
+        papers = {h["metadata"]["doc_id"].rsplit("_page_", 1)[0] for h in hits}
+        assert len(papers) < 3
+
+    def test_it_still_returns_a_full_answer_from_a_narrow_corner(self, retriever):
+        """A question only one paper covers must still return top_k results:
+        chunks displaced by the cap are appended rather than dropped."""
+        hits = retriever.retrieve("equivalent time for pressure buildup", top_k=5,
+                                  similarity_threshold=0.0,
+                                  metadata_filters=filter_for(["agarwal_1980"]))
+
+        assert len(hits) == 5
