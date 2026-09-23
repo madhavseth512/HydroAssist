@@ -4,6 +4,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.base import BaseAgent
+from src.agents.errors import explain_model_failure, retry_delay_seconds
 from src.core.state import AgentState
 from src.core.config import AppConfig
 from src.retrieval.method_filter import filter_for_question as method_filter_for_question
@@ -153,7 +154,12 @@ class ConsultantAgent(BaseAgent):
 
         except Exception as e:
             self.logger.error(f"Answer generation failed: {e}")
-            error_response = "I encountered an error generating a response. Please try rephrasing your question."
-            state["messages"].append(AIMessage(content=error_response))
+            delay = retry_delay_seconds(e)
+            if delay:
+                self.logger.error(f"The model asked to be retried in {delay:.0f}s")
+            # Say what actually went wrong. "Try rephrasing your question" is
+            # false when the daily quota is gone: the question was fine, and
+            # rephrasing it will fail identically.
+            state["messages"].append(AIMessage(content=explain_model_failure(e)))
             return state
 
