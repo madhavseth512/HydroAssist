@@ -399,6 +399,19 @@ more accurate ones.
 
 ### 1. Clone and Setup
 
+> **On Windows, turn on long paths first.** Several papers in `knowledge source/`
+> have names long enough that, inside a deep directory, the full path exceeds the
+> 260-character limit and `git clone` fails with `Filename too long` — leaving a
+> repository whose working tree is only half checked out.
+>
+> ```bash
+> git config --global core.longpaths true
+> ```
+>
+> Cloning into a short path such as `C:\dev\` also avoids it. Linux and macOS
+> are unaffected, which is why deployment hosts never see this.
+
+
 ```bash
 git clone https://github.com/madhavseth512/HydroAssist.git
 cd HydroAssist
