@@ -1,0 +1,19 @@
+# Dieterich, Illinois — observation well 19
+# Walton (1962), Illinois State Water Survey Bulletin 49, Table 5 (printed page 32).
+# Q = 25 gpm, r = 96 ft. Leaky artesian (leakage through a confining bed).
+# Walton matched the leaky artesian type curves and interpolated r/B = 0.22.
+# Published, averaging time-drawdown and distance-drawdown analyses:
+#   T = 1,500 gpd/ft, S = 0.0002, P' (vertical permeability) = 0.10 gpd/sq ft
+# The time-drawdown analysis alone (his figure 22) gave T = 1,470 gpd/ft.
+time_min,drawdown_ft
+5,0.76
+28,3.30
+41,3.59
+60,4.08
+75,4.39
+244,5.47
+493,5.96
+669,6.11
+958,6.27
+1129,6.40
+1185,6.42

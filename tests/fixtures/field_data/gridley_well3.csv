@@ -1,0 +1,21 @@
+# Gridley, Illinois — pumped well 3
+# Walton (1962), Illinois State Water Survey Bulletin 49, Table 8 (printed page 33).
+# Q = 220 gpm. Drawdown measured in the pumping well itself.
+# Walton fitted a straight line to these — the Cooper-Jacob method — for T alone.
+# He states S cannot be determined here: the effective radius is unknown and the
+# drawdown includes well loss.
+time_min,drawdown_ft
+15,24.8
+25,25.5
+45,26.6
+60,27.3
+76,28.0
+90,28.2
+132,29.0
+166,29.5
+195,30.3
+256,30.5
+282,30.6
+314,30.7
+360,30.8
+430,31.5
