@@ -47,9 +47,14 @@ RUN python -c "from chromadb.utils.embedding_functions import DefaultEmbeddingFu
 
 EXPOSE 8000
 
+# PORT, where the platform sets one. Render and most container hosts assign the
+# port and expect the process to bind it; docker-compose sets nothing, so 8000
+# stays the default and the Caddy setup is unaffected.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
-  CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+  CMD python -c "import os, sys, urllib.request; port = os.getenv('PORT', '8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=4).status == 200 else 1)"
 
 # One worker: sessions (a visitor's project and conversation) live in memory.
-# --proxy-headers: Caddy terminates TLS in front of this container.
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# --proxy-headers: something else terminates TLS in front of this container —
+# Caddy on a VM, the platform's own router on a managed host.
+# `exec` so uvicorn is PID 1 and receives the stop signal directly.
+CMD ["sh", "-c", "exec uvicorn src.api.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --proxy-headers --forwarded-allow-ips '*'"]

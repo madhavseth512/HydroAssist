@@ -554,7 +554,7 @@ llm:
 - [ ] Neuman (1974) unconfined — needs a transcendental root series
 - [ ] Forward simulation / test design
 - [ ] Slug tests — a different input shape, and Stehfest is the wrong inverter
-- [ ] Deployment — Docker + Caddy on Oracle Cloud Always Free (files ready; see DEPLOY.md)
+- [ ] Deployment — one image, two free hosts: Render (no card) or Oracle Cloud Always Free (see DEPLOY.md)
 - [x] Projects — tests, readings and analyses saved as a file, compared by AICc
 - [ ] Named wells with coordinates, logger import
 - [ ] IIT KGP email authentication (deferred)
@@ -565,7 +565,7 @@ llm:
 - [x] React + TypeScript workspace replacing Streamlit (see PARITY.md)
 - [x] Consultant rate limit, and a fallback when the model is unavailable
 - [x] Browser end-to-end tests (Playwright)
-- [ ] Deploy to Oracle Cloud Always Free
+- [ ] Deploy — Render or Oracle Cloud Always Free
 
 ---
 

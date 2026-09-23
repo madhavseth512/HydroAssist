@@ -30,7 +30,16 @@ class TestTheImage:
         """Sessions live in memory; a second worker would split them."""
         dockerfile = _read("Dockerfile")
         assert "src.api.app:app" in dockerfile
-        assert '"--workers", "1"' in dockerfile
+        assert re.search(r"--workers[ =]1\b", dockerfile)
+
+    def test_it_binds_the_port_the_platform_asks_for(self):
+        """A managed host assigns the port through PORT and routes to it; a
+        container that ignores it is unreachable and reads as a failed deploy.
+        Compose sets nothing, so 8000 remains the default."""
+        dockerfile = _read("Dockerfile")
+
+        assert "${PORT:-8000}" in dockerfile
+        assert "PORT" in dockerfile.split("HEALTHCHECK", 1)[1]
 
     @pytest.mark.parametrize("path", ["src/", "configs/", "data/vectordb/"])
     def test_it_copies_what_the_app_reads_at_runtime(self, path):

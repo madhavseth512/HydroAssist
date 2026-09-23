@@ -1,0 +1,52 @@
+# Render deployment. https://render.com/docs/blueprint-spec
+#
+# Chosen because it is the one host that meets all three constraints: no cost,
+# no credit card, and it runs this Dockerfile unchanged. Oracle Always Free is
+# the better machine — 12 GB against 512 MB, and it never sleeps — but it
+# requires a card for identity verification.
+#
+# Measured under Render's exact limits before committing to it: 301 MB after a
+# full analysis, 401 MB after three consultant questions, no OOM kill. That
+# leaves roughly 110 MB spare, so a second person asking questions at the same
+# moment is the case to watch.
+#
+# What the free plan costs:
+#   - the service sleeps after 15 minutes idle and takes about a minute to wake
+#   - 0.1 CPU, so a cold start is slower than the 7 seconds measured locally
+#   - the disk is ephemeral, which is fine: the knowledge base is baked into the
+#     image, and projects are saved to the visitor's own machine
+#
+# To deploy: Render dashboard -> New -> Blueprint -> pick this repository. Then
+# set the three secret values below, which are deliberately not in git.
+
+services:
+  - type: web
+    name: hydroassist
+    runtime: docker
+    plan: free
+    region: singapore          # nearest to Kharagpur of Render's free regions
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+
+    envVars:
+      # Set in the Render dashboard, never in git.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # Password protection. Without BOTH of these the site is open to anyone
+      # with the URL, and the app says so in its start-up log. The corpus quotes
+      # paywalled papers, so set them before sharing the link.
+      #   python scripts/make_auth_hash.py 'your password'
+      - key: HYDROASSIST_AUTH_USER
+        sync: false
+      - key: HYDROASSIST_AUTH_PASSWORD_HASH
+        sync: false
+
+      # Render terminates TLS, so cookies must be marked Secure.
+      - key: HYDROASSIST_COOKIE_SECURE
+        value: "1"
+
+      - key: HYDROASSIST_ENV
+        value: default

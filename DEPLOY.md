@@ -1,31 +1,98 @@
-# Deploying HydroAssist on Oracle Cloud Always Free
+# Deploying HydroAssist
+
+Two hosts are supported, both free. Pick by whether you have a card.
+
+| | **Render** | **Oracle Cloud Always Free** |
+|---|---|---|
+| Card to sign up | **No** | Yes, for identity verification |
+| Memory | 512 MB | 12 GB |
+| CPU | 0.1 | 2 Ampere cores |
+| Sleeps when idle | After 15 min, ~1 min to wake | Never |
+| HTTPS | Included | Caddy + Let's Encrypt |
+| Password protection | The app's own (`src/api/auth.py`) | Caddy's `basic_auth` |
+| Setup | Connect the repo | VM, firewall in two places, DuckDNS |
+| Upkeep | None | You patch the machine |
+
+Both run the same image, so moving later costs an afternoon rather than a
+rewrite.
+
+**Does HydroAssist fit in 512 MB?** Measured, with the container capped at
+Render's limit and no swap: 301 MB after a full analysis (upload, Theis fit,
+PDF), and 401 MB after three consultant questions, never OOM-killed. About
+110 MB spare — enough for one person, and the case to watch is two people asking
+questions at the same moment.
+
+Rejected, and why (checked 11 and 23 September 2026):
+
+| Option | Why not |
+|---|---|
+| Railway | No free tier since 2023. $5/month minimum, $1 even on the "Free" plan. |
+| Hugging Face Spaces | 16 GB free, but the Docker SDK now requires a paid PRO plan. |
+| Google Cloud Run / Azure Container Apps | Bill the card on file once the free grant runs out. |
+| Fly.io | No free allowance, and a card is required. |
+| Vercel / Netlify | Serverless size limits; this image is 1.8 GB. |
+| PythonAnywhere free | No Docker, and outbound network is allow-listed, so Gemini is unreachable. |
+
+---
+
+# Path A — Render (no card)
+
+1. **Create a Render account** at <https://render.com>. Sign in with GitHub so it
+   can see your private repository. No card is asked for.
+2. **Choose a password** for the site and hash it, locally:
+   ```bash
+   python scripts/make_auth_hash.py 'the password you choose'
+   ```
+   The corpus quotes paywalled papers, so this is not optional until the
+   licensing question is settled. Without it the app logs a loud warning and
+   serves anyone with the URL.
+3. **New → Blueprint**, pick this repository. Render reads `render.yaml` and
+   creates the service.
+4. **Set the three secrets** it asks for, which are deliberately not in git:
+   - `GEMINI_API_KEY`
+   - `HYDROASSIST_AUTH_USER` — whatever you like, e.g. `kgp`
+   - `HYDROASSIST_AUTH_PASSWORD_HASH` — the `pbkdf2_sha256$...` line from step 2
+5. **Wait for the first build.** It compiles the React workspace and installs
+   the Python stack, so expect roughly ten minutes. Watch the log for
+   `Password protection is ON`.
+6. **Check it**, from your own machine:
+   ```bash
+   python scripts/smoke_deploy.py https://hydroassist.onrender.com \
+       --user kgp --password 'the password you chose'
+   ```
+   Seven checks, ending with a PDF and `T = 215.29 m^2/day`. Without
+   `--user`/`--password` it should fail at the first step with a 401, which is
+   itself proof the lock works.
+
+**What to expect day to day.** The first visit after a quiet spell takes a
+minute or so: Render wakes the container, then the knowledge base loads. After
+that it is quick. Projects are saved to the visitor's own machine, so nothing is
+lost when the service sleeps — but a conversation in progress is, because
+sessions live in memory.
+
+**Your DuckDNS subdomain is not needed here.** Render provides
+`hydroassist.onrender.com` with HTTPS already. Keep the subdomain for Oracle, or
+point it at Render later as a custom domain.
+
+---
+
+# Path B — Oracle Cloud Always Free
 
 HydroAssist runs as two containers on one small VM:
 
 - **app** — FastAPI, serving the API and the built React workspace
 - **Caddy** — HTTPS, via a free Let's Encrypt certificate, plus basic auth
 
-The whole setup costs nothing.
-
 ```
 Browser ──HTTPS──▶ Caddy (TLS, basic auth) ──▶ app: FastAPI + React build ──▶ Gemini (free tier)
 ```
 
-## Why this host
-
-Checked on 11 September 2026:
-
-| Option | Why not |
-|---|---|
-| Render / Koyeb free | 512 MB RAM and 0.1 CPU: out-of-memory risk, and fits would crawl |
-| Google Cloud Run / Azure Container Apps | They bill the card on file once the free grant is used up |
-| Hugging Face Spaces, Fly.io, Railway | No free option for an app like this |
-| **Oracle Cloud Always Free** | **Ampere A1: 2 OCPU and 12 GB RAM.** Measured peak use is about 415 MB. |
-
 Oracle's risks, stated plainly:
 - **Allowance changes:** Oracle halved the Always Free allowance without notice in June 2026.
-- **Idle reclaim:** Oracle may reclaim Always Free instances it considers idle. Check the current Always Free documentation.
-- **Card required:** sign-up asks for a card for identity verification. It is not charged while the account stays on Always Free — **never click "Upgrade"**.
+- **Idle reclaim:** Oracle may reclaim Always Free instances it considers idle.
+- **Card required:** sign-up asks for a card for identity verification. A debit
+  card is usually accepted. It is not charged while the account stays on Always
+  Free — **never click "Upgrade"**.
 
 ## What you need
 

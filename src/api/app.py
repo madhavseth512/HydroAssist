@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api import routes_analysis, routes_chat, routes_workspace
+from src.api import auth, routes_analysis, routes_chat, routes_workspace
 from src.api.deps import set_store
 from src.api.sessions import SessionStore
 
@@ -47,6 +47,13 @@ def create_app(store: SessionStore = None) -> FastAPI:
             "Sessions are per visitor: a conversation is never shared."
         ),
     )
+
+    # Before the routers, so nothing is served without credentials where they
+    # are configured. On a host with no reverse proxy of ours — Render, Fly,
+    # anything that terminates TLS itself — this is the only thing keeping the
+    # corpus private.
+    app.middleware("http")(auth.basic_auth_middleware)
+    auth.announce_state()
 
     app.include_router(routes_workspace.router)
     app.include_router(routes_analysis.router)
