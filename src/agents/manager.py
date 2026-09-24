@@ -8,7 +8,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agents.base import BaseAgent
 from src.core.state import AgentState
 from src.core.config import AppConfig
-from src.agents.method_selection import canonical_method, suggest_method
+from src.agents.method_selection import (
+    canonical_method, describes_recovery, suggest_method,
+)
 from src.prompts.manager_prompts import (
     INTENT_CLASSIFICATION_PROMPT,
     CLARIFICATION_PROMPT,
@@ -126,18 +128,27 @@ class ManagerAgent(BaseAgent):
         aquifer = state.get("aquifer_context", "unknown")
         method = state.get("selected_method", "")
 
+        staged = state.get("staged_series") or {}
+
         relevant = (
             intent == "calculation"
             or bool(method)
             or aquifer in {"confined", "unconfined", "leaky", "fractured"}
+            # A message can describe the test without naming the aquifer.
+            # "The pump stopped and I kept reading water levels as they came
+            # back up" is a recovery test in plain words, and the rules resolve
+            # it confidently — but the gate used to return first, so no card
+            # appeared and the workspace stayed on the wrong method.
+            or describes_recovery(user_message)
+            # Uploaded readings can drive the suggestion on their own, through
+            # the Bourdet derivative, without a word being typed.
+            or bool(staged.get("drawdown_m"))
         )
         if not relevant:
             return
 
-        # Hand over the staged series if the workspace has one. With data the
-        # suggestion comes from the Bourdet derivative reading the actual flow
-        # regime; without it, from keyword rules on the message.
-        staged = state.get("staged_series") or {}
+        # With data the suggestion comes from the Bourdet derivative reading the
+        # actual flow regime; without it, from keyword rules on the message.
         suggestion = suggest_method(
             aquifer_context=aquifer,
             selected_method=method,

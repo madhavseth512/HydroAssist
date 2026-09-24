@@ -373,3 +373,67 @@ class TestDerivativeDrivenSuggestion:
         chat.reset()
 
         assert chat.state["staged_series"] == {}
+
+
+class TestDescribingATestWithoutNamingIt:
+    """A user describes what they did; the workspace should be primed for it.
+
+    Found by the consultant evaluation. Asked "the pump stopped after 24 hours
+    and I kept reading water levels as they came back up", the consultant
+    explained Theis recovery correctly and at length — but no suggestion card
+    appeared, so the workspace stayed on whatever method was already selected.
+
+    The rules were never consulted: the manager only attempted a suggestion when
+    the intent was calculation, or a method was named, or an aquifer type had
+    been detected. That sentence has none of the three, and asking the rules
+    directly returns Theis Recovery at 0.85 confidence.
+    """
+
+    def test_a_recovery_test_in_plain_words_raises_the_card(self, wired):
+        chat, manager_llm, _, _ = wired
+        # Consultation, and the classifier finds no aquifer — the case that
+        # used to fall through.
+        manager_llm.responses = [_classification("consultation", aquifer="unknown")]
+
+        chat.send_message(
+            "The pump stopped after 24 hours and I kept reading water levels "
+            "as they came back up. How do I get transmissivity from that?")
+
+        suggestion = chat.state["method_suggestion"]
+        assert suggestion["method"] == "Theis Recovery (1935)"
+        assert chat.state["selected_method"] == "Theis Recovery (1935)"
+
+    @pytest.mark.parametrize("message", [
+        "I stopped the pump and measured recovery",
+        "the pumping was shut off and the water level rose again",
+        "I have residual drawdown readings",
+    ])
+    def test_the_other_ways_people_say_it(self, wired, message):
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("consultation", aquifer="unknown")]
+
+        chat.send_message(message)
+
+        assert chat.state["method_suggestion"]["method"] == "Theis Recovery (1935)"
+
+    def test_a_theory_question_still_raises_nothing(self, wired):
+        """The gate must stay shut for questions that describe no test: a card
+        appearing on 'what is transmissivity?' would change the workspace's
+        method for no reason."""
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("consultation", aquifer="unknown")]
+
+        chat.send_message("What is transmissivity?")
+
+        assert not chat.state.get("method_suggestion")
+
+    def test_a_confirmed_method_is_never_overwritten(self, wired):
+        """Widening the gate must not let a later sentence change a method the
+        user already committed to."""
+        chat, manager_llm, _, _ = wired
+        chat.confirm_method(THEIS)
+        manager_llm.responses = [_classification("consultation", aquifer="unknown")]
+
+        chat.send_message("Later the pump stopped and levels recovered.")
+
+        assert chat.state["selected_method"] == THEIS

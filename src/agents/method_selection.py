@@ -124,6 +124,18 @@ _RECOVERY_CUES = re.compile(
 )
 
 
+def describes_recovery(text: str) -> bool:
+    """Whether a message describes a recovery record rather than pumping drawdown.
+
+    Public because the manager needs it to decide whether a message is worth
+    suggesting from at all: "the pump stopped after 24 hours and I kept reading
+    water levels as they came back up" names no aquifer and no method, so
+    without this the suggestion was never attempted and the workspace was never
+    primed, however well the consultant explained recovery in prose.
+    """
+    return bool(text) and bool(_RECOVERY_CUES.search(text))
+
+
 def suggest_method(
     aquifer_context: str = "unknown",
     selected_method: str = "",
