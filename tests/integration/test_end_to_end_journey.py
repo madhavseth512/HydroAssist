@@ -497,3 +497,51 @@ class TestWhenTheModelIsUnavailable:
         chat.send_message("What is transmissivity?")
 
         assert not chat.state.get("method_suggestion")
+
+
+class TestSourcesMatchTheAnswer:
+    """What the browser lists as "Sources consulted" must be what the answer used.
+
+    Reported from the deployed site: with the daily Gemini allowance spent, the
+    quota message appeared under five citations — Walton's bibliography, an EPA
+    acknowledgements list, a general preamble about appraising groundwater
+    resources. Retrieval had succeeded and the model call had not, so the
+    documents were still in state and the browser dutifully printed them.
+
+    Citing papers for an answer that never read them is a small dishonesty, and
+    it is worse than useless here: the sources look like evidence for a message
+    that has none.
+    """
+
+    def _quota_error(self):
+        return Exception("429 RESOURCE_EXHAUSTED: quota exceeded, limit: 20")
+
+    def test_a_failed_answer_cites_nothing(self, wired):
+        chat, manager_llm, consultant_llm, retriever = wired
+        manager_llm.responses = [_classification("consultation")]
+        consultant_llm.fail_with = self._quota_error()
+
+        chat.send_message("What are the assumptions of the Theis method?")
+
+        assert retriever.calls, "the retrieval should still have been attempted"
+        assert chat.state["retrieved_docs"] == []
+
+    def test_the_failure_message_is_still_shown(self, wired):
+        """Clearing the sources must not cost the explanation."""
+        chat, manager_llm, consultant_llm, _ = wired
+        manager_llm.responses = [_classification("consultation")]
+        consultant_llm.fail_with = self._quota_error()
+
+        reply = chat.send_message("What are the assumptions of the Theis method?")
+
+        assert "daily allowance" in reply
+        assert "calculators are unaffected" in reply
+
+    def test_a_successful_answer_still_cites_its_sources(self, wired):
+        """The guard against over-correcting: a real answer keeps its evidence."""
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("consultation")]
+
+        chat.send_message("When should I use Cooper-Jacob?")
+
+        assert chat.state["retrieved_docs"], "a real answer must keep its sources"

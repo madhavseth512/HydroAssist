@@ -157,6 +157,14 @@ class ConsultantAgent(BaseAgent):
             delay = retry_delay_seconds(e)
             if delay:
                 self.logger.error(f"The model asked to be retried in {delay:.0f}s")
+
+            # The retrieval succeeded; the answer did not. Leaving the documents
+            # in state makes the browser print "Sources consulted (5)" under a
+            # message that says the quota is gone — citing Theis and
+            # Cooper-Jacob for an answer that never read them. Sources shown
+            # must be the sources the answer used.
+            state["retrieved_docs"] = []
+
             # Say what actually went wrong. "Try rephrasing your question" is
             # false when the daily quota is gone: the question was fine, and
             # rephrasing it will fail identically.
