@@ -33,7 +33,9 @@ test('a constant-rate test: upload, fit, report, save', async ({ page }) => {
 
   await expect(page.getByText('Results — Theis (1935)')).toBeVisible()
   // The golden value: the same number the calculator's regression test pins.
-  await expect(page.getByText('215.29', { exact: true })).toBeVisible()
+  // The golden fit is 215.29 m2/day; the workspace shows it to four
+  // significant figures, which is what its confidence interval supports.
+  await expect(page.getByText('215.3', { exact: true })).toBeVisible()
 
   const report = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download report' }).click()

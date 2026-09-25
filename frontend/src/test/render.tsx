@@ -1,4 +1,5 @@
 /** Rendering a panel the way the app renders it: same providers, fresh cache. */
+import { UnitsProvider } from '../UnitsContext'
 import { MantineProvider } from '@mantine/core'
 import { Notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -14,7 +15,9 @@ export function renderWithProviders(ui: ReactElement) {
     return (
       <MantineProvider>
         <Notifications />
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          <UnitsProvider>{children}</UnitsProvider>
+        </QueryClientProvider>
       </MantineProvider>
     )
   }

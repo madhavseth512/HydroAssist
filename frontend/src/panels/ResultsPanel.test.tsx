@@ -49,7 +49,9 @@ describe('the results', () => {
 
     renderWithProviders(<ResultsPanel />)
 
-    expect(await screen.findByText('215.29')).toBeInTheDocument()
+    // Four significant figures: the 95% interval on this fit is about
+    // +/- 4 m2/day, so a second decimal would be invented precision.
+    expect(await screen.findByText('215.3')).toBeInTheDocument()
     expect(screen.getByText('5.05e-5')).toBeInTheDocument()
     expect(screen.getByText('1.0000')).toBeInTheDocument()
     expect(screen.getByText('Validity notes (1)')).toBeInTheDocument()
@@ -159,5 +161,36 @@ describe('asking the consultant about the result', () => {
     expect(JSON.parse((init as RequestInit).body as string).message)
       .toMatch(/^Interpret the pumping test results I just computed/)
     expect(await screen.findByText('The consultant has replied')).toBeInTheDocument()
+  })
+})
+
+describe('the unit switch', () => {
+  it('shows transmissivity in gpd/ft when the workspace is set to US units', async () => {
+    // The literature a user checks against is often in gpd/ft — Walton's
+    // 11,000 for Gridley — and converting by hand to compare is arithmetic the
+    // software should absorb.
+    localStorage.setItem('hydroassist.units', 'US')
+    try {
+      stubFetch([{ url: '/api/analyses/current', body: result() }])
+
+      renderWithProviders(<ResultsPanel />)
+
+      expect(await screen.findByText('T (gpd/ft)')).toBeInTheDocument()
+      // 215.29 m2/day, to the four significant figures the fit supports.
+      expect(screen.getByText('17340')).toBeInTheDocument()
+    } finally {
+      // Without this a failure above leaks the preference into every later
+      // test, which is how one broken assertion becomes two.
+      localStorage.removeItem('hydroassist.units')
+    }
+  })
+
+  it('shows SI by default', async () => {
+    stubFetch([{ url: '/api/analyses/current', body: result() }])
+
+    renderWithProviders(<ResultsPanel />)
+
+    expect(await screen.findByText('T (m²/day)')).toBeInTheDocument()
+    expect(screen.getByText('215.3')).toBeInTheDocument()
   })
 })

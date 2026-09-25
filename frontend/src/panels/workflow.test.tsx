@@ -70,6 +70,6 @@ describe('the workspace flow', () => {
     fireEvent.click(run)
 
     expect(await screen.findByText('Results — Theis (1935)')).toBeInTheDocument()
-    expect(screen.getByText('215.29')).toBeInTheDocument()
+    expect(screen.getByText('215.3')).toBeInTheDocument()
   })
 })

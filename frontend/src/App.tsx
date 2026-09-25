@@ -5,7 +5,10 @@
  * confirms: the project on the left, the analysis in the centre, and the
  * consultation in a drawer that is always one click away.
  */
-import { AppShell, Badge, Burger, Button, Group, Loader, Stack, Text, Title } from '@mantine/core'
+import {
+  AppShell, Badge, Burger, Button, Group, Loader, SegmentedControl, Stack, Text,
+  Title,
+} from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { IconMessageCircle } from '@tabler/icons-react'
 
@@ -16,6 +19,8 @@ import { ResultsPanel } from './panels/ResultsPanel'
 import { SetupPanel } from './panels/SetupPanel'
 import { ProjectSidebar } from './panels/ProjectSidebar'
 import { useSession } from './hooks'
+import { useUnits } from './UnitsContext'
+import { UNIT_SYSTEMS } from './units'
 
 export function App() {
   // Creates the session on first contact; every later request carries its cookie.
@@ -28,6 +33,7 @@ export function App() {
   const ready = Boolean(session.data)
   const [navOpen, nav] = useDisclosure()
   const [chatOpen, chat] = useDisclosure(false)
+  const units = useUnits()
 
   return (
     <AppShell
@@ -46,6 +52,20 @@ export function App() {
             </Text>
           </Group>
           <Group gap="xs" wrap="nowrap">
+            {/* Which units results are shown in. The literature a user checks
+                against is often in gpd/ft, and converting by hand to compare is
+                arithmetic the software should absorb. Display only. */}
+            <SegmentedControl
+              size="xs"
+              aria-label="Units"
+              value={units.system}
+              onChange={(value) => units.setSystem(value as typeof units.system)}
+              data={UNIT_SYSTEMS.map((system) => ({
+                value: system,
+                label: system === 'SI' ? 'SI' : 'US',
+              }))}
+              visibleFrom="sm"
+            />
             {session.data && (
               <Badge variant="light" color="blue" visibleFrom="sm">
                 {session.data.project.summary}

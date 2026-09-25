@@ -14,6 +14,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 
 import { App } from './App'
+import { UnitsProvider } from './UnitsContext'
 
 import '@mantine/core/styles.css'
 import '@mantine/notifications/styles.css'
@@ -42,7 +43,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <Notifications position="top-right" />
       <QueryClientProvider client={queryClient}>
-        <App />
+        <UnitsProvider>
+          <App />
+        </UnitsProvider>
       </QueryClientProvider>
     </MantineProvider>
   </React.StrictMode>,

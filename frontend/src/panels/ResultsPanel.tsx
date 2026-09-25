@@ -28,6 +28,11 @@ import { useEffect, useState } from 'react'
 
 import { api, type Parameter, type Result } from '../api/client'
 import { PlotFigure } from '../components/PlotFigure'
+import { useUnits } from '../UnitsContext'
+import {
+  NUMERIC_STYLE, formatInterval, formatNumber, formatQuantity, residual,
+  transmissivity,
+} from '../units'
 import {
   reportError,
   useCurrentResult,
@@ -53,8 +58,10 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
   return (
     <Card withBorder padding="sm">
       <Text size="xs" c="dimmed">{label}</Text>
-      <Text size="lg" fw={600}>{value}</Text>
-      {hint && <Text size="xs" c="dimmed">{hint}</Text>}
+      {/* Tabular figures so a column of results can be read down, which is how
+          anyone compares two fits. */}
+      <Text size="lg" fw={600} style={NUMERIC_STYLE}>{value}</Text>
+      {hint && <Text size="xs" c="dimmed" style={NUMERIC_STYLE}>{hint}</Text>}
     </Card>
   )
 }
@@ -83,6 +90,7 @@ export function ResultsPanel() {
 }
 
 function SuccessfulResult({ result }: { result: Result }) {
+  const { system } = useUnits()
   const save = useSaveAnalysis()
   // The result is already published to the conversation on the server, so the
   // consultant answers about these numbers.
@@ -132,8 +140,11 @@ function SuccessfulResult({ result }: { result: Result }) {
         </Group>
 
         <SimpleGrid cols={{ base: 2, sm: 4 }}>
-          <Metric label="T (m²/day)" value={(result.T_day ?? 0).toFixed(2)}
-                  hint={`95% CI ${formatCi(result.T_ci, SECONDS_PER_DAY, 4)}`} />
+          <Metric label={`T (${transmissivity(0, system).unit})`}
+                  value={formatNumber(transmissivity(result.T_day ?? 0, system).value)}
+                  hint={`95% CI ${formatInterval(
+                    result.T_ci,
+                    (value) => transmissivity(value * SECONDS_PER_DAY, system))}`} />
           <Metric label="T (m²/s)" value={(result.T ?? 0).toExponential(3)} />
           {result.estimates_storativity ? (
             <Metric label="S" value={(result.S ?? 0).toExponential(2)}
@@ -143,7 +154,7 @@ function SuccessfulResult({ result }: { result: Result }) {
                     hint="This method does not estimate storativity." />
           )}
           <Metric label="R²" value={(result.r_squared ?? 0).toFixed(4)}
-                  hint={`RMSE ${((result.rmse ?? 0) * 1000).toFixed(2)} mm`} />
+                  hint={`RMSE ${formatQuantity(residual(result.rmse ?? 0, system), 3)}`} />
         </SimpleGrid>
 
         <ParameterTable parameters={result.parameters ?? []} />
