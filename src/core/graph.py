@@ -8,6 +8,7 @@ from src.core.state import AgentState, create_initial_state
 from src.core.config import AppConfig
 from src.agents.manager import ManagerAgent
 from src.agents.consultant import ConsultantAgent
+from src.agents.guide import GuideAgent
 from src.agents.calculator import CalculatorAgent
 from src.utils.logger import setup_logger
 
@@ -40,6 +41,7 @@ def create_hydroassist_graph(config: AppConfig):
     # Initialize agents
     manager = ManagerAgent(config)
     consultant = ConsultantAgent(config)
+    guide = GuideAgent(config)
     calculator = CalculatorAgent(config)
 
     # Create workflow
@@ -48,10 +50,11 @@ def create_hydroassist_graph(config: AppConfig):
     # Add nodes
     workflow.add_node("manager", manager.run)
     workflow.add_node("consultant", consultant.run)
+    workflow.add_node("guide", guide.run)
     workflow.add_node("calculator", calculator.run)
 
     # Define routing logic
-    def route_intent(state: AgentState) -> Literal["consultant", "calculator", "__end__"]:
+    def route_intent(state: AgentState) -> Literal["consultant", "calculator", "guide", "__end__"]:
         """
         Route based on classified user intent.
 
@@ -67,6 +70,10 @@ def create_hydroassist_graph(config: AppConfig):
 
         if intent == "consultation":
             return "consultant"
+        elif intent == "how_to":
+            # About the application rather than the aquifer: answered from
+            # docs/help and the workspace's own state, never from the papers.
+            return "guide"
         elif intent == "calculation":
             return "calculator"
         else:
@@ -83,12 +90,14 @@ def create_hydroassist_graph(config: AppConfig):
         {
             "consultant": "consultant",
             "calculator": "calculator",
+            "guide": "guide",
             END: END
         }
     )
 
     # Both consultant and calculator end the turn
     workflow.add_edge("consultant", END)
+    workflow.add_edge("guide", END)
     workflow.add_edge("calculator", END)
 
     # Compile workflow
@@ -121,6 +130,11 @@ def run_conversation_turn(
 
     # Add user message to state
     current_state["messages"].append(HumanMessage(content=user_message))
+
+    # Last turn's offer belongs to last turn. Left in place, a "Go to Step 2"
+    # button would sit under an unrelated answer about leakage — the same
+    # mistake as citing the previous question's sources.
+    current_state["proposed_actions"] = []
 
     # Run graph
     try:

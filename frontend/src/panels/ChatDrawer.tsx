@@ -15,7 +15,6 @@ import {
   Alert,
   Badge,
   Button,
-  Drawer,
   Group,
   Loader,
   Paper,
@@ -26,7 +25,7 @@ import {
   Text,
   Textarea,
 } from '@mantine/core'
-import { IconSend } from '@tabler/icons-react'
+import { IconArrowRight, IconSend } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { api, type ChatMessage, type Suggestion } from '../api/client'
@@ -42,11 +41,12 @@ import {
 } from '../hooks'
 
 export interface ChatDrawerProps {
-  opened: boolean
-  onClose: () => void
+  /** Scrolls a workspace panel into view when the guide offers to go there.
+   * The assistant never navigates by itself — this runs on a click. */
+  onGoTo?: (panel: string) => void
 }
 
-export function ChatDrawer({ opened, onClose }: ChatDrawerProps) {
+export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
   const chat = useChat()
   const send = useSendMessage()
   const reset = useResetChat()
@@ -68,9 +68,8 @@ export function ChatDrawer({ opened, onClose }: ChatDrawerProps) {
   }
 
   return (
-    <Drawer opened={opened} onClose={onClose} position="right" size="lg"
-            title="Consultant" padding="md">
-      <Stack gap="sm" h="calc(100vh - 90px)">
+    <Stack gap="sm" h="100%">
+      <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
         <Alert variant="light" color="gray" p="xs">
           <Text size="xs">
             Answers come from Gemini's free tier, under which Google may use what
@@ -121,6 +120,14 @@ export function ChatDrawer({ opened, onClose }: ChatDrawerProps) {
             {send.isPending && <Loader size="sm" />}
 
             {chat.data?.suggestion && <SuggestionCard suggestion={chat.data.suggestion} />}
+
+            {(chat.data?.actions ?? []).map((action, index) => (
+              <Button key={index} size="xs" variant="light" w="fit-content"
+                      leftSection={<IconArrowRight size={14} />}
+                      onClick={() => action.target && onGoTo?.(action.target)}>
+                {action.label}
+              </Button>
+            ))}
 
             {retrieved.length > 0 && (
               <Accordion variant="contained" chevronPosition="left">
@@ -181,7 +188,7 @@ export function ChatDrawer({ opened, onClose }: ChatDrawerProps) {
           </Button>
         </Group>
       </Stack>
-    </Drawer>
+    </Stack>
   )
 }
 

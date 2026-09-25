@@ -29,8 +29,10 @@ function bodyOf(stub: ReturnType<typeof stubFetch>, fragment: string) {
   return JSON.parse((init as RequestInit).body as string)
 }
 
-function open() {
-  return renderWithProviders(<ChatDrawer opened onClose={() => {}} />)
+// Docked rather than overlaid, so there is nothing to open: it is simply
+// rendered where the workspace puts it.
+function open(onGoTo?: (panel: string) => void) {
+  return renderWithProviders(<ChatDrawer onGoTo={onGoTo} />)
 }
 
 describe('the consultation', () => {
@@ -197,5 +199,49 @@ describe('how an answer is rendered', () => {
     const link = await screen.findByRole('link', { name: 'USGS' })
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+})
+
+describe('what the guide offers', () => {
+  const WITH_OFFER = state({
+    messages: [{ role: 'user', content: 'Where do I enter the pumping rate?' },
+               { role: 'assistant', content: 'The pumping rate Q goes in Step 2.' }],
+    actions: [{ kind: 'open_panel', target: 'setup', label: 'Go to Step 2 — Test setup' }],
+  })
+
+  it('shows the offer as a button', async () => {
+    stubFetch([{ url: '/api/chat', body: WITH_OFFER }])
+
+    open()
+
+    expect(await screen.findByRole('button', { name: /Go to Step 2/ }))
+      .toBeInTheDocument()
+  })
+
+  it('goes nowhere until the button is pressed', async () => {
+    // An assistant that moves the workspace under someone mid-analysis is a
+    // worse failure than one that answers badly.
+    const goTo = vi.fn()
+    stubFetch([{ url: '/api/chat', body: WITH_OFFER }])
+
+    open(goTo)
+
+    await screen.findByRole('button', { name: /Go to Step 2/ })
+    expect(goTo).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Go to Step 2/ }))
+    expect(goTo).toHaveBeenCalledWith('setup')
+  })
+
+  it('offers nothing when the answer offered nothing', async () => {
+    stubFetch([{ url: '/api/chat', body: state({
+      messages: [{ role: 'assistant', content: 'The Theis method assumes…' }],
+      actions: [],
+    }) }])
+
+    open()
+
+    await screen.findByText(/The Theis method assumes/)
+    expect(screen.queryByRole('button', { name: /Go to/ })).toBeNull()
   })
 })

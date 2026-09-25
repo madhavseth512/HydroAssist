@@ -18,13 +18,24 @@ Classify the user's message into ONE of these categories:
    - "What is the transmissivity from this data?"
    - "Fit curve to my measurements"
 
-3. **clarification**: Message is too vague to classify confidently
+3. **how_to**: Questions about using HydroAssist itself — the software, not the
+   hydrogeology
+   Examples:
+   - "Where do I enter the pumping rate?"
+   - "How do I upload my data?" / "Can I paste from Excel?"
+   - "Why were most of my points excluded?"
+   - "What do I do next?"
+   - "How do I save my project?" / "Where is the PDF report?"
+   Note: "What are the assumptions of Theis?" is consultation, not how_to — it
+   is about the method, not about the application.
+
+4. **clarification**: Message is too vague to classify confidently
    Examples:
    - "Help me"
    - "What can you do?"
    - "I have a problem"
 
-4. **unknown**: Off-topic or completely unclear
+5. **unknown**: Off-topic or completely unclear
 
 Conversation context:
 {history}
@@ -34,7 +45,7 @@ Current user message:
 
 Respond ONLY with a valid JSON object (no markdown formatting):
 {{
-  "intent": "consultation" | "calculation" | "clarification" | "unknown",
+  "intent": "consultation" | "calculation" | "how_to" | "clarification" | "unknown",
   "confidence": 0.85,
   "reasoning": "brief explanation of classification",
   "extracted_aquifer": "confined" | "unconfined" | "leaky" | "fractured" | "unknown",

@@ -362,11 +362,25 @@ class ChatContextModel(BaseModel):
     message_count: int = 0
 
 
+class ActionModel(BaseModel):
+    """Somewhere the guide offered to take the user.
+
+    An offer, never a move: the browser renders a button and nothing happens
+    until it is pressed. An assistant that navigates the workspace by itself
+    while someone is mid-analysis is a worse failure than one that answers
+    badly.
+    """
+    kind: str = "open_panel"
+    target: str = ""
+    label: str = ""
+
+
 class ChatStateModel(BaseModel):
     messages: List[MessageModel] = Field(default_factory=list)
     context: ChatContextModel
     suggestion: Optional[SuggestionModel] = None
     retrieved: List[RetrievedDocModel] = Field(default_factory=list)
+    actions: List[ActionModel] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):

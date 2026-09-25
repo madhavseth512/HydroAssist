@@ -24,7 +24,8 @@ class AgentState(TypedDict):
             flow regime off the data rather than guessing from the message
     """
     messages: Annotated[List[AnyMessage], add_messages]
-    user_intent: Literal["consultation", "calculation", "clarification", "unknown"]
+    user_intent: Literal["consultation", "calculation", "how_to",
+                         "clarification", "unknown"]
     aquifer_context: Literal["confined", "unconfined", "leaky", "fractured", "unknown"]
     selected_method: str
     retrieved_docs: List[Dict]
@@ -34,6 +35,9 @@ class AgentState(TypedDict):
     calculation_input: Dict
     calculation_result: Dict
     staged_series: Dict
+    # What the guide offered to do next, which the browser renders as a button.
+    # Never acted on here: nothing moves until the user clicks.
+    proposed_actions: List[Dict]
 
 
 def create_initial_state() -> AgentState:
@@ -49,5 +53,6 @@ def create_initial_state() -> AgentState:
         suggestion_confirmed=False,
         calculation_input={},
         calculation_result={},
-        staged_series={}
+        staged_series={},
+        proposed_actions=[]
     )

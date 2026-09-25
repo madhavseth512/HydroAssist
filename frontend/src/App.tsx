@@ -35,10 +35,24 @@ export function App() {
   const [chatOpen, chat] = useDisclosure(false)
   const units = useUnits()
 
+  /** Take the user where the assistant offered to take them, once they ask. */
+  const goTo = (panel: string) => {
+    if (panel === 'project') {
+      nav.open()
+      return
+    }
+    document.getElementById(`panel-${panel}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <AppShell
       header={{ height: 56 }}
       navbar={{ width: 320, breakpoint: 'sm', collapsed: { mobile: !navOpen } }}
+      // Docked, not overlaid: consulting the assistant used to hide the plot
+      // being discussed.
+      aside={{ width: 400, breakpoint: 'md',
+               collapsed: { desktop: !chatOpen, mobile: !chatOpen } }}
       padding="md"
     >
       <AppShell.Header>
@@ -71,8 +85,9 @@ export function App() {
                 {session.data.project.summary}
               </Badge>
             )}
-            <Button size="xs" leftSection={<IconMessageCircle size={16} />}
-                    onClick={chat.open}>
+            <Button size="xs" variant={chatOpen ? 'filled' : 'light'}
+                    leftSection={<IconMessageCircle size={16} />}
+                    onClick={chat.toggle}>
               Consultant
             </Button>
           </Group>
@@ -92,15 +107,19 @@ export function App() {
       <AppShell.Main>
         {ready && (
           <Stack gap="md">
-            <DataPanel />
-            <SetupPanel />
-            <ResultsPanel />
-            <ComparePanel />
+            {/* Anchors the assistant can offer to scroll to. It never moves the
+                page itself — the offer is a button the user presses. */}
+            <div id="panel-data"><DataPanel /></div>
+            <div id="panel-setup"><SetupPanel /></div>
+            <div id="panel-results"><ResultsPanel /></div>
+            <div id="panel-compare"><ComparePanel /></div>
           </Stack>
         )}
       </AppShell.Main>
 
-      {ready && <ChatDrawer opened={chatOpen} onClose={chat.close} />}
+      <AppShell.Aside p="md">
+        {ready && <ChatDrawer onGoTo={goTo} />}
+      </AppShell.Aside>
     </AppShell>
   )
 }

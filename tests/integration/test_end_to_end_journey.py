@@ -68,6 +68,26 @@ def _classification(intent, aquifer="confined", method=None):
             "extracted_aquifer": aquifer, "extracted_method": method}
 
 
+class _StubHelpRetriever:
+    """The help index, without needing one built."""
+
+    def __init__(self, *args, **kwargs):
+        self.available = True
+        self.calls = []
+
+    def retrieve(self, query, top_k=4):
+        self.calls.append(query)
+        return [{
+            "content": "Setting up the test — The fields. The pumping rate Q "
+                       "goes in Step 2, with its unit.",
+            "metadata": {"source": "HydroAssist help", "type": "help",
+                         "document": "Setting up the test",
+                         "section": "The fields",
+                         "file": "setting-up-the-test.md"},
+            "score": 0.51,
+        }]
+
+
 @pytest.fixture
 def wired(monkeypatch):
     """A HydroAssistChat with stubbed LLM + retriever, plus handles to both."""
@@ -75,7 +95,14 @@ def wired(monkeypatch):
 
     manager_llm = _ScriptedLLM([_classification("calculation")])
     consultant_llm = _ScriptedLLM(["Here is my interpretation of your fit."])
+    guide_llm = _ScriptedLLM(["The pumping rate Q goes in Step 2."])
     retriever = _StubRetriever()
+    help_retriever = _StubHelpRetriever()
+
+    monkeypatch.setattr("src.agents.guide.ChatGoogleGenerativeAI",
+                        lambda **kw: guide_llm)
+    monkeypatch.setattr("src.agents.guide.HelpRetriever",
+                        lambda cfg: help_retriever)
 
     monkeypatch.setattr("src.agents.manager.ChatGoogleGenerativeAI",
                         lambda **kw: manager_llm)
@@ -84,6 +111,8 @@ def wired(monkeypatch):
     monkeypatch.setattr("src.agents.consultant.Retriever", lambda cfg: retriever)
 
     chat = HydroAssistChat(load_config())
+    chat.guide_llm = guide_llm                 # for the how-to tests
+    chat.help_retriever = help_retriever
     return chat, manager_llm, consultant_llm, retriever
 
 
@@ -545,3 +574,83 @@ class TestSourcesMatchTheAnswer:
         chat.send_message("When should I use Cooper-Jacob?")
 
         assert chat.state["retrieved_docs"], "a real answer must keep its sources"
+
+
+class TestAskingAboutTheApplication:
+    """"Where do I enter the pumping rate?" used to search Theis (1935).
+
+    The consultant knows a library of papers and nothing about HydroAssist, so
+    a question about the interface was answered from whatever hydrogeology came
+    closest — which is how a question about a text field ends up citing 1955.
+    """
+
+    def test_a_how_to_question_reaches_the_guide(self, wired):
+        chat, manager_llm, _, retriever = wired
+        manager_llm.responses = [_classification("how_to", aquifer="unknown")]
+
+        reply = chat.send_message("Where do I enter the pumping rate?")
+
+        assert "Step 2" in reply
+        assert chat.help_retriever.calls, "the help index should have been read"
+        assert not retriever.calls, "the papers must not be searched for this"
+
+    def test_it_cites_help_and_never_a_paper(self, wired):
+        """The rule the sources bug established: what is listed as consulted
+        must be what the answer read."""
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("how_to", aquifer="unknown")]
+
+        chat.send_message("How do I upload my data?")
+
+        sources = chat.state["retrieved_docs"]
+        assert sources
+        assert all(doc["metadata"]["type"] == "help" for doc in sources)
+
+    def test_it_offers_one_place_to_go(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("how_to", aquifer="unknown")]
+
+        chat.send_message("Where do I enter the pumping rate?")
+
+        assert chat.state["proposed_actions"] == [
+            {"kind": "open_panel", "target": "setup",
+             "label": "Go to Step 2 — Test setup"}]
+
+    def test_the_offer_does_not_outlive_its_turn(self, wired):
+        """A "Go to Step 2" button left under a later answer about leakage is
+        the same mistake as citing the previous question's sources."""
+        chat, manager_llm, _, _ = wired
+        manager_llm.responses = [_classification("how_to", aquifer="unknown")]
+        chat.send_message("Where do I enter the pumping rate?")
+        assert chat.state["proposed_actions"]
+
+        manager_llm.responses = [_classification("consultation")]
+        manager_llm._i = 0
+        chat.send_message("What is the leakage factor?")
+
+        assert chat.state["proposed_actions"] == []
+
+    def test_a_theory_question_still_goes_to_the_papers(self, wired):
+        """The guard against over-routing: the guide must not swallow
+        hydrogeology."""
+        chat, manager_llm, _, retriever = wired
+        manager_llm.responses = [_classification("consultation")]
+
+        chat.send_message("What are the assumptions of the Theis method?")
+
+        assert retriever.calls, "the papers should have been searched"
+        assert not chat.help_retriever.calls
+
+    def test_the_guide_answers_from_the_workspace_too(self, wired):
+        """"Why were my points excluded?" is answered by this fit's own notes,
+        not by a general description of Cooper-Jacob."""
+        chat, manager_llm, _, _ = wired
+        _run_workspace_fit(chat)
+        manager_llm.responses = [_classification("how_to", aquifer="unknown")]
+        manager_llm._i = 0
+
+        chat.send_message("Why were some of my points excluded?")
+
+        prompt = chat.guide_llm.prompts[-1]
+        assert "Validity notes on that fit" in prompt or "validity" in prompt.lower()
+        assert "T = " in prompt

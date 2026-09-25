@@ -175,8 +175,15 @@ def _retrieved_models(docs) -> list:
     for doc in docs:
         meta = doc.get("metadata", {})
         content = doc.get("content", "")
+        # A help passage has a document and a section rather than a method and
+        # an aquifer, and "HydroAssist help" alone says too little to be worth
+        # showing.
+        source = meta.get("source", "Unknown")
+        if meta.get("type") == "help":
+            source = f"{meta.get('document', source)} — {meta.get('section', '')}".strip(" —")
+
         out.append(schemas.RetrievedDocModel(
-            source=meta.get("source", "Unknown"),
+            source=source,
             method=meta.get("method", ""),
             aquifer=meta.get("aquifer", ""),
             score=doc.get("score", 0.0),
@@ -212,6 +219,10 @@ def chat_state(session) -> schemas.ChatStateModel:
         ),
         suggestion=suggestion,
         retrieved=_retrieved_models(state.get("retrieved_docs", [])),
+        actions=[schemas.ActionModel(kind=action.get("kind", "open_panel"),
+                                     target=action.get("target", ""),
+                                     label=action.get("label", ""))
+                 for action in (state.get("proposed_actions") or [])],
     )
 
 

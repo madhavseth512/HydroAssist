@@ -1590,6 +1590,28 @@
   },
   "components": {
     "schemas": {
+      "ActionModel": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "open_panel"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "default": ""
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ActionModel",
+        "description": "Somewhere the guide offered to take the user.\n\nAn offer, never a move: the browser renders a button and nothing happens\nuntil it is pressed. An assistant that navigates the workspace by itself\nwhile someone is mid-analysis is a worse failure than one that answers\nbadly."
+      },
       "Body_open_project_api_project_open_post": {
         "properties": {
           "file": {
@@ -1708,6 +1730,13 @@
             },
             "type": "array",
             "title": "Retrieved"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActionModel"
+            },
+            "type": "array",
+            "title": "Actions"
           }
         },
         "type": "object",

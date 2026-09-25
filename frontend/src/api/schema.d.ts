@@ -555,6 +555,32 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActionModel
+         * @description Somewhere the guide offered to take the user.
+         *
+         *     An offer, never a move: the browser renders a button and nothing happens
+         *     until it is pressed. An assistant that navigates the workspace by itself
+         *     while someone is mid-analysis is a worse failure than one that answers
+         *     badly.
+         */
+        ActionModel: {
+            /**
+             * Kind
+             * @default open_panel
+             */
+            kind: string;
+            /**
+             * Target
+             * @default
+             */
+            target: string;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+        };
         /** Body_open_project_api_project_open_post */
         Body_open_project_api_project_open_post: {
             /** File */
@@ -613,6 +639,8 @@ export interface components {
             suggestion?: components["schemas"]["SuggestionModel"] | null;
             /** Retrieved */
             retrieved?: components["schemas"]["RetrievedDocModel"][];
+            /** Actions */
+            actions?: components["schemas"]["ActionModel"][];
         };
         /** ComparisonModel */
         ComparisonModel: {
