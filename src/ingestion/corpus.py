@@ -16,6 +16,7 @@ The thresholds come from measuring all 49 papers: a healthy one gives 600-2,400
 characters a page, while the five thin ones give 303-370.
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -156,6 +157,58 @@ def load_manifest(path: Path = MANIFEST_PATH) -> Manifest:
     )
 
 
+# ── What kind of text a chunk is ──────────────────────────────────────────────
+#
+# A paper is not all argument. Its reference list, its contents page and its
+# ordering boilerplate were chunked and embedded exactly like its derivations,
+# and they compete on equal terms: a question about the Theis assumptions once
+# came back citing Walton's bibliography.
+#
+# The separation is sharper than it looks. A bibliography writes "Walton, W.C.,
+# 1970, Groundwater resource evaluation"; an argument writes "Neuman (1974)
+# showed". Only the first is matched here, which is why body text discussing
+# many papers does not trip it — checked against all 4,017 chunks before the
+# thresholds were fixed.
+
+BODY, REFERENCES, CONTENTS = "body", "references", "contents"
+
+# "Surname, A.B., 1974" and "Surname, A.B. and Other, C., 1974" — a bibliography
+# entry, not a citation inside a sentence.
+_BIBLIOGRAPHY_ENTRY = re.compile(
+    r"[A-Z][a-z]+,\s+[A-Z]\.(?:[A-Z]\.)?,?\s*(?:and\s+[^,]{2,30},\s*)?(?:19|20)\d\d")
+
+# "Introduction ................ 7" — a contents page.
+_DOTTED_LEADER = re.compile(r"\.{5,}\s*\d+")
+
+# Entries per 1,000 characters. At 1.5 the lowest-scoring chunks in the corpus
+# are still reference lists; body text sits far below, because it cites in
+# prose. Two entries minimum, so a short chunk quoting one paper is safe.
+_BIBLIOGRAPHY_DENSITY = 1.5
+_BIBLIOGRAPHY_MINIMUM = 2
+_CONTENTS_MINIMUM = 3
+
+
+def classify_matter(text: str) -> str:
+    """Whether a chunk is the paper's argument or its apparatus.
+
+    Conservative by design: anything unrecognised is BODY. Wrongly dropping a
+    derivation costs an answer, while wrongly keeping a reference list costs a
+    line in a source list.
+    """
+    if not text:
+        return BODY
+
+    if len(_DOTTED_LEADER.findall(text)) >= _CONTENTS_MINIMUM:
+        return CONTENTS
+
+    entries = len(_BIBLIOGRAPHY_ENTRY.findall(text))
+    density = entries / max(len(text), 1) * 1000
+    if entries >= _BIBLIOGRAPHY_MINIMUM and density >= _BIBLIOGRAPHY_DENSITY:
+        return REFERENCES
+
+    return BODY
+
+
 def method_flags(methods: Sequence[str]) -> Dict[str, bool]:
     """One metadata flag per method, which is what a `where` clause can match."""
     return {f"{METHOD_FLAG_PREFIX}{method}": True for method in methods}
@@ -200,6 +253,7 @@ def build_documents(
                 "has_equations": page.get("has_equations", False),
                 "confidence": 1.0,
                 "ocr": bool(page.get("ocr")),
+                "matter": classify_matter(text),
                 **method_flags(methods),
             },
         })

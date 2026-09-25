@@ -205,3 +205,69 @@ class TestOneDocumentCannotFillTheAnswer:
                                   metadata_filters=filter_for(["agarwal_1980"]))
 
         assert len(hits) == 5
+
+
+class TestRetrievalPrefersTheArgument:
+    """Reference lists and contents pages must not be offered as evidence.
+
+    Reported from the deployed site: the sources panel listed Walton's
+    bibliography and an ordering page. Every chunk now records what kind of
+    text it is, and retrieval asks for the argument by default.
+    """
+
+    def test_every_chunk_says_what_kind_of_text_it_is(self, retriever):
+        """The filter excludes anything without the key, so a store that
+        predates it would return nothing at all."""
+        from src.core.config import load_config
+        from src.retrieval.vectorstore import VectorStoreManager
+
+        config = load_config()
+        store = VectorStoreManager(
+            persist_directory=config.vectorstore.persist_directory,
+            collection_name=config.vectorstore.collection_name,
+            read_only=True)
+        metadatas = store.collection.get(include=["metadatas"])["metadatas"]
+
+        untagged = [m for m in metadatas if not m.get("matter")]
+        assert not untagged, f"{len(untagged)} chunks have no matter"
+
+    def test_a_bibliography_is_no_longer_offered(self, retriever):
+        """The exact chunk from the report: wri99-4225's reference list."""
+        question = "Walton groundwater resource evaluation 1970"
+
+        hits = retriever.retrieve(question, top_k=5, similarity_threshold=0.0)
+
+        assert hits, "the question must still be answered from somewhere"
+        assert all(hit["metadata"]["matter"] == "body" for hit in hits)
+
+    def test_it_can_still_be_reached_deliberately(self, retriever):
+        """Excluded from answers, not deleted: a caller that wants the
+        apparatus can ask for it."""
+        hits = retriever.retrieve("Walton groundwater resource evaluation 1970",
+                                  top_k=5, similarity_threshold=0.0,
+                                  body_only=False)
+
+        assert any(hit["metadata"]["matter"] != "body" for hit in hits)
+
+    def test_it_combines_with_a_method_filter_rather_than_replacing_it(self, retriever):
+        hits = retriever.retrieve(
+            "What are the assumptions of this method?", top_k=5,
+            similarity_threshold=0.0, metadata_filters=filter_for(["theis_1935"]))
+
+        assert hits
+        for hit in hits:
+            assert hit["metadata"]["matter"] == "body"
+            assert "theis_1935" in _tags(hit)
+
+    def test_ordinary_questions_are_unaffected(self, retriever):
+        """The honest measure of this change: of twelve pinned questions, none
+        had apparatus in its top five to begin with. This removes a failure
+        mode rather than improving everyday answers."""
+        question = "What are the assumptions of the Theis method?"
+
+        with_filter = retriever.retrieve(question, top_k=5, similarity_threshold=0.0)
+        without = retriever.retrieve(question, top_k=5, similarity_threshold=0.0,
+                                     body_only=False)
+
+        assert [h["metadata"]["chunk_id"] for h in with_filter] == \
+               [h["metadata"]["chunk_id"] for h in without]

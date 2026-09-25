@@ -440,3 +440,79 @@ class TestValidation:
 
         assert valid == 2
         assert len(errors) == 1 and errors[0].startswith("Chunk 1:")
+
+
+class TestWhatKindOfTextAChunkIs:
+    """A paper is not all argument.
+
+    Its reference list and contents page were chunked and embedded exactly like
+    its derivations, so a question could be answered with a bibliography beside
+    it as evidence — which is what the deployed site did when the daily quota
+    ran out and the sources panel listed Walton's references.
+
+    The separation is sharper than it looks: a bibliography writes
+    "Walton, W.C., 1970, Groundwater resource evaluation", while an argument
+    writes "Neuman (1974) showed". Only the first form is matched.
+    """
+
+    # Verbatim from wri99-4225 page 45 — the chunk that prompted this.
+    BIBLIOGRAPHY = (
+        ". 197-206. Walton, W.C., 1970, Groundwater resource evaluation: New "
+        "York, McGraw-Hill Book Company, 664 p. _____1987, Groundwater pumping "
+        "tests-design and analysis: Chelsea, Mich., Lewis Publishers, 201 p. "
+        "Weeks, E.P., 1977, Aquifer tests-the state of the art in hydrology: "
+        "Proceedings, p. 14."
+    )
+
+    CONTENTS = (
+        "CONTENTS\nAbstract ................... 1\nIntroduction "
+        "............... 3\nMethods .................... 7\n"
+    )
+
+    # Real body text that cites several papers, which must not be caught.
+    ARGUMENT = (
+        "The delayed yield response described by Boulton (1963) and later "
+        "reinterpreted by Neuman (1974) explains the S-shaped time-drawdown "
+        "curve. Moench (1995) combined the two treatments, and the resulting "
+        "model reduces to Theis (1935) at late time when gravity drainage is "
+        "complete. The practical consequence is that an early-time fit "
+        "returns the confined storativity rather than the specific yield."
+    )
+
+    def test_a_reference_list_is_recognised(self):
+        assert corpus.classify_matter(self.BIBLIOGRAPHY) == corpus.REFERENCES
+
+    def test_a_contents_page_is_recognised(self):
+        assert corpus.classify_matter(self.CONTENTS) == corpus.CONTENTS
+
+    def test_an_argument_that_cites_papers_is_left_alone(self):
+        """The test that matters: prose naming five papers is still prose."""
+        assert corpus.classify_matter(self.ARGUMENT) == corpus.BODY
+
+    @pytest.mark.parametrize("text", [
+        "", "   ",
+        "Drawdown is the difference between the static water level and the "
+        "level during pumping, measured in metres.",
+        "See Theis (1935) for the derivation.",
+    ])
+    def test_anything_unrecognised_stays_body(self, text):
+        """Conservative on purpose: wrongly dropping a derivation costs an
+        answer, while wrongly keeping a reference list costs one line."""
+        assert corpus.classify_matter(text) == corpus.BODY
+
+    def test_one_citation_is_not_a_bibliography(self):
+        """A short chunk quoting a single paper must survive."""
+        single = ("The method follows Papadopulos, I.S. and Cooper, H.H., 1967, "
+                  "and applies to large-diameter wells.")
+
+        assert corpus.classify_matter(single) == corpus.BODY
+
+    def test_the_kind_reaches_the_chunk_metadata(self):
+        pages = [{"page": 1, "text": self.BIBLIOGRAPHY * 3, "has_equations": False},
+                 {"page": 2, "text": self.ARGUMENT * 3, "has_equations": False}]
+
+        documents = corpus.build_documents(
+            Path("knowledge source/General/report.pdf"), pages)
+
+        assert documents[0]["metadata"]["matter"] == corpus.REFERENCES
+        assert documents[1]["metadata"]["matter"] == corpus.BODY

@@ -17,6 +17,16 @@ logger = setup_logger(__name__)
 # entirely from one document does not.
 MAX_PER_DOCUMENT = 2
 
+# A paper's reference list and contents page are chunked and embedded like its
+# argument, and compete on equal terms. Asked about the Theis assumptions with
+# the daily quota spent, the site listed Walton's bibliography and an ordering
+# page as its sources. Retrieval asks for the argument by default.
+#
+# `matter` is set at ingestion by `corpus.classify_matter`. A store predating it
+# has no such key and would match nothing — which the empty-result retry below
+# turns into an unfiltered search rather than an empty answer.
+BODY_ONLY = {"matter": "body"}
+
 
 class Retriever:
     """RAG retriever with metadata filtering and re-ranking."""
@@ -48,7 +58,8 @@ class Retriever:
         top_k: Optional[int] = None,
         metadata_filters: Optional[Dict] = None,
         similarity_threshold: Optional[float] = None,
-        max_per_document: int = MAX_PER_DOCUMENT
+        max_per_document: int = MAX_PER_DOCUMENT,
+        body_only: bool = True
     ) -> List[Dict]:
         """
         Retrieve relevant chunks with metadata filtering.
@@ -60,6 +71,8 @@ class Retriever:
             similarity_threshold: Minimum similarity score (0-1)
             max_per_document: Most chunks any one paper may contribute; 0 to
                 allow a single document to fill the answer.
+            body_only: Search the papers' argument, not their reference lists
+                and contents pages. False searches everything.
 
         Returns:
             List of dicts with keys: {content, metadata, score}
@@ -73,6 +86,12 @@ class Retriever:
         top_k = self.config.retrieval.top_k if top_k is None else top_k
         if similarity_threshold is None:
             similarity_threshold = self.config.retrieval.similarity_threshold
+
+        # Ask for the argument, and combine rather than replace: a caller's
+        # own filter still applies.
+        if body_only:
+            metadata_filters = ({"$and": [metadata_filters, BODY_ONLY]}
+                                if metadata_filters else dict(BODY_ONLY))
 
         logger.info(f"Retrieving top-{top_k} documents for query: '{query[:100]}...'")
         if metadata_filters:

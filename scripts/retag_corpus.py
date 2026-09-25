@@ -57,8 +57,10 @@ def main() -> int:
     store = VectorStoreManager(
         persist_directory=config.vectorstore.persist_directory,
         collection_name=config.vectorstore.collection_name)
-    held = store.collection.get(include=["metadatas"])
-    ids, metadatas = held["ids"], held["metadatas"]
+    # The documents come too: what kind of text a chunk is has to be read off
+    # the text itself, not off its metadata.
+    held = store.collection.get(include=["metadatas", "documents"])
+    ids, metadatas, documents = held["ids"], held["metadatas"], held["documents"]
 
     print(f"{len(ids):,} chunks in the store, {len(manifest.papers)} papers in "
           f"the manifest\n")
@@ -66,7 +68,7 @@ def main() -> int:
     changed_ids, changed_metadatas = [], []
     per_paper, unmatched = Counter(), Counter()
 
-    for chunk_id, metadata in zip(ids, metadatas):
+    for chunk_id, metadata, document in zip(ids, metadatas, documents):
         stem = _stem_of(str(metadata.get("doc_id", "")))
         name = by_stem.get(stem)
         if name is None:
@@ -75,6 +77,7 @@ def main() -> int:
 
         methods = list(manifest.papers[name].get("methods", []))
         wanted = {"method": ",".join(methods) if methods else corpus.UNTAGGED,
+                  "matter": corpus.classify_matter(document or ""),
                   **corpus.method_flags(methods)}
 
         # Flags this chunk carries that the manifest no longer gives it. Setting
@@ -100,6 +103,9 @@ def main() -> int:
         print("Every chunk already matches the manifest.")
         return 0
 
+    kinds = Counter(metadata.get("matter") for metadata in changed_metadatas)
+    print(f"What kind of text each changed chunk is: "
+          f"{', '.join(f'{kind} {count}' for kind, count in kinds.most_common())}")
     print(f"{len(changed_ids):,} chunks would change, across {len(per_paper)} paper(s):")
     for name, count in per_paper.most_common():
         print(f"  {count:5d}  {name[:56]} -> "
