@@ -9,7 +9,10 @@ import { ActionIcon, Badge, Card, Stack, Table, Text, Title, Tooltip } from '@ma
 import { IconTrash } from '@tabler/icons-react'
 
 import type { ComparisonRow } from '../api/client'
-import { useComparison, useProject, useRemoveAnalysis } from '../hooks'
+import { MethodCard } from '../components/MethodCard'
+import { useAllMethods, useComparison, useProject, useRemoveAnalysis } from '../hooks'
+import { useUnits } from '../UnitsContext'
+import { NUMERIC_STYLE, formatNumber, formatQuantity, transmissivity } from '../units'
 
 const EVIDENCE_COLOR: Record<string, string> = {
   best: 'teal',
@@ -25,11 +28,18 @@ function fixed(value: number | null | undefined, digits: number): string {
 export function ComparePanel() {
   const project = useProject()
   const testId = project.data?.active_test_id
-  const testName = project.data?.tests.find((t) => t.id === testId)?.name
+  const activeTest = project.data?.tests.find((t) => t.id === testId)
+  const testName = activeTest?.name
   const comparison = useComparison(testId)
   const remove = useRemoveAnalysis(testId)
 
+  const { system } = useUnits()
+  const everyMethod = useAllMethods(activeTest?.setup?.test_type ?? 'constant_rate')
+
   const rows: ComparisonRow[] = comparison.data?.rows ?? []
+  const best = rows.find((row) => row.rank === 1)
+  const bestMethod = (everyMethod.data?.offered ?? [])
+    .find((candidate) => candidate.label === best?.method)
   const stale = comparison.data?.n_stale ?? 0
   if (rows.length === 0 && stale === 0) return null
 
@@ -38,6 +48,26 @@ export function ComparePanel() {
       <Stack gap="sm">
         <Title order={5}>Compare saved analyses — {testName}</Title>
 
+        {/* The winner as a card, which is how the choice is made; the table
+            below is how the numbers are actually compared, and a table is the
+            right instrument for that. */}
+        {best && bestMethod && (
+          <MethodCard
+            method={bestMethod}
+            result={{
+              rank: 1,
+              transmissivity: formatQuantity(
+                transmissivity(best.T_m2_per_day ?? 0, system)),
+              storativity: best.S === null || best.S === undefined
+                ? undefined : best.S.toExponential(2),
+              rSquared: best.r_squared ?? undefined,
+              deltaAicc: best.delta_aicc,
+              weight: best.akaike_weight,
+              evidence: best.evidence ?? undefined,
+            }}
+          />
+        )}
+
         {rows.length > 0 && (
           <Table striped withTableBorder fz="sm">
             <Table.Thead>
@@ -45,7 +75,7 @@ export function ComparePanel() {
                 <Table.Th>Rank</Table.Th>
                 <Table.Th>Method</Table.Th>
                 <Table.Th>Parameters</Table.Th>
-                <Table.Th>T (m²/day)</Table.Th>
+                <Table.Th>T ({transmissivity(0, system).unit})</Table.Th>
                 <Table.Th>S</Table.Th>
                 <Table.Th>R²</Table.Th>
                 <Table.Th>AICc</Table.Th>
@@ -61,7 +91,9 @@ export function ComparePanel() {
                   <Table.Td>{row.rank}</Table.Td>
                   <Table.Td>{row.method}</Table.Td>
                   <Table.Td>{row.n_params ?? '—'}</Table.Td>
-                  <Table.Td>{fixed(row.T_m2_per_day, 2)}</Table.Td>
+                  <Table.Td style={NUMERIC_STYLE}>
+                    {formatNumber(transmissivity(row.T_m2_per_day ?? 0, system).value)}
+                  </Table.Td>
                   <Table.Td>
                     {row.S === null || row.S === undefined ? '—' : row.S.toExponential(2)}
                   </Table.Td>

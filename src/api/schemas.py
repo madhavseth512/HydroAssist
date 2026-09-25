@@ -13,7 +13,7 @@ Two conventions:
     draws.
 """
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -84,6 +84,9 @@ class MethodModel(BaseModel):
     requires: List[str]
     ui_help: str
     selection_rationale: str
+    # What the method takes for granted. A card that lists only what a method
+    # does, and never what it assumes, is selling rather than informing.
+    assumptions: List[str] = Field(default_factory=list)
     needs_well_geometry: bool
     estimates_storativity: bool
 
@@ -99,6 +102,7 @@ class MethodModel(BaseModel):
             requires=list(spec.requires),
             ui_help=spec.ui_help,
             selection_rationale=spec.selection_rationale,
+            assumptions=list(spec.assumptions),
             needs_well_geometry=spec.data_source == registry.PUMPED_WELL,
             estimates_storativity="S" in spec.parameters,
         )
@@ -110,6 +114,11 @@ class MethodListModel(BaseModel):
     gated_out: List[str] = Field(
         default_factory=list,
         description="Methods the validator does not offer for this dataset")
+    gated_reasons: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Why each excluded method was excluded. A greyed name "
+                    "teaches nothing; the reason is what a practitioner learns "
+                    "from.")
     help: str = ""
     default_index: int = 0
 

@@ -24,6 +24,11 @@ const PC = method({
   ui_help: 'Large-diameter well with wellbore storage.',
 })
 
+const CJ = method({
+  id: 'cooper_jacob_1946', label: 'Cooper-Jacob (1946)',
+  ui_help: 'Late-time semi-log straight line.',
+})
+
 const TEST_TYPES = [
   { id: 'constant_rate', label: 'Constant-rate pumping' },
   { id: 'recovery', label: 'Recovery (after the pump stops)' },
@@ -47,7 +52,8 @@ describe('the setup step', () => {
     renderWithProviders(<SetupPanel />)
 
     expect(await screen.findByText('Full-curve type-curve fit.')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('Theis (1935)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Theis \(1935\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Papadopulos-Cooper/ })).toBeInTheDocument()
   })
 
   it('preselects the method the conversation settled on', async () => {
@@ -59,7 +65,11 @@ describe('the setup step', () => {
 
     renderWithProviders(<SetupPanel />)
 
-    expect(await screen.findByDisplayValue('Papadopulos-Cooper (1967)')).toBeInTheDocument()
+    // The card the conversation settled on is the selected one, and the panel
+    // shows what that method needs — the well radii, here.
+    expect(await screen.findByText(/fitted to readings from the pumped well/))
+      .toBeInTheDocument()
+    expect(screen.getByLabelText(/Well screen radius/)).toBeInTheDocument()
   })
 
   it('asks for the well radii only for a pumped-well method', async () => {
@@ -109,16 +119,27 @@ describe('the setup step', () => {
 
   it('lists methods the validator did not offer', async () => {
     stubFetch([
-      { url: '/api/methods', body: methodList([method()],
-        { gated_out: ['Cooper-Jacob (1946)'] }) },
+      { url: 'filtered=false', body: methodList([method(), CJ]) },
+      { url: '/api/methods', body: methodList([method()], {
+        gated_out: ['Cooper-Jacob (1946)'],
+        gated_reasons: {
+          'Cooper-Jacob (1946)':
+            'Cooper-Jacob (1946) may not be valid: u < 0.05 is not reached '
+            + 'within the test duration.',
+        },
+      }) },
       { url: '/api/test-types', body: TEST_TYPES },
       { url: '/api/project', body: WITH_READINGS },
     ])
 
     renderWithProviders(<SetupPanel />)
 
-    expect(await screen.findByText(/Not offered for this dataset: Cooper-Jacob/))
-      .toBeInTheDocument()
+    // Shown as a card, greyed, carrying the reason — which is the part a
+    // practitioner learns from. A name alone teaches nothing.
+    const card = await screen.findByRole('button',
+                                         { name: /Cooper-Jacob \(1946\).*not available/ })
+    expect(card).toBeInTheDocument()
+    expect(screen.getByText(/u < 0.05 is not reached/)).toBeInTheDocument()
   })
 
   it('runs the chosen method with the setup on screen', async () => {
@@ -130,7 +151,7 @@ describe('the setup step', () => {
     ])
 
     renderWithProviders(<SetupPanel />)
-    await screen.findByDisplayValue('Theis (1935)')
+    await screen.findByRole('button', { name: /^Theis \(1935\)/ })
 
     fireEvent.change(screen.getByLabelText('Observation well distance r (m)'),
                      { target: { value: '42' } })

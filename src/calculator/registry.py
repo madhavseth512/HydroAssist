@@ -139,6 +139,12 @@ class MethodSpec:
     ui_help: str = ""
     selection_rationale: str = ""
 
+    # What the method takes for granted, in the paper's own terms. Shown on the
+    # method card, because a practitioner chooses by what they can live with
+    # rather than by what fits best -- and because a card that only sells is
+    # not a scientific instrument.
+    assumptions: tuple = ()
+
     def supports_aquifer(self, aquifer: str) -> bool:
         return aquifer in self.aquifer_types
 
@@ -290,6 +296,14 @@ _SPECS = (
             "Theis (1935) is the general full-curve method for a confined aquifer "
             "and uses every data point, so it is the safe default."
         ),
+        assumptions=(
+            "Confined aquifer of infinite lateral extent",
+            "Homogeneous, isotropic, of uniform thickness",
+            "Fully penetrating well; flow is horizontal",
+            "Water is released from storage instantaneously with the head decline",
+            "Well of infinitesimal diameter, so wellbore storage is negligible",
+            "Constant pumping rate throughout the test",
+        ),
     ),
     MethodSpec(
         id="theis_recovery_1935",
@@ -318,6 +332,12 @@ _SPECS = (
             "the pump is switched off (equation 7). It gives T free of pump-rate "
             "fluctuations, but storativity only as the ratio S/S′."
         ),
+        assumptions=(
+            "Every Theis assumption, applied to the recovery phase",
+            "The pumping rate was constant before shut-down, and the duration is known",
+            "Recovery is measured from the same well as the drawdown",
+            "Storativity during recovery equals that during pumping (S' = S)",
+        ),
     ),
     MethodSpec(
         id="cooper_jacob_1946",
@@ -342,6 +362,11 @@ _SPECS = (
         selection_rationale=(
             "Cooper-Jacob (1946) fits a line to s vs log t where u < 0.02 "
             "(paper p. 3); early-time points are excluded automatically."
+        ),
+        assumptions=(
+            "Every Theis assumption",
+            "u = r²S/4Tt is small, conventionally below 0.02, so early data are excluded",
+            "Drawdown plots as a straight line against log time over the fitted range",
         ),
     ),
     MethodSpec(
@@ -369,6 +394,12 @@ _SPECS = (
             "large-diameter well, which Theis assumption (5) — a well of "
             "infinitesimal diameter — does not."
         ),
+        assumptions=(
+            "Confined aquifer, as Theis",
+            "The pumped well has a finite diameter and stores water in its casing",
+            "Drawdown is measured in the pumped well itself",
+            "No well loss: the measured drawdown is aquifer drawdown, not turbulent head loss",
+        ),
     ),
     MethodSpec(
         id="hantush_jacob_1955",
@@ -393,6 +424,13 @@ _SPECS = (
             "Hantush-Jacob (1955) accounts for vertical leakage through a "
             "confining layer, which makes drawdown level off at late time "
             "instead of growing indefinitely as Theis predicts."
+        ),
+        assumptions=(
+            "Leaky confined aquifer with a saturated aquitard above",
+            "Leakage through the aquitard is vertical and proportional to the head difference",
+            "The aquitard releases no water from its own storage",
+            "Head in the source bed above the aquitard stays constant",
+            "Otherwise as Theis: infinite extent, full penetration, constant rate",
         ),
     ),
     MethodSpec(
@@ -421,6 +459,12 @@ _SPECS = (
             "unconfined time-drawdown curve flatten in the middle before "
             "resuming a Theis slope with the specific yield."
         ),
+        assumptions=(
+            "Unconfined aquifer with delayed yield from gravity drainage",
+            "Drainage from the water table is exponential, governed by an empirical delay index",
+            "The aquifer is homogeneous and the well fully penetrates it",
+            "Drawdown is small relative to the saturated thickness",
+        ),
     ),
     MethodSpec(
         id="warren_root_1963",
@@ -447,6 +491,12 @@ _SPECS = (
             "Warren-Root (1963) models a fractured aquifer as a fracture network "
             "fed by rock matrix blocks, producing the characteristic dip and "
             "recovery in the derivative that single-porosity models cannot."
+        ),
+        assumptions=(
+            "Double-porosity medium: fractures conduct, matrix blocks store",
+            "Flow to the well is through the fracture network only",
+            "Exchange between matrix and fractures is pseudo-steady",
+            "The fracture system is homogeneous at the scale of the test",
         ),
     ),
 )

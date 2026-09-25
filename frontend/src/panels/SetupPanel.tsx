@@ -25,8 +25,11 @@ import {
 import { IconPlayerPlay } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
-import type { Setup, Test } from '../api/client'
-import { useMethods, useProject, useRunAnalysis, useTestTypes } from '../hooks'
+import type { Method, Setup, Test } from '../api/client'
+import { MethodCard } from '../components/MethodCard'
+import {
+  useAllMethods, useMethods, useProject, useRunAnalysis, useTestTypes,
+} from '../hooks'
 import { Q_TO_SI, Q_UNITS, RECOVERY_CLOCKS } from '../setupOptions'
 
 const RECOVERY = 'recovery'
@@ -53,6 +56,7 @@ export function SetupPanel() {
   const testType = setup?.test_type ?? 'constant_rate'
   const testTypes = useTestTypes()
   const methods = useMethods(testType)
+  const everyMethod = useAllMethods(testType)
   const run = useRunAnalysis()
 
   const offered = methods.data?.offered ?? []
@@ -79,6 +83,8 @@ export function SetupPanel() {
   const update = (changes: Partial<Setup>) => setSetup({ ...setup, ...changes })
   const hasReadings = Boolean(activeTest?.n_readings)
   const gatedOut = methods.data?.gated_out ?? []
+  const gatedReasons = methods.data?.gated_reasons ?? {}
+  const allMethods = everyMethod.data?.offered ?? []
 
   return (
     <Card withBorder padding="md">
@@ -118,17 +124,26 @@ export function SetupPanel() {
             onChange={(value) => update({ r_m: asNumber(value) ?? undefined })}
           />
 
-          <Select
-            label="Analysis method"
-            data={offered.map((m) => ({ value: m.id, label: m.label }))}
-            value={methodId}
-            onChange={setMethodId}
-            allowDeselect={false}
-            disabled={offered.length === 0}
-          />
         </SimpleGrid>
 
-        {method?.ui_help && <Text size="xs" c="dimmed">{method.ui_help}</Text>}
+        <Text size="sm" fw={500}>Analysis method</Text>
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
+          {offered.map((candidate) => (
+            <MethodCard key={candidate.id} method={candidate}
+                        selected={candidate.id === methodId}
+                        onSelect={setMethodId} />
+          ))}
+          {/* Shown, not hidden: the reason a method does not apply to this
+              data set is the part a practitioner learns from. */}
+          {gatedOut.map((label) => {
+            const excluded = allMethods.find((m: Method) => m.label === label)
+            return excluded ? (
+              <MethodCard key={label} method={excluded}
+                          unavailableBecause={gatedReasons[label] ??
+                            'Not offered for this dataset.'} />
+            ) : null
+          })}
+        </SimpleGrid>
         {/* The rate the calculators receive, so a unit mix-up is visible here
             rather than as an implausible transmissivity later. */}
         <Text size="xs" c="dimmed">
@@ -136,12 +151,7 @@ export function SetupPanel() {
                 * (Q_TO_SI[(setup.q_unit ?? 'm³/day') as keyof typeof Q_TO_SI] ?? 0))
                 .toExponential(4)} m³/s
         </Text>
-        {gatedOut.length > 0 && (
-          <Text size="xs" c="dimmed">
-            Not offered for this dataset: {gatedOut.join(', ')} — see the data
-            notes in Step 1.
-          </Text>
-        )}
+
 
         {method?.needs_well_geometry && (
           <>

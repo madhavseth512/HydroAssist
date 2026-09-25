@@ -775,6 +775,13 @@ export interface components {
              */
             gated_out?: string[];
             /**
+             * Gated Reasons
+             * @description Why each excluded method was excluded. A greyed name teaches nothing; the reason is what a practitioner learns from.
+             */
+            gated_reasons?: {
+                [key: string]: string;
+            };
+            /**
              * Help
              * @default
              */
@@ -814,6 +821,8 @@ export interface components {
             ui_help: string;
             /** Selection Rationale */
             selection_rationale: string;
+            /** Assumptions */
+            assumptions?: string[];
             /** Needs Well Geometry */
             needs_well_geometry: boolean;
             /** Estimates Storativity */

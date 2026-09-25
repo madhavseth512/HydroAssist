@@ -242,6 +242,7 @@ def method_list(validation, test_type: str,
         test_type=test_type,
         offered=[schemas.MethodModel.from_spec(spec) for spec in specs],
         gated_out=gated,
+        gated_reasons=analysis_service.gating_reasons(validation, gated),
         help=analysis_service.method_help(offered),
         default_index=analysis_service.default_method_index(offered, suggested),
     )

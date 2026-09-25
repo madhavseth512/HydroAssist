@@ -116,6 +116,39 @@ def method_options(validation, test_type: str = registry.CONSTANT_RATE) -> tuple
     return suitable, gated_out
 
 
+def gating_reasons(validation, gated_out: Sequence[str]) -> dict:
+    """Why each excluded method was excluded, as far as the validator says.
+
+    The exclusions are the part that teaches: "not applicable because you gave
+    no casing radius" tells a practitioner something about the method, while a
+    greyed name tells them nothing. The validator records its reasoning as
+    prose in `info` and `warnings` without attaching it to a method, so the
+    sentence mentioning a method is matched back to it here.
+
+    A method with nothing said about it gets a general sentence rather than a
+    guess. Inventing a specific reason would be worse than admitting none.
+    """
+    if not gated_out:
+        return {}
+
+    said = list(getattr(validation, "info", []) or []) +         list(getattr(validation, "warnings", []) or [])
+
+    reasons = {}
+    for label in gated_out:
+        spec = registry.get(label)
+        names = {label, label.split(" (")[0]}
+        if spec:
+            names.update(spec.aliases)
+
+        explanation = next(
+            (sentence for sentence in said
+             if any(name.lower() in sentence.lower() for name in names)), None)
+        reasons[label] = explanation or (
+            "This data set does not meet what the method needs — see the data "
+            "notes in Step 1.")
+    return reasons
+
+
 def method_help(options: Sequence[str]) -> str:
     """Explanations assembled from the registry, so a new method arrives with
     its own rather than silently having none."""

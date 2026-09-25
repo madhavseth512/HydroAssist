@@ -319,3 +319,76 @@ class TestDataIntake:
         assert data_intake.store_readings(test, theis_df, "a.csv") is False
         assert data_intake.store_readings(test, theis_df.iloc[::2], "b.csv") is True
         assert len(test.readings) == len(theis_df.iloc[::2])
+
+
+class TestWhyAMethodIsNotOffered:
+    """A greyed name teaches nothing. The reason is the part a practitioner
+    learns from, and until now it existed only as loose prose in the
+    validator's `info` list, attached to no method at all.
+    """
+
+    class _Validation:
+        suitable_methods = ["Theis (1935)"]
+        info = ["Cooper-Jacob (1946) may not be valid: u < 0.05 is not reached "
+                "within the test duration."]
+        warnings = ["Papadopulos-Cooper (1967) needs the casing radius r_c."]
+
+    def test_each_excluded_method_gets_a_reason(self):
+        _, gated = analysis.method_options(self._Validation())
+        reasons = analysis.gating_reasons(self._Validation(), gated)
+
+        assert set(reasons) == set(gated)
+
+    def test_the_validators_own_sentence_is_matched_to_its_method(self):
+        _, gated = analysis.method_options(self._Validation())
+        reasons = analysis.gating_reasons(self._Validation(), gated)
+
+        assert "u < 0.05" in reasons["Cooper-Jacob (1946)"]
+        assert "casing radius" in reasons["Papadopulos-Cooper (1967)"]
+
+    def test_a_method_with_nothing_said_about_it_gets_a_general_reason(self):
+        """Inventing a specific reason would be worse than admitting none."""
+        _, gated = analysis.method_options(self._Validation())
+        reasons = analysis.gating_reasons(self._Validation(), gated)
+
+        assert "does not meet what the method needs" in reasons["Boulton (1963)"]
+
+    def test_nothing_excluded_means_nothing_to_explain(self):
+        assert analysis.gating_reasons(self._Validation(), []) == {}
+
+    def test_a_validator_that_said_nothing_at_all_is_survivable(self):
+        class Silent:
+            suitable_methods = ["Theis (1935)"]
+
+        reasons = analysis.gating_reasons(Silent(), ["Cooper-Jacob (1946)"])
+        assert reasons["Cooper-Jacob (1946)"]
+
+
+class TestEveryMethodDeclaresItsAssumptions:
+    """The cards show what a method takes for granted, because a practitioner
+    chooses by what they can live with rather than by what fits best."""
+
+    @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.id)
+    def test_it_has_some(self, spec):
+        assert spec.assumptions, f"{spec.label} declares no assumptions"
+
+    @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.id)
+    def test_they_read_as_sentences_not_keywords(self, spec):
+        """A card listing "confined" and "isotropic" tells a reader nothing they
+        did not already assume. Sentences do.
+
+        A sentence may open with a symbol — Cooper-Jacob's begins "u = r2S/4Tt
+        is small" — which must stay lower case.
+        """
+        symbols = set("urstQTS")
+
+        for assumption in spec.assumptions:
+            assert len(assumption) > 20, f"{spec.label}: {assumption!r}"
+            assert assumption[0].isupper() or assumption[0] in symbols,                 f"{spec.label}: {assumption!r}"
+
+    def test_the_approximations_name_what_they_approximate(self):
+        """Cooper-Jacob and recovery are Theis with conditions attached, and
+        their cards should say so rather than implying independence."""
+        for method_id in ("cooper_jacob_1946", "theis_recovery_1935"):
+            text = " ".join(registry.require(method_id).assumptions)
+            assert "Theis" in text

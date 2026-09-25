@@ -2070,6 +2070,14 @@
             "title": "Gated Out",
             "description": "Methods the validator does not offer for this dataset"
           },
+          "gated_reasons": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Gated Reasons",
+            "description": "Why each excluded method was excluded. A greyed name teaches nothing; the reason is what a practitioner learns from."
+          },
           "help": {
             "type": "string",
             "title": "Help",
@@ -2152,6 +2160,13 @@
           "selection_rationale": {
             "type": "string",
             "title": "Selection Rationale"
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions"
           },
           "needs_well_geometry": {
             "type": "boolean",

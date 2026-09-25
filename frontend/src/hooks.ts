@@ -58,6 +58,16 @@ export function useMethods(testType: string) {
   })
 }
 
+/** Every method for the test type, gating ignored — what the cards need to be
+ * able to show an excluded method at all. */
+export function useAllMethods(testType: string) {
+  return useQuery({
+    queryKey: [...keys.methods(testType), 'all'],
+    queryFn: () => api.methods(testType, false),
+    staleTime: Infinity,
+  })
+}
+
 /** The readings a test already holds. Absent is a normal state, not an error. */
 export function useReadings(testId: string | undefined, enabled = true) {
   return useQuery({

@@ -114,8 +114,11 @@ export const api = {
   // ── Session and catalogue ────────────────────────────────────────────────
   session: () => request<Session>('/api/session'),
   testTypes: () => request<TestType[]>('/api/test-types'),
-  methods: (testType: string) =>
-    request<MethodList>(`/api/methods?test_type=${encodeURIComponent(testType)}`),
+  // `filtered=false` returns every method for the test type, including those
+  // this dataset cannot support — the cards show those greyed, with the reason.
+  methods: (testType: string, filtered = true) =>
+    request<MethodList>(`/api/methods?test_type=${encodeURIComponent(testType)}`
+                        + `&filtered=${filtered}`),
 
   // ── Project ──────────────────────────────────────────────────────────────
   project: () => request<Project>('/api/project'),
