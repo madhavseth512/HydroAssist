@@ -30,9 +30,14 @@ class _ScriptedLLM:
         self.responses = list(responses)
         self.prompts = []
         self._i = 0
+        # Set to an exception to make every call fail, which is how a spent
+        # quota or an unreachable model behaves.
+        self.fail_with = None
 
     def invoke(self, prompt):
         self.prompts.append(prompt)
+        if self.fail_with is not None:
+            raise self.fail_with
         if self._i < len(self.responses):
             body = self.responses[self._i]
             self._i += 1
@@ -437,3 +442,58 @@ class TestDescribingATestWithoutNamingIt:
         chat.send_message("Later the pump stopped and levels recovered.")
 
         assert chat.state["selected_method"] == THEIS
+
+
+class TestWhenTheModelIsUnavailable:
+    """A spent quota must not cost the user the method suggestion too.
+
+    Nothing in the suggestion uses the language model: it is keyword rules on
+    the message, and the Bourdet derivative on any staged readings. But a failed
+    classification used to return before the suggestion was built, so when the
+    daily allowance ran out the user lost both the answer and the guidance —
+    while the calculators, which the failure message promises are unaffected,
+    sat waiting on the wrong method.
+
+    On a free Gemini key this is the ordinary case, not an edge one: the
+    allowance is 20 requests a day and each question costs two.
+    """
+
+    def _quota_error(self):
+        return Exception(
+            "Error calling model 'gemini-2.5-flash' (RESOURCE_EXHAUSTED): 429 "
+            "Quota exceeded... limit: 20")
+
+    def test_a_recovery_test_still_raises_its_card(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.fail_with = self._quota_error()
+
+        chat.send_message(
+            "The pump stopped after 24 hours and I kept reading water levels "
+            "as they came back up.")
+
+        assert chat.state["method_suggestion"]["method"] == "Theis Recovery (1935)"
+
+    def test_the_intent_falls_back_to_consultation(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.fail_with = self._quota_error()
+
+        chat.send_message("What are the assumptions of Theis?")
+
+        assert chat.state["user_intent"] == "consultation"
+
+    def test_a_named_method_is_still_picked_up(self, wired):
+        """"Use Cooper-Jacob on this" must still preselect Cooper-Jacob."""
+        chat, manager_llm, _, _ = wired
+        manager_llm.fail_with = self._quota_error()
+
+        chat.send_message("I want to use the Cooper-Jacob method on my data.")
+
+        assert chat.state["method_suggestion"]["method"] == "Cooper-Jacob (1946)"
+
+    def test_a_theory_question_still_raises_nothing(self, wired):
+        chat, manager_llm, _, _ = wired
+        manager_llm.fail_with = self._quota_error()
+
+        chat.send_message("What is transmissivity?")
+
+        assert not chat.state.get("method_suggestion")

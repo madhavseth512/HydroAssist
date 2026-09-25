@@ -6,6 +6,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.base import BaseAgent
+from src.calculator import registry
 from src.core.state import AgentState
 from src.core.config import AppConfig
 from src.agents.method_selection import (
@@ -109,6 +110,18 @@ class ManagerAgent(BaseAgent):
             self.logger.error(f"Classification failed: {e}")
             # Default to consultation on error
             state["user_intent"] = "consultation"
+
+            # Still offer a method. Nothing in the suggestion needs the model —
+            # it is keyword rules on the message and the Bourdet derivative on
+            # any staged readings — so a failed classification is no reason to
+            # withhold it. This is the ordinary case on a free key, where the
+            # daily allowance runs out while the calculators carry on working;
+            # losing the suggestion too would strand the user twice over.
+            try:
+                self._update_method_suggestion(state, user_message)
+            except Exception as suggestion_error:          # never mask the first
+                self.logger.error(f"Suggestion also failed: {suggestion_error}")
+
             return state
 
     def _update_method_suggestion(self, state: AgentState, user_message: str):
@@ -140,6 +153,13 @@ class ManagerAgent(BaseAgent):
             # it confidently — but the gate used to return first, so no card
             # appeared and the workspace stayed on the wrong method.
             or describes_recovery(user_message)
+            # The method named in the sentence, read by the registry's own
+            # aliases rather than by the model. `method` above is the
+            # classifier's extraction, so without this a message saying
+            # "use Cooper-Jacob" raised nothing whenever the model was
+            # unavailable — which on a free key is whenever the day's
+            # allowance is gone.
+            or bool(registry.canonical_id(user_message))
             # Uploaded readings can drive the suggestion on their own, through
             # the Bourdet derivative, without a word being typed.
             or bool(staged.get("drawdown_m"))
