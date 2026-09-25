@@ -12,29 +12,28 @@ import {
   Button,
   Collapse,
   Divider,
-  FileButton,
   Group,
   Loader,
-  Select,
   Stack,
   Text,
   TextInput,
   Textarea,
   Title,
   Tooltip,
+  UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconChevronDown, IconChevronRight, IconPlus } from '@tabler/icons-react'
+import {
+  IconChevronDown, IconChevronRight, IconFlask, IconPlus,
+} from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
-import { api, type ProjectInfo, type Test } from '../api/client'
+import { type ProjectInfo, type Test } from '../api/client'
 import {
-  reportError,
   useActivateTest,
   useAddTest,
   useNewProject,
-  useOpenProject,
   useProject,
   useUpdateInfo,
   useUpdateTest,
@@ -42,7 +41,6 @@ import {
 
 export function ProjectSidebar() {
   const project = useProject()
-  const openProject = useOpenProject()
   const newProject = useNewProject()
   const addTest = useAddTest()
   const activateTest = useActivateTest()
@@ -63,50 +61,57 @@ export function ProjectSidebar() {
         <Text size="xs" c="dimmed">{summary}</Text>
       </div>
 
-      <Group gap="xs" grow>
-        <FileButton
-          accept="application/json,.json"
-          onChange={(file) => file && openProject.mutate(file)}
-        >
-          {(props) => (
-            <Button {...props} variant="light" size="xs"
-                    loading={openProject.isPending}>
-              Open
-            </Button>
-          )}
-        </FileButton>
-        <Tooltip label="Download the project as a file you can reopen later">
-          <Button
-            variant="light"
-            size="xs"
-            onClick={() => api.saveProject().catch((e) => reportError(e))}
-          >
-            Save
-          </Button>
-        </Tooltip>
-      </Group>
-
+      {/* Open, Save and New live in the File menu and the toolbar. They were
+          here as well, which made "Save" ambiguous on the page and left two
+          places to change when the behaviour changes. */}
       <Divider label="Tests" labelPosition="center" />
 
-      <Group gap="xs" align="flex-end" wrap="nowrap">
-        <Select
-          label="Active test"
-          data={tests.map((test) => ({ value: test.id, label: test.name }))}
-          value={active_test_id}
-          onChange={(value) => value && value !== active_test_id
-            && activateTest.mutate(value)}
-          allowDeselect={false}
-          size="xs"
-          style={{ flex: 1 }}
-        />
+      <Group gap="xs" justify="space-between" wrap="nowrap">
+        <Text size="xs" c="dimmed">
+          {tests.length} test{tests.length === 1 ? '' : 's'}
+        </Text>
         <Tooltip label="Add a test">
-          <ActionIcon variant="light" size="lg" aria-label="Add test"
+          <ActionIcon variant="light" size="sm" aria-label="Add test"
                       loading={addTest.isPending}
                       onClick={() => addTest.mutate(undefined)}>
-            <IconPlus size={16} />
+            <IconPlus size={14} />
           </ActionIcon>
         </Tooltip>
       </Group>
+
+      <Stack gap={2} role="tree" aria-label="Tests">
+        {tests.map((test) => {
+          const open = test.id === active_test_id
+          return (
+            <UnstyledButton
+              key={test.id}
+              role="treeitem"
+              aria-selected={open}
+              aria-label={`${test.name}${open ? ' (open)' : ''}`}
+              onClick={() => !open && activateTest.mutate(test.id)}
+              p={6}
+              style={{
+                borderRadius: 4,
+                background: open ? 'var(--mantine-color-blue-light)' : undefined,
+              }}
+            >
+              <Group gap={6} wrap="nowrap">
+                <IconFlask size={14} />
+                <Text size="sm" fw={open ? 600 : 400} style={{ flex: 1 }}>
+                  {test.name}
+                </Text>
+              </Group>
+              {/* What the test holds, which is what a tree is for: the shape of
+                  the work, visible without opening each one. */}
+              <Text size="xs" c="dimmed" pl={20}>
+                {test.n_readings ? `${test.n_readings} readings` : 'no readings'}
+                {test.n_analyses ? ` · ${test.n_analyses} saved` : ''}
+                {test.n_stale_analyses ? ` · ${test.n_stale_analyses} stale` : ''}
+              </Text>
+            </UnstyledButton>
+          )
+        })}
+      </Stack>
 
       {activeTest && (
         <Group gap="xs">

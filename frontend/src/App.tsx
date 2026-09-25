@@ -10,6 +10,7 @@ import {
   Title,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
+import { useRef } from 'react'
 import { IconMessageCircle } from '@tabler/icons-react'
 
 import { ChatDrawer } from './panels/ChatDrawer'
@@ -18,7 +19,11 @@ import { DataPanel } from './panels/DataPanel'
 import { ResultsPanel } from './panels/ResultsPanel'
 import { SetupPanel } from './panels/SetupPanel'
 import { ProjectSidebar } from './panels/ProjectSidebar'
-import { useSession } from './hooks'
+import { api } from './api/client'
+import { Toolbar } from './components/Toolbar'
+import {
+  useCurrentResult, useNewProject, useOpenProject, useSession,
+} from './hooks'
 import { useUnits } from './UnitsContext'
 import { UNIT_SYSTEMS } from './units'
 
@@ -34,6 +39,13 @@ export function App() {
   const [navOpen, nav] = useDisclosure()
   const [chatOpen, chat] = useDisclosure(false)
   const units = useUnits()
+  const openProject = useOpenProject()
+  const newProject = useNewProject()
+  const result = useCurrentResult(ready)
+
+  // Opening a project is a file the user picks; the hidden input is what the
+  // File menu and the toolbar both drive.
+  const fileInput = useRef<HTMLInputElement>(null)
 
   /** Take the user where the assistant offered to take them, once they ask. */
   const goTo = (panel: string) => {
@@ -60,10 +72,24 @@ export function App() {
           <Group gap="xs" wrap="nowrap">
             <Burger opened={navOpen} onClick={nav.toggle} hiddenFrom="sm" size="sm" />
             <Text size="xl">💧</Text>
-            <Title order={4}>HydroAssist</Title>
-            <Text size="sm" c="dimmed" visibleFrom="md">
-              Pumping test analysis that explains itself
-            </Text>
+            <Title order={4} visibleFrom="sm">HydroAssist</Title>
+            {ready && (
+              <Toolbar
+                chatOpen={chatOpen}
+                hasResult={Boolean(result.data?.success)}
+                onNewProject={() => {
+                  if (window.confirm('Discard the open project? Anything not '
+                                     + 'saved to a file is lost.')) {
+                    newProject.mutate(undefined)
+                  }
+                }}
+                onOpenProject={() => fileInput.current?.click()}
+                onSaveProject={() => api.saveProject().catch(() => undefined)}
+                onDownloadReport={() => api.report().catch(() => undefined)}
+                onGoTo={goTo}
+                onToggleChat={chat.toggle}
+              />
+            )}
           </Group>
           <Group gap="xs" wrap="nowrap">
             {/* Which units results are shown in. The literature a user checks
@@ -116,6 +142,15 @@ export function App() {
           </Stack>
         )}
       </AppShell.Main>
+
+      {/* Driven by the File menu and the toolbar; never shown. */}
+      <input ref={fileInput} type="file" accept=".hydro,application/json"
+             style={{ display: 'none' }} aria-hidden="true" tabIndex={-1}
+             onChange={(event) => {
+               const file = event.currentTarget.files?.[0]
+               if (file) openProject.mutate(file)
+               event.currentTarget.value = ''
+             }} />
 
       <AppShell.Aside p="md">
         {ready && <ChatDrawer onGoTo={goTo} />}

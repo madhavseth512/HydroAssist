@@ -68,6 +68,17 @@ export function useAllMethods(testType: string) {
   })
 }
 
+/** The test every panel is showing.
+ *
+ * Four panels derived this independently from `useProject()`, which is four
+ * chances for them to disagree about which test is on screen.
+ */
+export function useActiveTest() {
+  const project = useProject()
+  return project.data?.tests.find(
+    (test) => test.id === project.data?.active_test_id)
+}
+
 /** The readings a test already holds. Absent is a normal state, not an error. */
 export function useReadings(testId: string | undefined, enabled = true) {
   return useQuery({
@@ -78,11 +89,15 @@ export function useReadings(testId: string | undefined, enabled = true) {
   })
 }
 
-export function useCurrentResult() {
+export function useCurrentResult(enabled = true) {
   return useQuery({
     queryKey: keys.result,
     queryFn: api.currentResult,
     retry: false,
+    // The shell asks for this to decide whether the report button is usable,
+    // and it must not ask before the session cookie exists: a cookie-less
+    // request mints a second session, which is the race App.test.tsx pins.
+    enabled,
   })
 }
 

@@ -28,7 +28,7 @@ import { useEffect, useState } from 'react'
 import type { Method, Setup, Test } from '../api/client'
 import { MethodCard } from '../components/MethodCard'
 import {
-  useAllMethods, useMethods, useProject, useRunAnalysis, useTestTypes,
+  useActiveTest, useAllMethods, useMethods, useRunAnalysis, useTestTypes,
 } from '../hooks'
 import { Q_TO_SI, Q_UNITS, RECOVERY_CLOCKS } from '../setupOptions'
 
@@ -40,10 +40,8 @@ function asNumber(value: number | string): number | null {
 }
 
 export function SetupPanel() {
-  const project = useProject()
-  const activeTest: Test | undefined = project.data?.tests.find(
-    (test) => test.id === project.data?.active_test_id,
-  )
+  const activeTest: Test | undefined = useActiveTest()
+
 
   const [setup, setSetup] = useState<Setup | null>(null)
   // Reload the form when a different test is shown, not on every refetch —

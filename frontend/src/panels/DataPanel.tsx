@@ -37,7 +37,9 @@ import { useState } from 'react'
 
 import type { PreparedData, Test } from '../api/client'
 import { PlotFigure } from '../components/PlotFigure'
-import { usePasteReadings, useProject, useReadings, useUploadReadings } from '../hooks'
+import {
+  useActiveTest, usePasteReadings, useReadings, useUploadReadings,
+} from '../hooks'
 
 function titleCase(regime: string): string {
   return regime
@@ -47,11 +49,9 @@ function titleCase(regime: string): string {
 }
 
 export function DataPanel() {
-  const project = useProject()
-  const activeTest: Test | undefined = project.data?.tests.find(
-    (test) => test.id === project.data?.active_test_id,
-  )
+  const activeTest: Test | undefined = useActiveTest()
   const testId = activeTest?.id
+
   const upload = useUploadReadings(testId)
   const paste = usePasteReadings(testId)
   const [pasting, pastingControls] = useDisclosure(false)

@@ -9,7 +9,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ProjectSidebar } from './ProjectSidebar'
-import { fileInput, renderWithProviders } from '../test/render'
+import { renderWithProviders } from '../test/render'
 import { project, stubFetch, test_ } from '../test/stubFetch'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -40,23 +40,9 @@ describe('the project panel', () => {
 
     renderWithProviders(<ProjectSidebar />)
 
-    expect(await screen.findByText('50 readings')).toBeInTheDocument()
-  })
-
-  it('opens a project file', async () => {
-    const stub = stubFetch([
-      { url: '/api/project/open', method: 'POST', body: project() },
-      { url: '/api/project', body: project() },
-    ])
-
-    const { container } = renderWithProviders(<ProjectSidebar />)
-    await screen.findByText('Untitled project')
-
-    const file = new File(['{}'], 'site.hydroassist.json',
-                          { type: 'application/json' })
-    fireEvent.change(fileInput(container), { target: { files: [file] } })
-
-    await waitFor(() => expect(called(stub, '/api/project/open', 'POST')).toBe(true))
+    // On the tree row for that test, rather than once under a dropdown.
+    const row = await screen.findByRole('treeitem', { name: 'Test 1 (open)' })
+    expect(row).toHaveTextContent('50 readings')
   })
 
   it('switches the active test', async () => {
@@ -68,8 +54,7 @@ describe('the project panel', () => {
     renderWithProviders(<ProjectSidebar />)
     await screen.findByText('Untitled project')
 
-    fireEvent.click(screen.getByRole('textbox', { name: 'Active test' }))
-    fireEvent.click(await screen.findByText('PW-2'))
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'PW-2' }))
 
     await waitFor(() =>
       expect(called(stub, '/api/tests/test-2/activate', 'POST')).toBe(true))

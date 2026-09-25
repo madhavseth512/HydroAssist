@@ -5,7 +5,7 @@
  * path: credentials, JSON parsing, and the message a visitor sees when the
  * server is not there.
  */
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
@@ -91,5 +91,29 @@ describe('the workspace shell', () => {
 
     expect(await screen.findByText('Untitled project')).toBeInTheDocument()
     expect(screen.getByText('Step 1 — Field data')).toBeInTheDocument()
+  })
+
+  it('opens a project file chosen from the File menu', async () => {
+    // Opening moved out of the sidebar when the toolbar took the project
+    // actions — the coverage moved with it rather than being dropped.
+    const stub = stubFetch([
+      { url: '/api/project/open', method: 'POST', body: project() },
+      { url: '/api/session', body: session() },
+      { url: '/api/project', body: project() },
+    ])
+
+    const { container } = renderWithProviders(<App />)
+    await screen.findByText('HydroAssist')
+
+    const input = container.querySelector('input[type="file"][accept*=".hydro"]')
+    expect(input).toBeTruthy()
+
+    fireEvent.change(input as HTMLInputElement, {
+      target: { files: [new File(['{}'], 'site.hydroassist.json',
+                                 { type: 'application/json' })] },
+    })
+
+    await waitFor(() => expect(stub.mock.mock.calls.some(
+      ([url]) => String(url).includes('/api/project/open'))).toBe(true))
   })
 })
