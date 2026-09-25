@@ -14,7 +14,9 @@ import {
   type UseMutationOptions,
 } from '@tanstack/react-query'
 
-import { ApiError, api, type ProjectInfo, type Setup } from './api/client'
+import {
+  ApiError, api, type PreparedData, type ProjectInfo, type Setup,
+} from './api/client'
 
 export const keys = {
   session: ['session'] as const,
@@ -155,14 +157,24 @@ export function useUpdateTest() {
   )
 }
 
-export function useUploadReadings(testId: string | undefined) {
+/** Readings arriving by any route land in the same caches.
+ *
+ * Uploading a file and pasting columns differ only in how the bytes travel, so
+ * the cache work is shared: two copies would drift, and the one that drifted
+ * would leave a stale fit on screen beside new data.
+ */
+function useReadingsMutation<TInput>(
+  testId: string | undefined,
+  send: (testId: string, input: TInput) => Promise<PreparedData>,
+  failureTitle: string,
+) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: (input: TInput) => {
       if (!testId) {
         return Promise.reject(new Error('The project is still loading — try again in a moment.'))
       }
-      return api.uploadReadings(testId, file)
+      return send(testId, input)
     },
     onSuccess: (prepared) => {
       queryClient.setQueryData(keys.readings(testId ?? ''), prepared)
@@ -175,8 +187,21 @@ export function useUploadReadings(testId: string | undefined) {
       queryClient.resetQueries({ queryKey: keys.result })
       queryClient.invalidateQueries({ queryKey: keys.chat })
     },
-    onError: (error) => reportError(error, 'That file could not be used'),
+    onError: (error) => reportError(error, failureTitle),
   })
+}
+
+export function useUploadReadings(testId: string | undefined) {
+  return useReadingsMutation<File>(
+    testId, (id, file) => api.uploadReadings(id, file),
+    'That file could not be used')
+}
+
+/** Columns pasted from a spreadsheet, which is where the numbers usually are. */
+export function usePasteReadings(testId: string | undefined) {
+  return useReadingsMutation<string>(
+    testId, (id, text) => api.pasteReadings(id, text),
+    'Those readings could not be used')
 }
 
 /** Run a fit. The server stores the setup on the test before fitting, so the

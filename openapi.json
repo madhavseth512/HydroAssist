@@ -648,7 +648,7 @@
           "workspace"
         ],
         "summary": "Upload Readings",
-        "description": "Inspect, format, diagnose and validate an uploaded CSV, and record the\nreadings against the test.",
+        "description": "Inspect, format, diagnose and validate uploaded readings, and record them\nagainst the test.\n\nCSV, tab- or space-delimited text, and Excel workbooks; `table_reader`\nchooses by extension.",
         "operationId": "upload_readings_api_tests__test_id__readings_post",
         "parameters": [
           {
@@ -744,6 +744,75 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreparedDataModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tests/{test_id}/readings/text": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Paste Readings",
+        "description": "The same intake, for columns pasted from a spreadsheet.\n\nMost people have the numbers open in Excel already, and saving a file first\nto upload it is a step that earns nothing. The text goes through the same\nreader \u2014 the delimiter is sniffed \u2014 so a pasted table and an uploaded one\ncannot diverge.",
+        "operationId": "paste_readings_api_tests__test_id__readings_text_post",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PastedReadings"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1286,7 +1355,7 @@
           "chat"
         ],
         "summary": "Send Message",
-        "description": "Ask the consultant. The reply lands in the message list, so the browser\nredraws from one response.",
+        "description": "Ask the consultant. The reply lands in the message list, so the browser\nredraws from one response.\n\nRate-limited per session and per day, to stay inside the model's free tier.",
         "operationId": "send_message_api_chat_messages_post",
         "parameters": [
           {
@@ -1541,6 +1610,17 @@
             "type": "string",
             "contentMediaType": "application/octet-stream",
             "title": "File"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
           }
         },
         "type": "object",
@@ -2169,6 +2249,22 @@
           "display_unit"
         ],
         "title": "ParameterModel"
+      },
+      "PastedReadings": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 2000000,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "PastedReadings",
+        "description": "Readings pasted from a spreadsheet rather than uploaded as a file.\n\nThe limit is generous because a long test is a long table: 20,000 readings\nof \"time,drawdown\" is well under it, and the byte ceiling still applies\nonce encoded."
       },
       "PreparedDataModel": {
         "properties": {

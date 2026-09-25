@@ -18,9 +18,9 @@ describe('the data step', () => {
 
     renderWithProviders(<DataPanel />)
 
-    expect(await screen.findByText(/Upload a CSV with a time column/))
+    expect(await screen.findByText(/a time column and a drawdown column/))
       .toBeInTheDocument()
-    expect(screen.getByText('Choose CSV')).toBeInTheDocument()
+    expect(screen.getByText('Choose file')).toBeInTheDocument()
   })
 
   it('uploads a file and shows what was read', async () => {
@@ -32,7 +32,7 @@ describe('the data step', () => {
     const { container } = renderWithProviders(<DataPanel />)
     // Wait for the project: until it has loaded there is no test to upload into.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Choose CSV/ })).toBeEnabled())
+      expect(screen.getByRole('button', { name: /Choose file/ })).toBeEnabled())
 
     fireEvent.change(fileInput(container), { target: { files: [csvFile()] } })
 
@@ -64,7 +64,7 @@ describe('the data step', () => {
     renderWithProviders(<DataPanel />)
 
     expect(await screen.findByText('From pw1.csv')).toBeInTheDocument()
-    expect(screen.getByText('Replace CSV')).toBeInTheDocument()
+    expect(screen.getByText('Replace file')).toBeInTheDocument()
   })
 
   it('reports what the validator refuses to analyse', async () => {
@@ -93,7 +93,7 @@ describe('the data step', () => {
     const { container } = renderWithProviders(<DataPanel />)
     // Wait for the project: until it has loaded there is no test to upload into.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Choose CSV/ })).toBeEnabled())
+      expect(screen.getByRole('button', { name: /Choose file/ })).toBeEnabled())
 
     fireEvent.change(fileInput(container), { target: { files: [csvFile()] } })
 
@@ -127,5 +127,77 @@ describe('what column detection was unsure about', () => {
     renderWithProviders(<DataPanel />)
 
     expect(await screen.findByText(issue)).toBeInTheDocument()
+  })
+})
+
+describe('pasting readings', () => {
+  const PASTED = 'time_s\tdrawdown_m\n60\t0.12\n120\t0.19'
+
+  it('is hidden until asked for', async () => {
+    stubFetch([{ url: '/api/project', body: project() }])
+
+    renderWithProviders(<DataPanel />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Paste data' })).toBeEnabled())
+    expect(screen.queryByLabelText('Pasted readings')).toBeNull()
+  })
+
+  it('sends what was pasted to the server', async () => {
+    // Most people have the numbers open in a spreadsheet; saving a file first
+    // to upload it earns nothing.
+    const stub = stubFetch([
+      { url: '/api/project', body: project() },
+      { url: '/readings/text', method: 'POST', body: prepared() },
+    ])
+
+    renderWithProviders(<DataPanel />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Paste data' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Paste data' }))
+    fireEvent.change(screen.getByLabelText('Pasted readings'), {
+      target: { value: PASTED },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use these readings' }))
+
+    await waitFor(() => {
+      const call = stub.mock.mock.calls.find(([url]) =>
+        String(url).includes('/readings/text'))
+      expect(call).toBeTruthy()
+      expect(JSON.parse((call![1] as RequestInit).body as string))
+        .toEqual({ text: PASTED })
+    })
+  })
+
+  it('will not send an empty box', async () => {
+    stubFetch([{ url: '/api/project', body: project() }])
+
+    renderWithProviders(<DataPanel />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Paste data' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Paste data' }))
+
+    expect(screen.getByRole('button', { name: 'Use these readings' })).toBeDisabled()
+  })
+
+  it('shows what the server made of the readings', async () => {
+    stubFetch([
+      { url: '/api/project', body: project() },
+      { url: '/readings/text', method: 'POST', body: prepared() },
+    ])
+
+    renderWithProviders(<DataPanel />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Paste data' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Paste data' }))
+    fireEvent.change(screen.getByLabelText('Pasted readings'), {
+      target: { value: PASTED },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use these readings' }))
+
+    expect(await screen.findByText(/50 data points ready/)).toBeInTheDocument()
   })
 })

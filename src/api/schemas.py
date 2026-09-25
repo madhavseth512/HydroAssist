@@ -220,6 +220,16 @@ class DiagnosisModel(BaseModel):
     consistent_methods: List[str] = Field(default_factory=list)
 
 
+class PastedReadings(BaseModel):
+    """Readings pasted from a spreadsheet rather than uploaded as a file.
+
+    The limit is generous because a long test is a long table: 20,000 readings
+    of "time,drawdown" is well under it, and the byte ceiling still applies
+    once encoded.
+    """
+    text: str = Field(min_length=1, max_length=2_000_000)
+
+
 class PreparedDataModel(BaseModel):
     n_points: int
     summary: str

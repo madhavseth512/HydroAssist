@@ -226,10 +226,38 @@ export interface paths {
         put?: never;
         /**
          * Upload Readings
-         * @description Inspect, format, diagnose and validate an uploaded CSV, and record the
-         *     readings against the test.
+         * @description Inspect, format, diagnose and validate uploaded readings, and record them
+         *     against the test.
+         *
+         *     CSV, tab- or space-delimited text, and Excel workbooks; `table_reader`
+         *     chooses by extension.
          */
         post: operations["upload_readings_api_tests__test_id__readings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tests/{test_id}/readings/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Paste Readings
+         * @description The same intake, for columns pasted from a spreadsheet.
+         *
+         *     Most people have the numbers open in Excel already, and saving a file first
+         *     to upload it is a step that earns nothing. The text goes through the same
+         *     reader — the delimiter is sniffed — so a pasted table and an uploaded one
+         *     cannot diverge.
+         */
+        post: operations["paste_readings_api_tests__test_id__readings_text_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -431,6 +459,8 @@ export interface paths {
          * Send Message
          * @description Ask the consultant. The reply lands in the message list, so the browser
          *     redraws from one response.
+         *
+         *     Rate-limited per session and per day, to stay inside the model's free tier.
          */
         post: operations["send_message_api_chat_messages_post"];
         delete?: never;
@@ -534,6 +564,8 @@ export interface components {
         Body_upload_readings_api_tests__test_id__readings_post: {
             /** File */
             file: string;
+            /** Sheet */
+            sheet?: string | null;
         };
         /** ChatContextModel */
         ChatContextModel: {
@@ -799,6 +831,18 @@ export interface components {
             fixed: boolean;
             /** At Bound */
             at_bound?: string | null;
+        };
+        /**
+         * PastedReadings
+         * @description Readings pasted from a spreadsheet rather than uploaded as a file.
+         *
+         *     The limit is generous because a long test is a long table: 20,000 readings
+         *     of "time,drawdown" is well under it, and the byte ceiling still applies
+         *     once encoded.
+         */
+        PastedReadings: {
+            /** Text */
+            text: string;
         };
         /** PreparedDataModel */
         PreparedDataModel: {
@@ -1579,6 +1623,43 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_upload_readings_api_tests__test_id__readings_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparedDataModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    paste_readings_api_tests__test_id__readings_text_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                test_id: string;
+            };
+            cookie?: {
+                hydroassist_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PastedReadings"];
             };
         };
         responses: {

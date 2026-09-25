@@ -15,9 +15,9 @@ function sample(name: string): string {
 
 /** The data step's file input, once the project it uploads into has loaded. */
 async function csvInput(page: import('@playwright/test').Page) {
-  await expect(page.getByRole('button', { name: 'Choose CSV' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Choose file' })).toBeEnabled()
   // The project panel has a file input too; this is the data step's.
-  return page.locator('input[type="file"][accept*="csv"]')
+  return page.locator('input[type="file"][accept*=".csv"]')
 }
 
 test('a constant-rate test: upload, fit, report, save', async ({ page }) => {

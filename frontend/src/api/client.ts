@@ -133,6 +133,10 @@ export const api = {
   // ── Readings ─────────────────────────────────────────────────────────────
   uploadReadings: (testId: string, file: File) =>
     upload<PreparedData>(`/api/tests/${testId}/readings`, file),
+  // Same intake, for columns pasted from a spreadsheet rather than saved to a
+  // file first. The delimiter is sniffed on the server.
+  pasteReadings: (testId: string, text: string) =>
+    json<PreparedData>(`/api/tests/${testId}/readings/text`, 'POST', { text }),
   readings: (testId: string) =>
     request<PreparedData>(`/api/tests/${testId}/readings`),
 

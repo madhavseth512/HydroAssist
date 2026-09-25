@@ -22,18 +22,22 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
   Title,
 } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 import {
   IconAlertTriangle,
   IconChartHistogram,
+  IconClipboard,
   IconFileUpload,
   IconInfoCircle,
 } from '@tabler/icons-react'
+import { useState } from 'react'
 
 import type { PreparedData, Test } from '../api/client'
 import { PlotFigure } from '../components/PlotFigure'
-import { useProject, useReadings, useUploadReadings } from '../hooks'
+import { usePasteReadings, useProject, useReadings, useUploadReadings } from '../hooks'
 
 function titleCase(regime: string): string {
   return regime
@@ -49,6 +53,9 @@ export function DataPanel() {
   )
   const testId = activeTest?.id
   const upload = useUploadReadings(testId)
+  const paste = usePasteReadings(testId)
+  const [pasting, pastingControls] = useDisclosure(false)
+  const [pasted, setPasted] = useState('')
   // Only ask for readings a test actually has; otherwise every empty test
   // would fetch a guaranteed 404 on render.
   const readings = useReadings(testId, Boolean(activeTest?.n_readings))
@@ -60,24 +67,64 @@ export function DataPanel() {
       <Stack gap="sm">
         <Group justify="space-between" align="center">
           <Title order={5}>Step 1 — Field data</Title>
-          <FileButton accept="text/csv,.csv"
-                      onChange={(file) => file && upload.mutate(file)}>
-            {(props) => (
-              <Button {...props} size="xs" variant="light"
-                      leftSection={<IconFileUpload size={16} />}
-                      loading={upload.isPending}
-                      disabled={!testId}>
-                {activeTest?.n_readings ? 'Replace CSV' : 'Choose CSV'}
-              </Button>
-            )}
-          </FileButton>
+          <Group gap="xs">
+            <Button size="xs" variant="subtle"
+                    leftSection={<IconClipboard size={16} />}
+                    onClick={pastingControls.toggle}
+                    disabled={!testId}>
+              Paste data
+            </Button>
+            {/* Whatever the numbers arrive in. The server sniffs the delimiter
+                and reads Excel workbooks, so this list is about the file
+                dialog, not about what the reader can do. */}
+            <FileButton accept=".csv,.txt,.tsv,.dat,.prn,.xlsx,.xlsm,text/csv,text/plain"
+                        onChange={(file) => file && upload.mutate(file)}>
+              {(props) => (
+                <Button {...props} size="xs" variant="light"
+                        leftSection={<IconFileUpload size={16} />}
+                        loading={upload.isPending}
+                        disabled={!testId}>
+                  {activeTest?.n_readings ? 'Replace file' : 'Choose file'}
+                </Button>
+              )}
+            </FileButton>
+          </Group>
         </Group>
+
+        {pasting && (
+          <Stack gap="xs">
+            <Textarea
+              label="Paste time and drawdown columns"
+              description="Copy two columns from a spreadsheet, headers included. Tabs, commas or spaces all work."
+              placeholder={'time_s\tdrawdown_m\n60\t0.12\n120\t0.19'}
+              aria-label="Pasted readings"
+              autosize
+              minRows={4}
+              maxRows={10}
+              value={pasted}
+              onChange={(event) => setPasted(event.currentTarget.value)}
+            />
+            <Group gap="xs" justify="flex-end">
+              <Button size="xs" variant="default" onClick={() => setPasted('')}
+                      disabled={!pasted}>
+                Clear
+              </Button>
+              <Button size="xs" loading={paste.isPending} disabled={!pasted.trim()}
+                      onClick={() => paste.mutate(pasted, {
+                        onSuccess: () => { setPasted(''); pastingControls.close() },
+                      })}>
+                Use these readings
+              </Button>
+            </Group>
+          </Stack>
+        )}
 
         {!prepared && !upload.isPending && !readings.isFetching && (
           <Alert variant="light" color="blue" icon={<IconInfoCircle size={18} />}>
-            Upload a CSV with a time column and a drawdown column. Time in
-            seconds, minutes or hours and drawdown in metres or feet are all
-            recognised, and converted for you.
+            Upload or paste a time column and a drawdown column — CSV, tab- or
+            space-delimited text, or an Excel sheet. Time in seconds, minutes or
+            hours and drawdown in metres or feet are all recognised, and
+            converted for you.
           </Alert>
         )}
 

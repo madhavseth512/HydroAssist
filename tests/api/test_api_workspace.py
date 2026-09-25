@@ -217,3 +217,123 @@ class TestReadings:
         assert not any("recovery" in note.lower()
                        for note in body["validation"]["info"])
         assert body["validation"]["suitable_methods"] == ["Theis Recovery (1935)"]
+
+
+class TestTheFormatsPeopleArrriveWith:
+    """CSV was the only accepted format, which is not how field data travels.
+
+    The reader is unit-tested in tests/unit/test_table_reader.py; these check
+    that every path reaches the same intake and produces the same readings, so
+    a pasted table and an uploaded file cannot diverge.
+    """
+
+    def _readings(self):
+        import pandas as pd
+        return pd.read_csv(THEIS_SAMPLE)
+
+    def _post_file(self, client, name, data, test_id=None):
+        if test_id is None:
+            test_id = client.get("/api/project").json()["active_test_id"]
+        return client.post(f"/api/tests/{test_id}/readings",
+                           files={"file": (name, data, "application/octet-stream")})
+
+    def test_a_tab_delimited_text_export(self, client):
+        response = self._post_file(
+            client, "field.txt",
+            self._readings().to_csv(sep="\t", index=False).encode())
+
+        assert response.status_code == 200
+        assert response.json()["n_points"] == 50
+
+    def test_an_excel_workbook(self, client):
+        import io
+
+        import pandas as pd
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            self._readings().to_excel(writer, index=False, sheet_name="Test 1")
+
+        response = self._post_file(client, "field.xlsx", buffer.getvalue())
+
+        assert response.status_code == 200
+        assert response.json()["n_points"] == 50
+
+    def test_columns_pasted_from_a_spreadsheet(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        pasted = self._readings().to_csv(sep="\t", index=False)
+
+        response = client.post(f"/api/tests/{test_id}/readings/text",
+                               json={"text": pasted})
+
+        assert response.status_code == 200
+        assert response.json()["n_points"] == 50
+
+    def test_pasted_readings_are_recorded_like_uploaded_ones(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+
+        client.post(f"/api/tests/{test_id}/readings/text",
+                    json={"text": self._readings().to_csv(index=False)})
+
+        test = client.get("/api/project").json()["tests"][0]
+        assert test["n_readings"] == 50
+        assert test["readings_source"] == "pasted"
+
+    def test_every_route_produces_the_same_readings(self, client):
+        """The point of one reader behind all of them."""
+        import io
+
+        import pandas as pd
+
+        readings = self._readings()
+        project = client.get("/api/project").json()
+        test_id = project["active_test_id"]
+
+        by_csv = self._post_file(client, "a.csv",
+                                 readings.to_csv(index=False).encode(), test_id).json()
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            readings.to_excel(writer, index=False, sheet_name="Sheet1")
+        by_excel = self._post_file(client, "a.xlsx", buffer.getvalue(), test_id).json()
+        by_paste = client.post(f"/api/tests/{test_id}/readings/text",
+                               json={"text": readings.to_csv(index=False)}).json()
+
+        assert by_csv["n_points"] == by_excel["n_points"] == by_paste["n_points"]
+        assert by_csv["preview"] == by_excel["preview"] == by_paste["preview"]
+
+    def test_an_image_is_refused_with_the_formats_that_work(self, client):
+        response = self._post_file(client, "photo.png", b"\x89PNG\r\n\x1a\n")
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert ".png" in detail and ".csv" in detail
+
+    def test_empty_pasted_text_is_refused_by_the_schema(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+
+        response = client.post(f"/api/tests/{test_id}/readings/text",
+                               json={"text": ""})
+
+        assert response.status_code == 422
+
+    def test_a_sheet_can_be_named(self, client):
+        import io
+
+        import pandas as pd
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            pd.DataFrame({"Site": ["Gridley"]}).to_excel(
+                writer, index=False, sheet_name="Cover")
+            self._readings().to_excel(writer, index=False, sheet_name="Drawdown")
+
+        test_id = client.get("/api/project").json()["active_test_id"]
+        response = client.post(
+            f"/api/tests/{test_id}/readings",
+            files={"file": ("field.xlsx", buffer.getvalue(),
+                            "application/octet-stream")},
+            data={"sheet": "Drawdown"})
+
+        assert response.status_code == 200
+        assert response.json()["n_points"] == 50
+        assert any("Drawdown" in note for note in response.json()["conversions"])

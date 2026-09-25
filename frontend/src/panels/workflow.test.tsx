@@ -60,7 +60,7 @@ describe('the workspace flow', () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Replace CSV/ })).toBeEnabled())
+      expect(screen.getByRole('button', { name: /Replace file/ })).toBeEnabled())
     fireEvent.change(fileInput(container), { target: { files: [csvFile()] } })
     await waitFor(() =>
       expect(screen.getAllByText(/50 data points ready/).length).toBeGreaterThan(0))

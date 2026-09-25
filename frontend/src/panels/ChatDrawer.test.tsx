@@ -134,3 +134,68 @@ describe('the consultation', () => {
     expect(stub.calls.some((c) => c.url.includes('/api/chat/reset'))).toBe(true)
   })
 })
+
+describe('how an answer is rendered', () => {
+  const MARKDOWN = [
+    '### Assumptions of the Theis method',
+    '',
+    '*   **Confined aquifer** of infinite extent',
+    '*   **Constant** pumping rate',
+    '',
+    'See [Custom_General, p.7] for the derivation.',
+  ].join('\n')
+
+  it('renders the model markdown as elements, not as characters', async () => {
+    // The consultant writes markdown. Printing it verbatim — ### and ** and all
+    // — was most of why the answers looked unprofessional.
+    stubFetch([{ url: '/api/chat', body: state({
+      messages: [{ role: 'assistant', content: MARKDOWN }],
+    }) }])
+
+    open()
+
+    const heading = await screen.findByRole('heading', {
+      name: 'Assumptions of the Theis method',
+    })
+    expect(heading).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByText('Confined aquifer').tagName).toBe('STRONG')
+    expect(document.body.textContent).not.toContain('###')
+    expect(document.body.textContent).not.toContain('**Confined')
+  })
+
+  it('leaves what the user typed exactly as typed', async () => {
+    // Rendering their asterisks as bold would be rewriting their words.
+    stubFetch([{ url: '/api/chat', body: state({
+      messages: [{ role: 'user', content: 'is 2*3*4 the rate **or** not?' }],
+    }) }])
+
+    open()
+
+    expect(await screen.findByText('is 2*3*4 the rate **or** not?')).toBeInTheDocument()
+  })
+
+  it('renders a markdown table, which is how comparisons arrive', async () => {
+    stubFetch([{ url: '/api/chat', body: state({
+      messages: [{ role: 'assistant', content:
+        '| Method | T |\n|---|---|\n| Theis | 215 |\n| Cooper-Jacob | 198 |' }],
+    }) }])
+
+    open()
+
+    expect(await screen.findByRole('table')).toBeInTheDocument()
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+  })
+
+  it('opens a cited link away from the analysis in progress', async () => {
+    stubFetch([{ url: '/api/chat', body: state({
+      messages: [{ role: 'assistant', content: 'See [USGS](https://usgs.gov).' }],
+    }) }])
+
+    open()
+
+    const link = await screen.findByRole('link', { name: 'USGS' })
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+})

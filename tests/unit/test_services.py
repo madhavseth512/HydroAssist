@@ -7,6 +7,7 @@ result, how a result reaches a project and a PDF, and what an uploaded file
 turns into.
 """
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -48,11 +49,19 @@ def theis_run(theis_df):
 class TestNoUserInterface:
 
     def test_services_never_import_a_ui_framework(self):
-        """The whole point of the package: it must stay usable from the API."""
+        """The whole point of the package: it must stay usable from the API.
+
+        `st.` is matched only where an identifier could begin — not inside a
+        word. The plain substring flagged every sentence ending in "first.",
+        "must." or "list.", which is a test that punishes prose rather than
+        catching Streamlit.
+        """
+        streamlit_call = re.compile(r"(?<![A-Za-z0-9_.])st\.[a-z_]")
+
         for path in Path("src/services").glob("*.py"):
             source = path.read_text(encoding="utf-8")
             assert "import streamlit" not in source, path
-            assert "st." not in source.replace("test.", ""), path
+            assert not streamlit_call.search(source), path
 
 
 class TestBuildInputs:

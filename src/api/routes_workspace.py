@@ -6,7 +6,11 @@ These are the routes behind the sidebar and Step 1 of the workspace.
 import io
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from typing import Optional
+
+from fastapi import (
+    APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile,
+)
 
 from src.api import presenters, schemas
 from src.api.deps import MAX_UPLOAD_BYTES, current_session, inspection_llm
@@ -14,7 +18,7 @@ from src.api.sessions import SessionState
 from src.calculator import registry
 from src.project import workspace as ws
 from src.project.model import Project, ProjectFileError
-from src.services import data_intake
+from src.services import data_intake, table_reader
 
 router = APIRouter(prefix="/api", tags=["workspace"])
 
@@ -170,19 +174,24 @@ def update_test(test_id: str, payload: schemas.TestDetailsModel,
 @router.post("/tests/{test_id}/readings", response_model=schemas.PreparedDataModel)
 async def upload_readings(test_id: str,
                           session: SessionState = Depends(current_session),
-                          file: UploadFile = File(...)):
-    """Inspect, format, diagnose and validate an uploaded CSV, and record the
-    readings against the test."""
+                          file: UploadFile = File(...),
+                          sheet: Optional[str] = Form(None)):
+    """Inspect, format, diagnose and validate uploaded readings, and record them
+    against the test.
+
+    CSV, tab- or space-delimited text, and Excel workbooks; `table_reader`
+    chooses by extension.
+    """
     test = test_or_404(session, test_id)
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="That file is too large.")
 
     try:
-        raw_df = pd.read_csv(io.BytesIO(raw))
-    except Exception as exc:
+        raw_df, notes = table_reader.read_table(raw, file.filename or "", sheet)
+    except table_reader.UnreadableTable as exc:
         raise HTTPException(status_code=400,
-                            detail=f"That file could not be read as CSV: {exc}")
+                            detail=f"That file could not be read: {exc}")
 
     try:
         prepared = data_intake.prepare_upload(
@@ -191,11 +200,53 @@ async def upload_readings(test_id: str,
         raise HTTPException(status_code=400,
                             detail=f"Failed to process the file: {exc}")
 
+    # Which sheet was read belongs with the other conversions, where the user
+    # reads what was done to their numbers.
+    prepared.conversions.extend(notes)
+
     data_intake.store_readings(test, prepared.df,
                                source_name=file.filename or "",
                                conversions=prepared.conversions)
     # New data invalidates the last fit, and the conversation must not go on
     # discussing numbers from the previous dataset.
+    session.load_test(test)
+    session.prepared = prepared
+    _stage_for_chat(session, prepared)
+    return presenters.prepared_model(prepared)
+
+
+@router.post("/tests/{test_id}/readings/text",
+             response_model=schemas.PreparedDataModel)
+def paste_readings(test_id: str, payload: schemas.PastedReadings,
+                   session: SessionState = Depends(current_session)):
+    """The same intake, for columns pasted from a spreadsheet.
+
+    Most people have the numbers open in Excel already, and saving a file first
+    to upload it is a step that earns nothing. The text goes through the same
+    reader — the delimiter is sniffed — so a pasted table and an uploaded one
+    cannot diverge.
+    """
+    test = test_or_404(session, test_id)
+    raw = payload.text.encode("utf-8")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="That is too much text.")
+
+    try:
+        raw_df, notes = table_reader.read_table(raw, table_reader.PASTED)
+    except table_reader.UnreadableTable as exc:
+        raise HTTPException(status_code=400,
+                            detail=f"That text could not be read: {exc}")
+
+    try:
+        prepared = data_intake.prepare_upload(
+            raw_df, llm=inspection_llm(), **intake_settings(session, test))
+    except Exception as exc:
+        raise HTTPException(status_code=400,
+                            detail=f"Failed to process the readings: {exc}")
+
+    prepared.conversions.extend(notes)
+    data_intake.store_readings(test, prepared.df, source_name="pasted",
+                               conversions=prepared.conversions)
     session.load_test(test)
     session.prepared = prepared
     _stage_for_chat(session, prepared)

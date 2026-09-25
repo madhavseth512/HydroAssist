@@ -30,6 +30,7 @@ import { IconSend } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { api, type ChatMessage, type Suggestion } from '../api/client'
+import { Markdown } from '../components/Markdown'
 import {
   reportError,
   useChat,
@@ -108,7 +109,13 @@ export function ChatDrawer({ opened, onClose }: ChatDrawerProps) {
                 <Text size="xs" c="dimmed" mb={4}>
                   {message.role === 'user' ? 'You' : 'Consultant'}
                 </Text>
-                <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.content}</Text>
+                {message.role === 'user' ? (
+                  // What the user typed, shown as typed. Rendering their own
+                  // asterisks as bold would be a small act of rewriting.
+                  <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.content}</Text>
+                ) : (
+                  <Markdown>{message.content}</Markdown>
+                )}
               </Paper>
             ))}
             {send.isPending && <Loader size="sm" />}
