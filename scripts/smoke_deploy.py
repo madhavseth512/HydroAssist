@@ -1,8 +1,9 @@
 """Check a running HydroAssist end to end.
 
-Health, a session, a CSV upload, a Theis fit checked against the golden value,
-and the PDF report — the path a hydrogeologist takes, over HTTP. Standard library
-only, so it runs on the server without the project's virtual environment:
+Health, a session, a CSV upload, a Theis fit checked against the golden value, a
+photographed field sheet, and the PDF report — the path a hydrogeologist takes,
+over HTTP. Standard library only, so it runs on the server without the project's
+virtual environment:
 
     python3 scripts/smoke_deploy.py https://yourname.duckdns.org --user hydroassist --password '...'
     python3 scripts/smoke_deploy.py http://127.0.0.1:8000
@@ -24,6 +25,10 @@ import urllib.request
 from pathlib import Path
 
 SAMPLE = Path(__file__).resolve().parents[1] / "tests" / "theis_cooper_jacob_sample.csv"
+# A printed field sheet, for the OCR route: 13 readings, one cell of which
+# Tesseract reads at 71% and the grid therefore marks for checking.
+FIELD_SHEET = (Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+               / "field_data" / "field_sheet.png")
 
 # The fit tests/fixtures/golden_fits.json pins for this sample.
 EXPECTED_T_DAY = 215.29
@@ -72,10 +77,14 @@ class Client:
 
     def upload(self, path: str, file_path: Path):
         boundary = uuid.uuid4().hex
+        # The server chooses its reader by the filename, not by this, but a PNG
+        # announced as text/csv is a lie that would confuse anyone reading a log.
+        content_type = ("image/png" if file_path.suffix.lower() == ".png"
+                        else "text/csv")
         body = (
             f"--{boundary}\r\n"
             f'Content-Disposition: form-data; name="file"; filename="{file_path.name}"\r\n'
-            "Content-Type: text/csv\r\n\r\n"
+            f"Content-Type: {content_type}\r\n\r\n"
         ).encode() + file_path.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
         status, raw = self.request("POST", path, body,
                                    f"multipart/form-data; boundary={boundary}")
@@ -139,6 +148,19 @@ def main() -> None:
           "transmissivity matches the golden fit",
           success=f"T = {t_day:.2f} m^2/day",
           failure=f"T = {t_day:.2f} m^2/day, expected {EXPECTED_T_DAY}")
+
+    # The one feature that needs a program rather than a wheel. It is checked
+    # here because a missing apt layer in the image is invisible until someone
+    # photographs a field sheet, and the answer then looks like their fault.
+    status, grid = client.upload(f"/api/tests/{test_id}/readings/image", FIELD_SHEET)
+    rows = len(grid.get("rows", [])) if isinstance(grid, dict) else 0
+    check(status == 200 and rows == 13,
+          "read a photographed field sheet",
+          success=f"{rows} rows, "
+                  f"{grid.get('uncertain_cells')} of {grid.get('total_cells')} "
+                  f"cells uncertain" if isinstance(grid, dict) else "",
+          failure=(f"HTTP {status}: {grid}. A 503 means the image lacks "
+                   f"Tesseract — see the apt-get layer in the Dockerfile."))
 
     status, pdf = client.request("GET", "/api/report.pdf")
     check(status == 200 and pdf.startswith(b"%PDF-"), "PDF report",

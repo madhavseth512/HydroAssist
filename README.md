@@ -22,7 +22,7 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 - Intent classification and conversation routing via LangGraph
 
 **Phase 2 — Calculator (complete)**
-- CSV upload with automatic column detection, unit conversion, and data validation
+- Data intake with automatic column detection, unit conversion, and validation — CSV, delimited text, Excel, pasted columns, logger exports, and OCR of a photographed table
 - Confined aquifer curve-fitting: Theis (1935), Cooper-Jacob (1946), Papadopulos-Cooper (1967)
 - Outputs T (transmissivity) and S (storativity) with 95% confidence intervals
 - Interactive Plotly diagnostic plots (type curves, residuals, manual matching)
@@ -569,7 +569,10 @@ llm:
 - [ ] Slug tests — a different input shape, and Stehfest is the wrong inverter
 - [ ] Deployment — one image, two free hosts: Render (no card) or Oracle Cloud Always Free (see DEPLOY.md)
 - [x] Projects — tests, readings and analyses saved as a file, compared by AICc
-- [ ] Named wells with coordinates, logger import
+- [x] Field data in the forms it arrives in — delimited text, Excel, pasted
+      columns, Solinst/Diver/In-Situ logger exports, and a photograph of a
+      printed table read into a grid the user confirms
+- [ ] Named wells with coordinates
 - [ ] IIT KGP email authentication (deferred)
 
 ### Phase 5 — Web application (In progress)

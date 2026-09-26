@@ -29,6 +29,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN useradd --create-home --uid 10001 hydroassist
 WORKDIR /app
 
+# Tesseract, for reading a photographed field sheet. It is the one dependency
+# that is not a Python wheel, and it is deliberately the English data only:
+# tesseract-ocr-all is several hundred megabytes for languages no field sheet of
+# numbers needs. Without it, that one feature reports itself unavailable.
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y tesseract-ocr tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 

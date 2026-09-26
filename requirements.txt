@@ -41,3 +41,11 @@ plotly>=5.22.0         # diagnostic figures, sent to the browser as Plotly JSON
 reportlab>=4.2.0       # PDF report generation
 openpyxl>=3.1.0        # Excel export of results and data tables
 pandas>=2.2.0          # CSV inspection, formatting, and tabular data handling
+
+# Reading a photographed field sheet (src/services/table_ocr.py). Pillow already
+# arrived with reportlab; it is named here because the app now imports it
+# directly. pytesseract is only a wrapper — Tesseract itself is a program, and
+# the Dockerfile installs it. Where it is absent the feature reports that and
+# every other way of getting data in still works.
+pillow>=10.3.0
+pytesseract>=0.3.10

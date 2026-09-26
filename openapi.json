@@ -837,6 +837,75 @@
         }
       }
     },
+    "/api/tests/{test_id}/readings/image": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Read Readings Image",
+        "description": "Propose a grid from a photograph of a field sheet. Stores nothing.\n\nDeliberately not an intake route. It does not touch `test.readings`, does not\ninspect or validate, and does not reach the chat: it hands back what OCR\nsaw, cell by cell, with the confidence of each. The user corrects the grid\nand sends it as text, so an image reaches a calculator only through a person.\n\nA misread digit does not fail \u2014 it fits, and reports a wrong transmissivity\nwith no warning anywhere. That is the whole reason this route is separate.",
+        "operationId": "read_readings_image_api_tests__test_id__readings_image_post",
+        "parameters": [
+          {
+            "name": "test_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test Id"
+            }
+          },
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_read_readings_image_api_tests__test_id__readings_image_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OCRTableModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tests/{test_id}/setup": {
       "put": {
         "tags": [
@@ -1626,6 +1695,20 @@
         ],
         "title": "Body_open_project_api_project_open_post"
       },
+      "Body_read_readings_image_api_tests__test_id__readings_image_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_read_readings_image_api_tests__test_id__readings_image_post"
+      },
       "Body_upload_readings_api_tests__test_id__readings_post": {
         "properties": {
           "file": {
@@ -2196,6 +2279,92 @@
         ],
         "title": "MethodModel",
         "description": "A registry entry, which is what drives the method form in the browser."
+      },
+      "OCRCellModel": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "uncertain": {
+            "type": "boolean",
+            "title": "Uncertain",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "OCRCellModel",
+        "description": "One cell OCR proposed, with how far it is to be trusted.\n\n`text` rather than a number, because what the user must check is the\ncharacters Tesseract saw. An empty cell is `null` in the row."
+      },
+      "OCRTableModel": {
+        "properties": {
+          "rows": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/OCRCellModel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "columns": {
+            "type": "integer",
+            "title": "Columns",
+            "default": 0
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "total_cells": {
+            "type": "integer",
+            "title": "Total Cells",
+            "default": 0
+          },
+          "uncertain_cells": {
+            "type": "integer",
+            "title": "Uncertain Cells",
+            "default": 0
+          },
+          "mostly_uncertain": {
+            "type": "boolean",
+            "title": "Mostly Uncertain",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "OCRTableModel",
+        "description": "A photographed table, proposed for confirmation and nothing more.\n\nDeliberately not a `PreparedDataModel`: nothing here has been inspected,\nvalidated or stored against the test. A misread digit yields a plausible fit\nand a wrong transmissivity, so the numbers become readings only when the\nuser sends the corrected grid back through the ordinary text route."
       },
       "ParameterModel": {
         "properties": {

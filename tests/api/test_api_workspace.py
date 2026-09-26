@@ -337,3 +337,112 @@ class TestTheFormatsPeopleArrriveWith:
         assert response.status_code == 200
         assert response.json()["n_points"] == 50
         assert any("Drawdown" in note for note in response.json()["conversions"])
+
+
+class TestAPhotographedFieldSheet:
+    """A photograph proposes a grid; it never becomes readings on its own.
+
+    The reading itself is unit-tested in tests/unit/test_table_ocr.py. What
+    matters here is the boundary: this route stores nothing, and the corrected
+    grid re-enters by the same door as typed text, so no image can reach a
+    calculator without a person having looked at the numbers.
+    """
+
+    @pytest.fixture(scope="class")
+    def photograph(self):
+        """A printed field sheet, rendered and committed as a fixture."""
+        from pathlib import Path
+
+        from src.services.table_ocr import ocr_available
+
+        if not ocr_available():
+            pytest.skip("Tesseract is not installed on this machine")
+        return Path("tests/fixtures/field_data/field_sheet.png").read_bytes()
+
+    def _post(self, client, raw, test_id=None):
+        if test_id is None:
+            test_id = client.get("/api/project").json()["active_test_id"]
+        return client.post(f"/api/tests/{test_id}/readings/image",
+                           files={"file": ("sheet.png", raw, "image/png")})
+
+    def test_the_grid_comes_back_cell_by_cell(self, client, photograph):
+        body = self._post(client, photograph).json()
+
+        assert body["columns"] == 2
+        assert len(body["rows"]) == 13
+        assert [cell["value"] for cell in body["rows"][0]] == [1.0, 0.22]
+        assert [cell["value"] for cell in body["rows"][-1]] == [120.0, 1.07]
+
+    def test_each_cell_carries_what_was_read_and_how_surely(self, client, photograph):
+        cell = self._post(client, photograph).json()["rows"][0][0]
+
+        assert cell["text"] == "1"
+        assert 0.0 < cell["confidence"] <= 100.0
+        assert cell["uncertain"] is False
+
+    def test_a_cell_it_was_unsure_of_reaches_the_browser_marked(self, client,
+                                                                photograph):
+        """Tesseract reads one printed digit on this sheet at 71%. The mark is
+        the only thing standing between that and a wrong transmissivity."""
+        body = self._post(client, photograph).json()
+        flagged = [cell for row in body["rows"] for cell in row
+                   if cell and cell["uncertain"]]
+
+        assert [cell["value"] for cell in flagged] == [5.0]
+        assert body["uncertain_cells"] == 1
+        assert body["mostly_uncertain"] is False
+
+    def test_nothing_is_stored_against_the_test(self, client, photograph):
+        """The rule the route exists for."""
+        test_id = client.get("/api/project").json()["active_test_id"]
+
+        self._post(client, photograph, test_id)
+
+        assert client.get("/api/project").json()["tests"][0]["n_readings"] == 0
+        assert client.get(f"/api/tests/{test_id}/readings").status_code == 404
+
+    def test_the_confirmed_grid_becomes_readings_through_the_text_route(
+            self, client, photograph):
+        """The whole journey, as the browser makes it: propose, then confirm."""
+        test_id = client.get("/api/project").json()["active_test_id"]
+        grid = self._post(client, photograph, test_id).json()
+
+        text = "time_min\tdrawdown_m\n" + "\n".join(
+            "\t".join("" if cell is None else cell["text"] for cell in row)
+            for row in grid["rows"])
+        response = client.post(f"/api/tests/{test_id}/readings/text",
+                               json={"text": text})
+
+        assert response.status_code == 200
+        assert response.json()["n_points"] == 13
+
+    def test_a_file_that_is_not_an_image_is_refused(self, client):
+        from src.services.table_ocr import ocr_available
+
+        if not ocr_available():
+            pytest.skip("Tesseract is not installed on this machine")
+
+        response = self._post(client, b"time_s,drawdown_m\n60,0.12\n")
+
+        assert response.status_code == 400
+        assert "could not be opened" in response.json()["detail"]
+
+    def test_an_unknown_test_is_a_404(self, client, photograph):
+        assert self._post(client, photograph, "no-such-test").status_code == 404
+
+    def test_a_server_without_tesseract_says_what_is_missing(self, client,
+                                                             monkeypatch):
+        """Tesseract is a program, not a package, so a host may well lack it.
+        That is a 503 about the server, not a 400 about the image."""
+        from src.services import table_ocr
+
+        def missing(*_args, **_kwargs):
+            raise table_ocr.OCRNotAvailable(
+                "Reading a photograph needs the Tesseract program itself")
+
+        monkeypatch.setattr(table_ocr, "read_image_table", missing)
+
+        response = self._post(client, b"whatever")
+
+        assert response.status_code == 503
+        assert "Tesseract" in response.json()["detail"]

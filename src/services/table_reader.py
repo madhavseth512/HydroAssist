@@ -28,6 +28,10 @@ LOGGER = (".lev", ".mon", ".xle")
 EXCEL = (".xlsx", ".xlsm", ".xltx")
 SUPPORTED = DELIMITED + EXCEL + LOGGER
 
+# Not read here, and not readable as a table of numbers either: a photograph goes
+# through `table_ocr`, which proposes a grid rather than producing readings.
+PICTURES = (".png", ".jpg", ".jpeg", ".heic", ".tif", ".tiff", ".webp", ".bmp")
+
 # Pasted text arrives without a filename; this stands in for one.
 PASTED = "pasted.txt"
 
@@ -139,7 +143,10 @@ def read_table(raw: bytes, filename: str = "",
     else:
         raise UnreadableTable(
             f"{suffix} is not a format this reads. Supported: "
-            f"{', '.join(SUPPORTED)}, or paste the columns directly.")
+            f"{', '.join(SUPPORTED)}, or paste the columns directly."
+            + (" A photograph of a table is read by 'Photograph of a table' in "
+               "Step 1, which proposes a grid for you to check first."
+               if suffix in PICTURES else ""))
 
     frame = _tidy(frame)
 

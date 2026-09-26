@@ -60,9 +60,15 @@ Rejected, and why (checked 11 and 23 September 2026):
    python scripts/smoke_deploy.py https://hydroassist.onrender.com \
        --user kgp --password 'the password you chose'
    ```
-   Seven checks, ending with a PDF and `T = 215.29 m^2/day`. Without
+   Eight checks, ending with a PDF and `T = 215.29 m^2/day`. Without
    `--user`/`--password` it should fail at the first step with a 401, which is
    itself proof the lock works.
+
+   One of the eight reads a photographed field sheet. It is there because
+   Tesseract is the only dependency that is not a Python wheel — the Dockerfile
+   installs it with `apt-get` — and a missing apt layer stays invisible until a
+   user photographs a sheet and is told their image is the problem. A 503 on that
+   check means the image was built without it.
 
 **What to expect day to day.** The first visit after a quiet spell takes a
 minute or so: Render wakes the container, then the knowledge base loads. After
@@ -210,8 +216,8 @@ The first build takes several minutes on the Ampere VM. It installs the Python d
 ## Verify
 
 Run the smoke check from the VM. It checks health, a session, an upload, a Theis
-fit against the golden value and the PDF report, and names the first step that
-fails:
+fit against the golden value, a photographed field sheet and the PDF report, and
+names the first step that fails:
 
 ```bash
 python3 scripts/smoke_deploy.py https://<your-domain> --user <user> --password '<password>'
@@ -224,6 +230,10 @@ Then check in a browser:
 3. Choose `tests/theis_cooper_jacob_sample.csv` from your local copy. Leave Q = 500 m³/day and r = 50 m, and run **Theis (1935)**. Expect **T ≈ 215.29 m²/day** and S ≈ 5.05×10⁻⁵.
 4. Click **Download report**. A PDF downloads.
 5. Open **Consultant** and ask *"What are the assumptions of the Theis method?"* The answer should list **Sources consulted**. If the answer says it lacks information, the vector store did not deploy.
+6. In Step 1, press **Photograph of a table** and choose
+   `tests/fixtures/field_data/field_sheet.png`. A grid of 13 readings opens with
+   one cell marked uncertain. If instead it reports that Tesseract is missing,
+   the image was built without the `apt-get` layer; nothing else is affected.
 
 ## Updating
 

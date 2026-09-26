@@ -194,6 +194,14 @@ class TestFailingUsefully:
         assert ".csv" in message and ".xlsx" in message
         assert "paste" in message
 
+    def test_a_photograph_is_pointed_at_the_route_that_can_read_it(self):
+        """A photograph is not unreadable, only unreadable *here* — it goes
+        through OCR into a grid the user checks, never straight into a fit."""
+        with pytest.raises(UnreadableTable) as raised:
+            read_table(b"\xff\xd8\xff\xe0", "field-sheet.jpg")
+
+        assert "Photograph of a table" in str(raised.value)
+
     def test_one_column_says_what_readings_need(self):
         """The commonest real failure: a file delimited by something the sniffer
         could not see, arriving as a single column of text."""

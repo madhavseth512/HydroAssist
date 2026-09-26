@@ -3,7 +3,9 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DataPanel } from './DataPanel'
-import { csvFile, fileInput, renderWithProviders } from '../test/render'
+import {
+  csvFile, fileInput, imageFile, imageInput, renderWithProviders,
+} from '../test/render'
 import { prepared, project, stubFetch, test_ } from '../test/stubFetch'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -199,5 +201,116 @@ describe('pasting readings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use these readings' }))
 
     expect(await screen.findByText(/50 data points ready/)).toBeInTheDocument()
+  })
+})
+
+describe('a photograph of a field sheet', () => {
+  const GRID = {
+    columns: 2,
+    rows: [
+      [{ text: '1', value: 1, confidence: 95, uncertain: false },
+       { text: '0.45', value: 0.45, confidence: 61, uncertain: true }],
+      [{ text: '2', value: 2, confidence: 95, uncertain: false },
+       { text: '0.61', value: 0.61, confidence: 93, uncertain: false }],
+    ],
+    notes: ['2 rows and 2 columns of numbers were read from the image'],
+    total_cells: 4,
+    uncertain_cells: 1,
+    mostly_uncertain: false,
+  }
+
+  it('opens the grid for checking instead of storing readings', async () => {
+    const stub = stubFetch([
+      { url: '/api/project', body: project() },
+      { url: '/readings/image', method: 'POST', body: GRID },
+    ])
+
+    const { container } = renderWithProviders(<DataPanel />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Photograph/ })).toBeEnabled())
+
+    fireEvent.change(imageInput(container), { target: { files: [imageFile()] } })
+
+    expect(await screen.findByText(/Check the readings from the photograph/))
+      .toBeInTheDocument()
+    // Nothing has become readings: the panel still shows no data, and no
+    // intake route has been called.
+    expect(screen.queryByText(/50 data points ready/)).toBeNull()
+    expect(stub.mock.mock.calls.some(([url]) =>
+      String(url).endsWith('/readings') || String(url).includes('/readings/text')))
+      .toBe(false)
+  })
+
+  it('sends the confirmed grid through the same route as typed numbers', async () => {
+    const stub = stubFetch([
+      { url: '/api/project', body: project() },
+      { url: '/readings/image', method: 'POST', body: GRID },
+      { url: '/readings/text', method: 'POST', body: prepared() },
+    ])
+
+    const { container } = renderWithProviders(<DataPanel />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Photograph/ })).toBeEnabled())
+    fireEvent.change(imageInput(container), { target: { files: [imageFile()] } })
+    await screen.findByText(/Check the readings from the photograph/)
+
+    // Name the two columns, which is the one thing a photograph cannot say.
+    fireEvent.click(screen.getByRole('textbox', { name: 'Column 1' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Time (minutes)' }))
+    fireEvent.click(screen.getByRole('textbox', { name: 'Column 2' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Drawdown (metres)' }))
+    fireEvent.click(screen.getByRole('button', { name: /Use these 2 readings/ }))
+
+    await waitFor(() => {
+      const call = stub.mock.mock.calls.find(([url]) =>
+        String(url).includes('/readings/text'))
+      expect(call).toBeTruthy()
+      expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({
+        text: 'time_min\tdrawdown_m\n1\t0.45\n2\t0.61',
+      })
+    })
+  })
+
+  it('closes the grid once the readings are in', async () => {
+    stubFetch([
+      { url: '/api/project', body: project() },
+      { url: '/readings/image', method: 'POST', body: GRID },
+      { url: '/readings/text', method: 'POST', body: prepared() },
+    ])
+
+    const { container } = renderWithProviders(<DataPanel />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Photograph/ })).toBeEnabled())
+    fireEvent.change(imageInput(container), { target: { files: [imageFile()] } })
+    await screen.findByText(/Check the readings from the photograph/)
+    fireEvent.click(screen.getByRole('textbox', { name: 'Column 1' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Time (minutes)' }))
+    fireEvent.click(screen.getByRole('textbox', { name: 'Column 2' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Drawdown (metres)' }))
+    fireEvent.click(screen.getByRole('button', { name: /Use these 2 readings/ }))
+
+    expect(await screen.findByText(/50 data points ready/)).toBeInTheDocument()
+    await waitFor(() => expect(
+      screen.queryByText(/Check the readings from the photograph/)).toBeNull())
+  })
+
+  it('discards the grid without keeping anything', async () => {
+    stubFetch([
+      { url: '/api/project', body: project() },
+      { url: '/readings/image', method: 'POST', body: GRID },
+    ])
+
+    const { container } = renderWithProviders(<DataPanel />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Photograph/ })).toBeEnabled())
+    fireEvent.change(imageInput(container), { target: { files: [imageFile()] } })
+    await screen.findByText(/Check the readings from the photograph/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+
+    await waitFor(() => expect(
+      screen.queryByText(/Check the readings from the photograph/)).toBeNull())
+    expect(screen.getByText(/a time column and a drawdown column/))
+      .toBeInTheDocument()
   })
 })

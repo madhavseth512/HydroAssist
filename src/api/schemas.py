@@ -239,6 +239,34 @@ class PastedReadings(BaseModel):
     text: str = Field(min_length=1, max_length=2_000_000)
 
 
+class OCRCellModel(BaseModel):
+    """One cell OCR proposed, with how far it is to be trusted.
+
+    `text` rather than a number, because what the user must check is the
+    characters Tesseract saw. An empty cell is `null` in the row.
+    """
+    text: str
+    value: Optional[float] = None
+    confidence: float = 0.0
+    uncertain: bool = False
+
+
+class OCRTableModel(BaseModel):
+    """A photographed table, proposed for confirmation and nothing more.
+
+    Deliberately not a `PreparedDataModel`: nothing here has been inspected,
+    validated or stored against the test. A misread digit yields a plausible fit
+    and a wrong transmissivity, so the numbers become readings only when the
+    user sends the corrected grid back through the ordinary text route.
+    """
+    rows: List[List[Optional[OCRCellModel]]] = Field(default_factory=list)
+    columns: int = 0
+    notes: List[str] = Field(default_factory=list)
+    total_cells: int = 0
+    uncertain_cells: int = 0
+    mostly_uncertain: bool = False
+
+
 class PreparedDataModel(BaseModel):
     n_points: int
     summary: str

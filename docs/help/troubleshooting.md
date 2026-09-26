@@ -41,3 +41,24 @@ reliably at all.
 ## The consultant stopped answering
 
 Its daily allowance is spent. See "The consultant". Everything else still works.
+
+## The photograph read badly, or not at all
+
+Recognition is good at printed tables photographed square-on and in focus, and
+poor at everything else — a hand-written sheet often does not read at all,
+because the recognition is trained on print.
+
+If most cells come back marked uncertain, the grid says so: correcting it cell by
+cell is then slower than typing the numbers, and typing them is not a defeat.
+
+Two specific messages:
+
+- *"no rows of numbers were found"* — the photograph is too skewed, too dark or
+  too soft. Retake it square-on, filling the frame with the table.
+- *"reading a photograph needs the Tesseract program"* — the server does not have
+  it installed. That is about the server, not your image, and no other way of
+  getting data in is affected.
+
+Lines that held a single number are left out and counted, because one number on a
+line is as likely to be a page number as a reading. If a reading was lost that
+way, type it into the grid.

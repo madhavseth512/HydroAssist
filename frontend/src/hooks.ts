@@ -229,6 +229,24 @@ export function usePasteReadings(testId: string | undefined) {
     'Those readings could not be used')
 }
 
+/** Read a photograph of a field sheet into a grid to confirm.
+ *
+ * Deliberately not a `useReadingsMutation`: this stores nothing and invalidates
+ * nothing, because nothing has become readings. The corrected grid goes through
+ * `usePasteReadings`, so an image can only reach a fit by way of a person.
+ */
+export function useReadImage(testId: string | undefined) {
+  return useMutation({
+    mutationFn: (file: File) => {
+      if (!testId) {
+        return Promise.reject(new Error('The project is still loading — try again in a moment.'))
+      }
+      return api.readImage(testId, file)
+    },
+    onError: (error) => reportError(error, 'That photograph could not be read'),
+  })
+}
+
 /** Run a fit. The server stores the setup on the test before fitting, so the
  * form, the project and the result describe the same test afterwards. */
 export function useRunAnalysis() {

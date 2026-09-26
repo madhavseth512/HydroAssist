@@ -28,6 +28,7 @@ import {
 import { useDisclosure } from '@mantine/hooks'
 import {
   IconAlertTriangle,
+  IconCamera,
   IconChartHistogram,
   IconClipboard,
   IconFileUpload,
@@ -36,9 +37,10 @@ import {
 import { useState } from 'react'
 
 import type { PreparedData, Test } from '../api/client'
+import { OCRGrid } from '../components/OCRGrid'
 import { PlotFigure } from '../components/PlotFigure'
 import {
-  useActiveTest, usePasteReadings, useReadings, useUploadReadings,
+  useActiveTest, usePasteReadings, useReadImage, useReadings, useUploadReadings,
 } from '../hooks'
 
 function titleCase(regime: string): string {
@@ -54,6 +56,10 @@ export function DataPanel() {
 
   const upload = useUploadReadings(testId)
   const paste = usePasteReadings(testId)
+  // A photograph does not become readings here. It returns a grid, the user
+  // corrects it, and the corrected grid goes out through `paste` — the same
+  // route typed numbers take. See components/OCRGrid.tsx.
+  const photograph = useReadImage(testId)
   const [pasting, pastingControls] = useDisclosure(false)
   const [pasted, setPasted] = useState('')
   // Only ask for readings a test actually has; otherwise every empty test
@@ -77,6 +83,19 @@ export function DataPanel() {
             {/* Whatever the numbers arrive in. The server sniffs the delimiter
                 and reads Excel workbooks, so this list is about the file
                 dialog, not about what the reader can do. */}
+            {/* A field sheet that exists only on paper. `capture` offers the
+                camera directly on a phone, which is where the photograph is. */}
+            <FileButton accept="image/*" capture="environment"
+                        onChange={(file) => file && photograph.mutate(file)}>
+              {(props) => (
+                <Button {...props} size="xs" variant="subtle"
+                        leftSection={<IconCamera size={16} />}
+                        loading={photograph.isPending}
+                        disabled={!testId}>
+                  Photograph of a table
+                </Button>
+              )}
+            </FileButton>
             <FileButton accept=".csv,.txt,.tsv,.dat,.prn,.xlsx,.xlsm,.lev,.mon,.xle,text/csv,text/plain"
                         onChange={(file) => file && upload.mutate(file)}>
               {(props) => (
@@ -90,6 +109,16 @@ export function DataPanel() {
             </FileButton>
           </Group>
         </Group>
+
+        <OCRGrid
+          table={photograph.data ?? null}
+          opened={Boolean(photograph.data)}
+          busy={paste.isPending}
+          onClose={() => photograph.reset()}
+          onConfirm={(text) => paste.mutate(text, {
+            onSuccess: () => photograph.reset(),
+          })}
+        />
 
         {pasting && (
           <Stack gap="xs">
@@ -126,7 +155,9 @@ export function DataPanel() {
             hours and drawdown in metres or feet are all recognised, and
             converted for you. A logger export (Solinst, Diver, In-Situ) is read
             directly: its timestamps become elapsed time and its water levels
-            become drawdown, with every conversion listed.
+            become drawdown, with every conversion listed. A photograph of a
+            printed table is read too — into a grid you check first, because a
+            misread digit fits as well as the right number.
           </Alert>
         )}
 

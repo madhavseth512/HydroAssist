@@ -94,6 +94,25 @@ def prepared_model(prepared) -> schemas.PreparedDataModel:
     )
 
 
+def ocr_table_model(read) -> schemas.OCRTableModel:
+    """A photographed table as a grid to confirm.
+
+    Every cell keeps the text Tesseract saw and its confidence, because the check
+    the user performs is against the sheet in front of them, not against a
+    number this has already decided to believe.
+    """
+    return schemas.OCRTableModel(
+        rows=[[None if cell is None else schemas.OCRCellModel(
+            text=cell.text, value=cell.value, confidence=cell.confidence,
+            uncertain=cell.uncertain) for cell in row] for row in read.rows],
+        columns=read.columns,
+        notes=list(read.notes),
+        total_cells=read.total_cells,
+        uncertain_cells=read.uncertain_cells,
+        mostly_uncertain=read.mostly_uncertain,
+    )
+
+
 # ── Results ───────────────────────────────────────────────────────────────────
 
 def result_model(result, record: dict) -> schemas.ResultModel:

@@ -18,7 +18,7 @@ from src.api.sessions import SessionState
 from src.calculator import registry
 from src.project import workspace as ws
 from src.project.model import Project, ProjectFileError
-from src.services import data_intake, table_reader
+from src.services import data_intake, table_ocr, table_reader
 
 router = APIRouter(prefix="/api", tags=["workspace"])
 
@@ -251,6 +251,38 @@ def paste_readings(test_id: str, payload: schemas.PastedReadings,
     session.prepared = prepared
     _stage_for_chat(session, prepared)
     return presenters.prepared_model(prepared)
+
+
+@router.post("/tests/{test_id}/readings/image", response_model=schemas.OCRTableModel)
+async def read_readings_image(test_id: str,
+                              session: SessionState = Depends(current_session),
+                              file: UploadFile = File(...)):
+    """Propose a grid from a photograph of a field sheet. Stores nothing.
+
+    Deliberately not an intake route. It does not touch `test.readings`, does not
+    inspect or validate, and does not reach the chat: it hands back what OCR
+    saw, cell by cell, with the confidence of each. The user corrects the grid
+    and sends it as text, so an image reaches a calculator only through a person.
+
+    A misread digit does not fail — it fits, and reports a wrong transmissivity
+    with no warning anywhere. That is the whole reason this route is separate.
+    """
+    # The test need not hold the readings, but it must exist: a proposal belongs
+    # to the test the user is filling in.
+    test_or_404(session, test_id)
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="That image is too large.")
+
+    try:
+        read = table_ocr.read_image_table(raw)
+    except table_ocr.OCRNotAvailable as exc:
+        # 503 when the server cannot do it at all, 400 when this image is the
+        # problem — the browser tells the two apart to decide what to offer.
+        status = 400 if "could not be opened" in str(exc) else 503
+        raise HTTPException(status_code=status, detail=str(exc))
+
+    return presenters.ocr_table_model(read)
 
 
 @router.get("/tests/{test_id}/readings", response_model=schemas.PreparedDataModel)

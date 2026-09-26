@@ -264,6 +264,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tests/{test_id}/readings/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read Readings Image
+         * @description Propose a grid from a photograph of a field sheet. Stores nothing.
+         *
+         *     Deliberately not an intake route. It does not touch `test.readings`, does not
+         *     inspect or validate, and does not reach the chat: it hands back what OCR
+         *     saw, cell by cell, with the confidence of each. The user corrects the grid
+         *     and sends it as text, so an image reaches a calculator only through a person.
+         *
+         *     A misread digit does not fail — it fits, and reports a wrong transmissivity
+         *     with no warning anywhere. That is the whole reason this route is separate.
+         */
+        post: operations["read_readings_image_api_tests__test_id__readings_image_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tests/{test_id}/setup": {
         parameters: {
             query?: never;
@@ -586,6 +614,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_read_readings_image_api_tests__test_id__readings_image_post */
+        Body_read_readings_image_api_tests__test_id__readings_image_post: {
+            /** File */
+            file: string;
+        };
         /** Body_upload_readings_api_tests__test_id__readings_post */
         Body_upload_readings_api_tests__test_id__readings_post: {
             /** File */
@@ -827,6 +860,64 @@ export interface components {
             needs_well_geometry: boolean;
             /** Estimates Storativity */
             estimates_storativity: boolean;
+        };
+        /**
+         * OCRCellModel
+         * @description One cell OCR proposed, with how far it is to be trusted.
+         *
+         *     `text` rather than a number, because what the user must check is the
+         *     characters Tesseract saw. An empty cell is `null` in the row.
+         */
+        OCRCellModel: {
+            /** Text */
+            text: string;
+            /** Value */
+            value?: number | null;
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /**
+             * Uncertain
+             * @default false
+             */
+            uncertain: boolean;
+        };
+        /**
+         * OCRTableModel
+         * @description A photographed table, proposed for confirmation and nothing more.
+         *
+         *     Deliberately not a `PreparedDataModel`: nothing here has been inspected,
+         *     validated or stored against the test. A misread digit yields a plausible fit
+         *     and a wrong transmissivity, so the numbers become readings only when the
+         *     user sends the corrected grid back through the ordinary text route.
+         */
+        OCRTableModel: {
+            /** Rows */
+            rows?: (components["schemas"]["OCRCellModel"] | null)[][];
+            /**
+             * Columns
+             * @default 0
+             */
+            columns: number;
+            /** Notes */
+            notes?: string[];
+            /**
+             * Total Cells
+             * @default 0
+             */
+            total_cells: number;
+            /**
+             * Uncertain Cells
+             * @default 0
+             */
+            uncertain_cells: number;
+            /**
+             * Mostly Uncertain
+             * @default false
+             */
+            mostly_uncertain: boolean;
         };
         /** ParameterModel */
         ParameterModel: {
@@ -1707,6 +1798,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreparedDataModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_readings_image_api_tests__test_id__readings_image_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                test_id: string;
+            };
+            cookie?: {
+                hydroassist_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_read_readings_image_api_tests__test_id__readings_image_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OCRTableModel"];
                 };
             };
             /** @description Validation Error */

@@ -32,6 +32,8 @@ export type ComparisonRow = Schemas['ComparisonRowModel']
 export type ChatState = Schemas['ChatStateModel']
 export type ChatMessage = Schemas['MessageModel']
 export type Suggestion = Schemas['SuggestionModel']
+export type OCRTable = Schemas['OCRTableModel']
+export type OCRCell = Schemas['OCRCellModel']
 
 /** An error the server explained. `detail` is written for the user to read. */
 export class ApiError extends Error {
@@ -142,6 +144,10 @@ export const api = {
     json<PreparedData>(`/api/tests/${testId}/readings/text`, 'POST', { text }),
   readings: (testId: string) =>
     request<PreparedData>(`/api/tests/${testId}/readings`),
+  // A photograph of a field sheet. Note the return type: a grid to confirm, not
+  // readings. Nothing is stored until the corrected grid is pasted back.
+  readImage: (testId: string, file: File) =>
+    upload<OCRTable>(`/api/tests/${testId}/readings/image`, file),
 
   // ── Analysis ─────────────────────────────────────────────────────────────
   saveSetup: (testId: string, setup: Setup) =>
