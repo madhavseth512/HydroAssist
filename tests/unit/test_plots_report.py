@@ -307,3 +307,93 @@ class TestValidityNoteSanitiser:
         """Every note the calculators emit must sanitise without raising."""
         for note in theis_result.validity_notes:
             assert isinstance(report._sanitise(note), str)
+
+
+class TestTheTwoPanelFrame:
+    """What a reviewer sees before they see the science.
+
+    The five two-panel diagnostics were written five times and had drifted into
+    the same three faults. They share one frame now, and these pin each fault to
+    the figure it was found in — reported from the deployed site, on the
+    Papadopulos-Cooper fit, where "Time (s)" was drawn across "Residuals".
+    """
+
+    def figures(self, theis_result, cj_result, pc_result):
+        return {
+            "theis": plots.theis_diagnostic(theis_result, Q_SI, R_OBS),
+            "cooper-jacob": plots.cj_diagnostic(cj_result, Q_SI, R_OBS,
+                                                n_excluded=3),
+            "papadopulos-cooper": plots.pc_diagnostic(pc_result, Q_PC, R_W, R_C),
+            "generic": plots.generic_diagnostic(theis_result),
+        }
+
+    def test_only_the_lower_panel_is_labelled_with_time(
+            self, theis_result, cj_result, pc_result):
+        """The overlap itself: with a shared axis, an x title on the top panel is
+        drawn in the gap between the panels, on top of the lower heading."""
+        for name, fig in self.figures(theis_result, cj_result, pc_result).items():
+            assert fig.layout.xaxis.title.text is None, \
+                f"{name}: the top panel must not repeat the shared x title"
+            assert fig.layout.xaxis2.title.text, f"{name}: no x title below"
+
+    def test_the_time_axis_is_named_once_per_figure(
+            self, theis_result, cj_result, pc_result):
+        for name, fig in self.figures(theis_result, cj_result, pc_result).items():
+            titles = [axis.title.text for axis in
+                      (fig.layout.xaxis, fig.layout.xaxis2)]
+            assert titles.count("Time (s)") == 1, f"{name}: {titles}"
+
+    def test_the_heading_and_the_axis_do_not_share_a_line(
+            self, theis_result, cj_result, pc_result):
+        """The lower heading sits above its panel; the gap has to be wide enough
+        to hold it and the tick labels of the panel above."""
+        for name, fig in self.figures(theis_result, cj_result, pc_result).items():
+            headings = [a for a in fig.layout.annotations
+                        if a.text and a.text.startswith("Residuals")]
+            assert headings, f"{name}: no residual heading"
+            # The top panel ends here, in paper coordinates.
+            top_panel_bottom = fig.layout.yaxis.domain[0]
+            assert headings[0].y < top_panel_bottom, \
+                f"{name}: the heading is drawn inside the panel above it"
+
+    def test_residuals_are_markers_on_a_zero_line(
+            self, theis_result, cj_result, pc_result):
+        """Bars on a logarithmic axis have meaningless widths, and at late time
+        they overlap into a block."""
+        for name, fig in self.figures(theis_result, cj_result, pc_result).items():
+            kinds = {trace.type for trace in fig.data}
+            assert "bar" not in kinds, f"{name}: residuals are still bars"
+            residuals = [t for t in fig.data if (t.name or "").startswith("Residual")]
+            assert residuals, f"{name}: no residual trace"
+            assert residuals[0].mode == "markers"
+
+    def test_the_zero_line_is_visible_on_a_white_page(
+            self, theis_result, cj_result, pc_result):
+        """It was white: the one line a residual plot is read against, invisible
+        on the theme the app actually uses."""
+        for name, fig in self.figures(theis_result, cj_result, pc_result).items():
+            lines = [shape for shape in fig.layout.shapes
+                     if shape.type == "line"]
+            assert lines, f"{name}: no zero line"
+            for shape in lines:
+                assert shape.line.color != "white", f"{name}: white zero line"
+
+    def test_the_rmse_band_matches_the_number_in_the_title(self, theis_result):
+        """The band gives the scatter a scale; if it disagreed with the quoted
+        RMSE it would mislead rather than help."""
+        fig = plots.theis_diagnostic(theis_result, Q_SI, R_OBS)
+        bands = [s for s in fig.layout.shapes if s.type == "rect"]
+
+        assert len(bands) == 1
+        assert bands[0].y1 == pytest.approx(theis_result.rmse * 1000, rel=1e-9)
+        assert bands[0].y0 == pytest.approx(-theis_result.rmse * 1000, rel=1e-9)
+
+    def test_cooper_jacob_shows_residuals_only_where_it_fitted(self, cj_result):
+        """Cooper-Jacob ignores early time by design, so a residual against the
+        line there is not a misfit and must not be drawn as one."""
+        fig = plots.cj_diagnostic(cj_result, Q_SI, R_OBS, n_excluded=3)
+        residuals = [t for t in fig.data if (t.name or "").startswith("Residual")][0]
+
+        assert len(residuals.x) == len(cj_result.time_s) - 3
+        assert "late-time" in " ".join(
+            a.text for a in fig.layout.annotations if a.text)

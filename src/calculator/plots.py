@@ -44,6 +44,82 @@ _LEGEND_H = dict(
 _MARGIN_DUAL  = dict(t=55, b=110, l=60, r=20)   # two-panel static plots
 _MARGIN_SINGLE = dict(t=55, b=100, l=60, r=20)  # single-panel interactive plots
 
+# ── The two-panel frame: a fit above, its residuals below ─────────────────────
+#
+# Written once because it was written five times, and the five had drifted into
+# three faults that a reviewer would notice before they noticed the science:
+#
+# - The top panel carried an x-axis title of its own even though the axes are
+#   shared, so "Time (s)" was drawn in the gap between the panels, on top of the
+#   "Residuals" heading. With shared axes only the bottom panel is labelled.
+# - The zero line was white. On the light theme the app actually uses, the one
+#   line a residual plot is read against was invisible.
+# - Residuals were bars on a logarithmic time axis, where a bar's width means
+#   nothing and neighbouring bars at late time overlap into a block. Markers on a
+#   zero line are how a residual plot is read, and the ±RMSE band gives the eye
+#   the scale that the numbers in the title state.
+
+# Enough room under the top panel for its x tick labels and the lower heading.
+_PANEL_SPACING = 0.13
+_PANEL_HEIGHTS = [0.72, 0.28]
+
+COL_ZERO = "#6c757d"   # grey — the zero line, and the RMSE band's edges
+
+
+def _two_panel(top_title: str, bottom_title: str = "Residuals") -> go.Figure:
+    """A fit above and its residuals below, sharing one time axis."""
+    return make_subplots(
+        rows=2, cols=1,
+        row_heights=_PANEL_HEIGHTS,
+        shared_xaxes=True,
+        vertical_spacing=_PANEL_SPACING,
+        subplot_titles=(top_title, bottom_title),
+    )
+
+
+def _add_residuals(fig, x, residual_m, rmse_m: float = 0.0) -> None:
+    """The lower panel: residuals in millimetres about zero.
+
+    Markers rather than bars, a visible zero line, and a shaded ±RMSE band so
+    the scatter can be read against the fit statistic quoted in the title.
+    """
+    residual_mm = np.asarray(residual_m) * 1000.0
+
+    # The trace goes first, and not for tidiness: `add_hline(row=…)` defaults to
+    # `exclude_empty_subplots=True`, and a panel with no trace in it yet counts as
+    # empty — so a zero line added before its points is silently dropped, and the
+    # figure comes back looking right apart from the one line the panel is read
+    # against. Pinned by test_the_zero_line_is_visible_on_a_white_page.
+    fig.add_trace(go.Scatter(
+        x=x, y=residual_mm, mode="markers", name="Residual (mm)",
+        marker=dict(color=COL_OBS, size=6, symbol="circle",
+                    line=dict(width=1, color=COL_FIT)),
+        hovertemplate="t = %{x:.1f} s<br>residual = %{y:.2f} mm<extra></extra>",
+        showlegend=False,
+    ), row=2, col=1)
+
+    if rmse_m > 0:
+        fig.add_hrect(
+            y0=-rmse_m * 1000.0, y1=rmse_m * 1000.0,
+            line_width=0, fillcolor=COL_OBS, opacity=0.10, layer="below",
+            row=2, col=1,
+        )
+    fig.add_hline(y=0, line=dict(color=COL_ZERO, width=1), layer="below",
+                  row=2, col=1)
+
+
+def _label_panels(fig, x_title: str, y_title: str, y_log: bool = True,
+                  residual_title: str = "Residual (mm)") -> None:
+    """Axis titles in the only places they belong on a shared-axis pair."""
+    # Top panel: no x title — the axis is shared and labelled once, below.
+    fig.update_xaxes(type="log", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
+    fig.update_yaxes(type="log" if y_log else "linear", title_text=y_title,
+                     showgrid=True, gridcolor=COL_GRID, row=1, col=1)
+    fig.update_xaxes(type="log", title_text=x_title, showgrid=True,
+                     gridcolor=COL_GRID, row=2, col=1)
+    fig.update_yaxes(title_text=residual_title, showgrid=True,
+                     gridcolor=COL_GRID, zeroline=False, row=2, col=1)
+
 
 # ── Theis static plot ─────────────────────────────────────────────────────────
 
@@ -54,17 +130,9 @@ def theis_diagnostic(result: CalculationResult, Q: float, r: float) -> go.Figure
     not recoverable from CalculationResult, so the caller must supply them —
     without them the theoretical curve cannot be drawn at all.
     """
-    fig = make_subplots(
-        rows=2, cols=1,
-        row_heights=[0.75, 0.25],
-        shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(
-            f"Theis (1935) — Log-Log Type Curve   "
-            f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse*1000:.2f} mm)",
-            "Residuals",
-        ),
-    )
+    fig = _two_panel(
+        f"Theis (1935) — Log-Log Type Curve   "
+        f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse*1000:.2f} mm)")
 
     t      = result.time_s
     s_obs  = result.drawdown_obs
@@ -87,19 +155,9 @@ def theis_diagnostic(result: CalculationResult, Q: float, r: float) -> go.Figure
     ), row=1, col=1)
 
     if s_fit is not None:
-        res = s_obs - s_fit
-        fig.add_trace(go.Bar(
-            x=t, y=res * 1000, name="Residual (mm)",
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res],
-            hovertemplate="t = %{x:.1f} s<br>res = %{y:.2f} mm<extra></extra>",
-            showlegend=False,
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+        _add_residuals(fig, t, s_obs - s_fit, result.rmse)
 
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+    _label_panels(fig, "Time (s)", "Drawdown (m)")
     fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL, hovermode="x unified")
     return fig
 
@@ -113,17 +171,10 @@ def cj_diagnostic(result: CalculationResult, Q: float, r: float,
     Q [m³/s] and r [m] are the test parameters the fit was run with; r is
     needed to place the t₀ intercept marker (paper Eq. 9).
     """
-    fig = make_subplots(
-        rows=2, cols=1,
-        row_heights=[0.75, 0.25],
-        shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(
-            f"Cooper-Jacob (1946) — Semi-Log Straight Line   "
-            f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse*1000:.2f} mm)",
-            "Residuals",
-        ),
-    )
+    fig = _two_panel(
+        f"Cooper-Jacob (1946) — Semi-Log Straight Line   "
+        f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse*1000:.2f} mm)",
+        "Residuals (the late-time readings the line was fitted to)")
 
     t     = result.time_s
     s_obs = result.drawdown_obs
@@ -164,19 +215,12 @@ def cj_diagnostic(result: CalculationResult, Q: float, r: float,
         )
 
     if s_fit is not None:
-        res = s_obs[n_excluded:] - s_fit[n_excluded:]
-        fig.add_trace(go.Bar(
-            x=t_late, y=res * 1000, name="Residual (mm)",
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res],
-            showlegend=False,
-            hovertemplate="t = %{x:.1f} s<br>res = %{y:.2f} mm<extra></extra>",
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+        # Only the points the line was fitted to: a residual against a straight
+        # line that deliberately ignores early time is not a misfit.
+        _add_residuals(fig, t_late, s_obs[n_excluded:] - s_fit[n_excluded:],
+                       result.rmse)
 
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+    _label_panels(fig, "Time (s)", "Drawdown (m)", y_log=False)
     fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL, hovermode="x unified")
     return fig
 
@@ -284,16 +328,8 @@ def pc_diagnostic(result: CalculationResult, Q: float,
                   r_w: float, r_c: float) -> go.Figure:
     alpha_fit = (r_w ** 2 * result.S) / (r_c ** 2)
 
-    fig = make_subplots(
-        rows=2, cols=1,
-        row_heights=[0.75, 0.25],
-        shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(
-            f"Papadopulos-Cooper (1967) — Log-Log Type Curve  (α = {alpha_fit:.2e})",
-            "Residuals",
-        ),
-    )
+    fig = _two_panel(
+        f"Papadopulos-Cooper (1967) — Log-Log Type Curve  (α = {alpha_fit:.2e})")
 
     t     = result.time_s
     s_obs = result.drawdown_obs
@@ -330,13 +366,7 @@ def pc_diagnostic(result: CalculationResult, Q: float,
 
     if s_fit is not None:
         res = s_obs - s_fit
-        fig.add_trace(go.Bar(
-            x=t, y=res * 1000, name="Residual (mm)",
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res],
-            showlegend=False,
-            hovertemplate="t = %{x:.1f} s<br>res = %{y:.2f} mm<extra></extra>",
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+        _add_residuals(fig, t, res, result.rmse)
 
     # Shade wellbore-storage zone
     u_w_arr = (r_w ** 2 * result.S) / (4.0 * result.T * t_smooth)
@@ -350,10 +380,7 @@ def pc_diagnostic(result: CalculationResult, Q: float,
             row=1, col=1,
         )
 
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True, gridcolor=COL_GRID, row=1, col=1)
-    fig.update_xaxes(type="log", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID, row=2, col=1)
+    _label_panels(fig, "Time (s)", "Drawdown (m)")
     fig.update_layout(height=580, legend=_LEGEND_H, margin=_MARGIN_DUAL, hovermode="x unified")
     return fig
 
@@ -513,15 +540,9 @@ def generic_diagnostic(result: CalculationResult, title: str = None) -> go.Figur
     s_fit = (np.asarray(result.drawdown_fitted, dtype=float)
              if result.drawdown_fitted is not None else None)
 
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(
-            f"{title or result.method} — Log-Log Fit   "
-            f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse * 1000:.2f} mm)",
-            "Residuals",
-        ),
-    )
+    fig = _two_panel(
+        f"{title or result.method} — Log-Log Fit   "
+        f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse * 1000:.2f} mm)")
 
     shown = s_obs > 0          # a log axis cannot place non-positive values
     fig.add_trace(go.Scatter(
@@ -541,19 +562,9 @@ def generic_diagnostic(result: CalculationResult, title: str = None) -> go.Figur
         ), row=1, col=1)
 
         res = s_obs - s_fit
-        fig.add_trace(go.Bar(
-            x=t, y=res * 1000, name="Residual (mm)",
-            marker_color=[COL_FIT if v < 0 else COL_OBS for v in res],
-            showlegend=False,
-            hovertemplate="t = %{x:.1f} s<br>res = %{y:.2f} mm<extra></extra>",
-        ), row=2, col=1)
-        fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+        _add_residuals(fig, t, res, result.rmse)
 
-    fig.update_xaxes(type="log", title_text="Time (s)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(type="log", title_text="Drawdown (m)", showgrid=True,
-                     gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID,
-                     row=2, col=1)
+    _label_panels(fig, "Time (s)", "Drawdown (m)")
     fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL,
                       hovermode="x unified")
     return fig
@@ -663,15 +674,10 @@ def recovery_diagnostic(result: CalculationResult) -> go.Figure:
     s_fit = np.asarray(result.drawdown_fitted, dtype=float)
     t_p_h = result.diagnostics.get("pumping_duration_s", 0.0) / 3600.0
 
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(
-            f"{result.method} — Residual Drawdown vs t/t′   (t_p = {t_p_h:.2f} h, "
-            f"R² = {result.r_squared:.4f}, RMSE = {result.rmse * 1000:.2f} mm)",
-            "Residuals (readings used in the fit)",
-        ),
-    )
+    fig = _two_panel(
+        f"{result.method} — Residual Drawdown vs t/t′   (t_p = {t_p_h:.2f} h, "
+        f"R² = {result.r_squared:.4f}, RMSE = {result.rmse * 1000:.2f} mm)",
+        "Residuals (readings used in the fit)")
     fig.add_trace(go.Scatter(
         x=ratio[fitted], y=s_obs[fitted], mode="markers", name="Used in the fit",
         marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
@@ -691,21 +697,13 @@ def recovery_diagnostic(result: CalculationResult) -> go.Figure:
         name=f"Recovery line  ({_parameter_summary(result)})",
         line=dict(color=COL_FIT, width=2),
     ), row=1, col=1)
-    fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dot"), row=1, col=1)
+    # s′ = 0 is where the recovery line must pass at t/t′ = 1.
+    fig.add_hline(y=0, line=dict(color=COL_ZERO, width=1, dash="dot"), row=1, col=1)
 
-    res = s_obs[fitted] - s_fit[fitted]
-    fig.add_trace(go.Bar(
-        x=ratio[fitted], y=res * 1000, name="Residual (mm)",
-        marker_color=[COL_FIT if v < 0 else COL_OBS for v in res], showlegend=False,
-    ), row=2, col=1)
-    fig.add_hline(y=0, line=dict(color="white", width=0.8, dash="dash"), row=2, col=1)
+    _add_residuals(fig, ratio[fitted], s_obs[fitted] - s_fit[fitted], result.rmse)
 
-    fig.update_xaxes(type="log", title_text="t/t′  (time since pumping started ÷ "
-                     "time since it stopped)", showgrid=True, gridcolor=COL_GRID)
-    fig.update_yaxes(title_text="Residual drawdown s′ (m)", showgrid=True,
-                     gridcolor=COL_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Residual (mm)", showgrid=True, gridcolor=COL_GRID,
-                     row=2, col=1)
+    _label_panels(fig, "t/t′  (time since pumping started ÷ time since it stopped)",
+                  "Residual drawdown s′ (m)", y_log=False)
     fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL,
                       hovermode="x unified")
     return fig
