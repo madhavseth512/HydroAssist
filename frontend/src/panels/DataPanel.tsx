@@ -77,7 +77,7 @@ export function DataPanel() {
             {/* Whatever the numbers arrive in. The server sniffs the delimiter
                 and reads Excel workbooks, so this list is about the file
                 dialog, not about what the reader can do. */}
-            <FileButton accept=".csv,.txt,.tsv,.dat,.prn,.xlsx,.xlsm,text/csv,text/plain"
+            <FileButton accept=".csv,.txt,.tsv,.dat,.prn,.xlsx,.xlsm,.lev,.mon,.xle,text/csv,text/plain"
                         onChange={(file) => file && upload.mutate(file)}>
               {(props) => (
                 <Button {...props} size="xs" variant="light"
@@ -124,7 +124,9 @@ export function DataPanel() {
             Upload or paste a time column and a drawdown column — CSV, tab- or
             space-delimited text, or an Excel sheet. Time in seconds, minutes or
             hours and drawdown in metres or feet are all recognised, and
-            converted for you.
+            converted for you. A logger export (Solinst, Diver, In-Situ) is read
+            directly: its timestamps become elapsed time and its water levels
+            become drawdown, with every conversion listed.
           </Alert>
         )}
 

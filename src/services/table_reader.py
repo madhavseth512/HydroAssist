@@ -20,10 +20,13 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
+from src.services import logger_import
+
 # Extensions we recognise, and what to say when none matches.
 DELIMITED = (".csv", ".txt", ".tsv", ".dat", ".prn")
+LOGGER = (".lev", ".mon", ".xle")
 EXCEL = (".xlsx", ".xlsm", ".xltx")
-SUPPORTED = DELIMITED + EXCEL
+SUPPORTED = DELIMITED + EXCEL + LOGGER
 
 # Pasted text arrives without a filename; this stands in for one.
 PASTED = "pasted.txt"
@@ -121,6 +124,16 @@ def read_table(raw: bytes, filename: str = "",
 
     if suffix in EXCEL:
         frame, notes = _read_excel(raw, sheet)
+    elif suffix in LOGGER or (suffix in DELIMITED
+                              and logger_import.looks_like_logger_export(raw)):
+        # A transducer export: a metadata block, a clock, and a water level
+        # rather than elapsed seconds and drawdown. Recognised by its header
+        # even when it is named .csv, which is how In-Situ writes it.
+        try:
+            readings = logger_import.read_logger_export(raw)
+        except logger_import.NotALoggerFile as error:
+            raise UnreadableTable(str(error)) from error
+        frame, notes = readings.df, list(readings.notes)
     elif suffix in DELIMITED or not suffix:
         frame, notes = _read_delimited(raw), []
     else:
