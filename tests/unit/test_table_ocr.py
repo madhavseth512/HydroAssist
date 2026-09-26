@@ -323,6 +323,29 @@ class TestARealPhotograph:
         assert [cell.value for cell in flagged] == [5.0]
         assert any("marked for checking" in note for note in read.notes)
 
+    def test_a_colour_photograph_at_phone_resolution_is_scaled_and_read(
+            self, photograph):
+        """What actually arrives: several thousand pixels across, in colour.
+
+        Decoding that costs tens of megabytes before Tesseract starts, on a host
+        with 512 MB of which the knowledge base already holds most. It is scaled
+        and reduced to grey rather than refused, and the scaling is reported.
+        """
+        import io
+
+        from PIL import Image
+
+        sheet = Image.open(io.BytesIO(photograph)).convert("RGB")
+        big = sheet.resize((sheet.width * 5, sheet.height * 5), Image.LANCZOS)
+        buffer = io.BytesIO()
+        big.save(buffer, format="JPEG", quality=88)
+
+        read = read_image_table(buffer.getvalue())
+
+        assert len(read.rows) == 13
+        assert [cell.value for cell in read.rows[0]] == [1.0, 0.22]
+        assert any("it was scaled to" in note for note in read.notes)
+
     def test_the_grid_is_offered_as_text_the_ordinary_reader_takes(
             self, photograph):
         from src.services.table_reader import read_table

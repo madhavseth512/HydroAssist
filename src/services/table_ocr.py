@@ -60,11 +60,13 @@ _NUMBER = re.compile(r"^[-+]?\d{1,7}(?:[.,]\d{1,6})?$")
 # "49" would be a drawdown a hundred times too large, so it is refused instead.
 _STRIP = " \t|:;'\"`()[]{}"
 
-# Recognition cost grows with the pixel count, and the deployed host has a tenth
-# of a CPU. A phone photograph is 4,000 to 8,000 pixels across, far more than
-# Tesseract needs for text this size, so a large image is scaled down first
-# rather than refused — refusing would mean telling people to resize a photo.
-MAX_DIMENSION = 3000
+# Recognition costs both time and memory, and the deployed host has a tenth of a
+# CPU and 512 MB — of which a loaded knowledge base and a conversation already
+# hold 300 to 400. A modern phone photograph is 4,000 to 8,000 pixels across,
+# which decodes to tens of megabytes before Tesseract has started; 2,000 is
+# ample for digits a table's height, and the image is scaled rather than refused,
+# since refusing would mean telling people to go and resize a photo.
+MAX_DIMENSION = 2000
 
 
 @dataclass
@@ -195,18 +197,25 @@ def read_image_table(raw: bytes, language: str = "eng") -> ReadTable:
         raise OCRNotAvailable(f"that image could not be opened: {error}") from error
 
     scaled = ""
+    grey = None
     try:
         if max(image.size) > MAX_DIMENSION:
             original = image.size
             image.thumbnail((MAX_DIMENSION, MAX_DIMENSION))
             scaled = (f"The image was {original[0]}×{original[1]}; it was scaled "
                       f"to {image.size[0]}×{image.size[1]} to read")
+        # Tesseract binarises the image anyway, so colour buys nothing and costs
+        # three bytes a pixel on a host with 512 MB. Held separately so both
+        # bitmaps are released, not just whichever one the name ended up on.
+        grey = image if image.mode in ("L", "1") else image.convert("L")
         data = pytesseract.image_to_data(
-            image, lang=language, output_type=pytesseract.Output.DICT)
+            grey, lang=language, output_type=pytesseract.Output.DICT)
     except Exception as error:
         raise OCRNotAvailable(
             f"Tesseract could not read the image: {error}") from error
     finally:
+        if grey is not None and grey is not image:
+            grey.close()
         image.close()
 
     table = rows_from_words(data)
