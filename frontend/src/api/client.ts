@@ -91,6 +91,20 @@ function upload<T>(path: string, file: File): Promise<T> {
 }
 
 /** A file the browser saves, e.g. the project or the report. */
+/** A response read as text rather than parsed. The project file is JSON, but
+ * autosave keeps the server's own bytes so that restoring re-uploads exactly
+ * what Save would have written. */
+async function requestText(path: string): Promise<string> {
+  let response: Response
+  try {
+    response = await fetch(path, { credentials: 'include' })
+  } catch {
+    throw new ApiError(0, 'Cannot reach the server. Check that it is running.')
+  }
+  if (!response.ok) throw new ApiError(response.status, await detailOf(response))
+  return response.text()
+}
+
 async function download(path: string, fallbackName: string): Promise<void> {
   const response = await fetch(path, { credentials: 'include' })
   if (!response.ok) throw new ApiError(response.status, await detailOf(response))
@@ -127,6 +141,8 @@ export const api = {
   newProject: () => json<Project>('/api/project/new', 'POST'),
   openProject: (file: File) => upload<Project>('/api/project/open', file),
   saveProject: () => download('/api/project/file', 'project.hydroassist.json'),
+  // The same file, as text, for the browser-side autosave.
+  projectFile: () => requestText('/api/project/file'),
   updateInfo: (info: ProjectInfo) => json<Project>('/api/project/info', 'PATCH', info),
 
   addTest: () => json<Project>('/api/tests', 'POST'),
@@ -142,8 +158,11 @@ export const api = {
   // file first. The delimiter is sniffed on the server.
   pasteReadings: (testId: string, text: string) =>
     json<PreparedData>(`/api/tests/${testId}/readings/text`, 'POST', { text }),
-  readings: (testId: string) =>
-    request<PreparedData>(`/api/tests/${testId}/readings`),
+  // `rows` is how much of the table to send back: a preview by default, the
+  // whole thing when the user opens it to check what was read.
+  readings: (testId: string, rows?: number) =>
+    request<PreparedData>(`/api/tests/${testId}/readings`
+      + (rows ? `?rows=${rows}` : '')),
   // A photograph of a field sheet. Note the return type: a grid to confirm, not
   // readings. Nothing is stored until the corrected grid is pasted back.
   readImage: (testId: string, file: File) =>

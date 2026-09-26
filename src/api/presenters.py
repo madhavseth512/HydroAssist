@@ -68,7 +68,19 @@ def diagnosis_model(prepared) -> Optional[schemas.DiagnosisModel]:
     )
 
 
-def prepared_model(prepared) -> schemas.PreparedDataModel:
+# How much of the table travels with an ordinary intake response. Enough to see
+# that the right columns were read; the browser asks for more when the user opens
+# the preview and wants the whole thing.
+PREVIEW_ROWS = 10
+
+
+def prepared_model(prepared, rows: int = PREVIEW_ROWS) -> schemas.PreparedDataModel:
+    """The prepared readings as the browser sees them.
+
+    `rows` is how much of the table to send. The preview used to be a fixed ten
+    lines with no way to see the rest, so a user could not check the readings they
+    had uploaded — only the first few of them.
+    """
     from src.calculator.plots import derivative_diagnostic
 
     df = prepared.df
@@ -83,7 +95,7 @@ def prepared_model(prepared) -> schemas.PreparedDataModel:
     return schemas.PreparedDataModel(
         n_points=len(df),
         summary=prepared.summary(),
-        preview=df.head(10).to_dict(orient="records"),
+        preview=df.head(max(1, rows)).to_dict(orient="records"),
         conversions=list(prepared.conversions),
         rows_removed=list(prepared.rows_removed),
         inspection=inspection_model(prepared.inspection),

@@ -286,8 +286,14 @@ async def read_readings_image(test_id: str,
 
 
 @router.get("/tests/{test_id}/readings", response_model=schemas.PreparedDataModel)
-def read_readings(test_id: str, session: SessionState = Depends(current_session)):
-    """The readings already held by a test — typically a reopened project."""
+def read_readings(test_id: str, session: SessionState = Depends(current_session),
+                  rows: int = Query(presenters.PREVIEW_ROWS, ge=1, le=100_000)):
+    """The readings already held by a test — typically a reopened project.
+
+    `rows` is how much of the table to return. The default is a preview; the
+    workspace asks for the whole table when the user opens it to check what was
+    read, which is the only way to tell a misread column from a correct one.
+    """
     test = test_or_404(session, test_id)
     if test.readings is None:
         raise HTTPException(status_code=404,
@@ -297,7 +303,7 @@ def read_readings(test_id: str, session: SessionState = Depends(current_session)
     if test.id == session.active_test().id:
         session.prepared = prepared
         _stage_for_chat(session, prepared)
-    return presenters.prepared_model(prepared)
+    return presenters.prepared_model(prepared, rows=rows)
 
 
 def _stage_for_chat(session: SessionState, prepared) -> None:

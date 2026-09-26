@@ -245,3 +245,76 @@ describe('what the guide offers', () => {
     expect(screen.queryByRole('button', { name: /Go to/ })).toBeNull()
   })
 })
+
+describe('sending a question', () => {
+  /** A send that never answers, so what is on screen meanwhile is the point.
+   * The specific route goes first: routes match by substring, and '/api/chat'
+   * would otherwise answer the POST to '/api/chat/messages' as well. */
+  function hangingSend() {
+    return stubFetch([
+      { url: '/api/chat/messages', method: 'POST', pending: true },
+      { url: '/api/chat', body: state() },
+    ])
+  }
+
+  it('shows the question at once, without waiting for the answer', async () => {
+    hangingSend()
+    open()
+
+    fireEvent.change(await screen.findByLabelText('Message'),
+                     { target: { value: 'Why was u filtered?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    expect(await screen.findByText('Why was u filtered?')).toBeInTheDocument()
+  })
+
+  it('empties the box at once, so nobody asks twice', async () => {
+    hangingSend()
+    open()
+
+    const box = await screen.findByLabelText('Message')
+    fireEvent.change(box, { target: { value: 'Why was u filtered?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    expect(box).toHaveValue('')
+  })
+
+  it('drops the previous answer’s sources while the next one is in flight', async () => {
+    stubFetch([
+      { url: '/api/chat/messages', method: 'POST', pending: true },
+      { url: '/api/chat', body: state({
+        messages: [{ role: 'assistant', content: 'Theis assumes a confined aquifer.' }],
+        retrieved: [{ source: 'Theis (1935)', method: 'theis_1935', aquifer: 'confined',
+                      score: 0.9, preview: 'the aquifer is confined…' }],
+      }) },
+    ])
+    open()
+
+    expect(await screen.findByText(/Sources consulted/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Message'),
+                     { target: { value: 'and an unconfined one?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Sources consulted/)).toBeNull())
+  })
+
+  it('gives the question back if it could not be sent', async () => {
+    stubFetch([
+      { url: '/api/chat/messages', method: 'POST', status: 503,
+        body: { detail: 'The consultant is not available on this server.' } },
+      { url: '/api/chat', body: state() },
+    ])
+    open()
+
+    const box = await screen.findByLabelText('Message')
+    fireEvent.change(box, { target: { value: 'Why was u filtered?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    // Restored in the box, and taken back out of the transcript: the only thing
+    // on screen holding those words is the box itself.
+    await waitFor(() => expect(box).toHaveValue('Why was u filtered?'))
+    expect(screen.queryAllByText('Why was u filtered?')
+      .every((node) => node.tagName === 'TEXTAREA')).toBe(true)
+  })
+})

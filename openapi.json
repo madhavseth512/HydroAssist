@@ -715,7 +715,7 @@
           "workspace"
         ],
         "summary": "Read Readings",
-        "description": "The readings already held by a test \u2014 typically a reopened project.",
+        "description": "The readings already held by a test \u2014 typically a reopened project.\n\n`rows` is how much of the table to return. The default is a preview; the\nworkspace asks for the whole table when the user opens it to check what was\nread, which is the only way to tell a misread column from a correct one.",
         "operationId": "read_readings_api_tests__test_id__readings_get",
         "parameters": [
           {
@@ -725,6 +725,18 @@
             "schema": {
               "type": "string",
               "title": "Test Id"
+            }
+          },
+          {
+            "name": "rows",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 10,
+              "title": "Rows"
             }
           },
           {

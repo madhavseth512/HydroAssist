@@ -64,7 +64,11 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
   const submit = () => {
     const message = draft.trim()
     if (!message || send.isPending) return
-    send.mutate(message, { onSuccess: () => setDraft('') })
+    // Cleared now, not when the answer arrives: the question is already on its
+    // way and already in the transcript. If it fails, the draft comes back so
+    // nothing anyone typed is lost.
+    setDraft('')
+    send.mutate(message, { onError: () => setDraft(message) })
   }
 
   return (

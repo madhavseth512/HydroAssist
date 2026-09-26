@@ -221,6 +221,10 @@ export interface paths {
         /**
          * Read Readings
          * @description The readings already held by a test — typically a reopened project.
+         *
+         *     `rows` is how much of the table to return. The default is a preview; the
+         *     workspace asks for the whole table when the user opens it to check what was
+         *     read, which is the only way to tell a misread column from a correct one.
          */
         get: operations["read_readings_api_tests__test_id__readings_get"];
         put?: never;
@@ -1706,7 +1710,9 @@ export interface operations {
     };
     read_readings_api_tests__test_id__readings_get: {
         parameters: {
-            query?: never;
+            query?: {
+                rows?: number;
+            };
             header?: never;
             path: {
                 test_id: string;

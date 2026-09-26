@@ -62,11 +62,18 @@ export function DataPanel() {
   const photograph = useReadImage(testId)
   const [pasting, pastingControls] = useDisclosure(false)
   const [pasted, setPasted] = useState('')
+  // Whether the reader asked for the whole table rather than the first rows.
+  // The count comes from the test, so the request is made once and cached.
+  const [allRows, setAllRows] = useState(false)
   // Only ask for readings a test actually has; otherwise every empty test
   // would fetch a guaranteed 404 on render.
-  const readings = useReadings(testId, Boolean(activeTest?.n_readings))
+  const readings = useReadings(testId, Boolean(activeTest?.n_readings),
+                               allRows ? activeTest?.n_readings : undefined)
 
-  const prepared = upload.data ?? readings.data
+  // A freshly uploaded file answers with a preview; asking for every row is a
+  // separate request, and once it arrives it is what should be shown.
+  const prepared = (allRows ? readings.data : undefined)
+    ?? upload.data ?? readings.data
 
   return (
     <Card withBorder padding="md">
@@ -163,15 +170,22 @@ export function DataPanel() {
 
         {(upload.isPending || readings.isFetching) && <Loader size="sm" />}
 
-        {prepared && <PreparedView prepared={prepared} test={activeTest} />}
+        {prepared && (
+          <PreparedView prepared={prepared} test={activeTest}
+                        allRows={allRows} loadingRows={readings.isFetching}
+                        onShowAllRows={() => setAllRows(true)} />
+        )}
       </Stack>
     </Card>
   )
 }
 
-function PreparedView({ prepared, test }: {
+function PreparedView({ prepared, test, allRows, loadingRows, onShowAllRows }: {
   prepared: PreparedData
   test?: Test
+  allRows: boolean
+  loadingRows: boolean
+  onShowAllRows: () => void
 }) {
   const { validation, diagnosis, inspection } = prepared
   const rows = prepared.preview as unknown as Record<string, number | string>[]
@@ -191,7 +205,10 @@ function PreparedView({ prepared, test }: {
     <Stack gap="sm">
       <Text size="sm" fw={500}>{prepared.summary}</Text>
       {test?.readings_source && (
-        <Text size="xs" c="dimmed">From {test.readings_source}</Text>
+        <Text size="xs" c="dimmed">
+          Read from <strong>{test.readings_source}</strong> — {prepared.n_points}{' '}
+          readings. The file itself is not kept; these numbers are.
+        </Text>
       )}
 
       {inspection && (
@@ -254,10 +271,18 @@ function PreparedView({ prepared, test }: {
         </Alert>
       )}
 
-      <Accordion variant="contained" chevronPosition="left">
+      {/* Open by default. It was collapsed, so the readings a fit was about to
+          run on were never in front of the person running it. */}
+      <Accordion variant="contained" chevronPosition="left"
+                 defaultValue="preview">
         {columns.length > 0 && (
           <Accordion.Item value="preview">
-            <Accordion.Control>Preview the formatted data</Accordion.Control>
+            <Accordion.Control>
+              The readings, as they were read
+              {allRows
+                ? ` (all ${rows.length})`
+                : ` (first ${rows.length} of ${prepared.n_points})`}
+            </Accordion.Control>
             <Accordion.Panel>
               <Table striped withTableBorder fz="xs">
                 <Table.Thead>
@@ -277,6 +302,12 @@ function PreparedView({ prepared, test }: {
                   ))}
                 </Table.Tbody>
               </Table>
+              {!allRows && prepared.n_points > rows.length && (
+                <Button size="xs" variant="subtle" mt="xs" loading={loadingRows}
+                        onClick={onShowAllRows}>
+                  Show all {prepared.n_points} readings
+                </Button>
+              )}
             </Accordion.Panel>
           </Accordion.Item>
         )}

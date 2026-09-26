@@ -14,6 +14,9 @@ export interface StubRoute {
   status?: number
   /** Only answer this route for a matching method (GET, POST, …). */
   method?: string
+  /** Never answer. For what the UI shows while a request is still in flight —
+   * an optimistic message, a spinner, a disabled button. */
+  pending?: boolean
 }
 
 export interface FetchStub {
@@ -39,6 +42,10 @@ export function stubFetch(routes: StubRoute[]): FetchStub {
       return new Response(JSON.stringify({ detail: `No stub for ${method} ${url}` }),
                           { status: 404,
                             headers: { 'content-type': 'application/json' } })
+    }
+    if (route.pending) {
+      // Resolves never. The test asserts on what is on screen meanwhile.
+      return new Promise<Response>(() => {})
     }
     return new Response(
       route.body === undefined ? null : JSON.stringify(route.body),

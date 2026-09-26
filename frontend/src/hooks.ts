@@ -13,17 +13,23 @@ import {
   useQueryClient,
   type UseMutationOptions,
 } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import {
-  ApiError, api, type PreparedData, type ProjectInfo, type Setup,
+  ApiError, api, type ChatState, type PreparedData, type Project,
+  type ProjectInfo, type Setup,
 } from './api/client'
+import { dismissRestore, saveProject } from './persistence'
 
 export const keys = {
   session: ['session'] as const,
   project: ['project'] as const,
   testTypes: ['test-types'] as const,
   methods: (testType: string) => ['methods', testType] as const,
-  readings: (testId: string) => ['readings', testId] as const,
+  // The row count is part of the key: the preview and the whole table are
+  // different answers to the same question, and one must not serve as the other.
+  readings: (testId: string, rows?: number) =>
+    rows ? (['readings', testId, rows] as const) : (['readings', testId] as const),
   result: ['result'] as const,
   comparison: (testId: string) => ['comparison', testId] as const,
   chat: ['chat'] as const,
@@ -42,8 +48,17 @@ export function useSession() {
   return useQuery({ queryKey: keys.session, queryFn: api.session })
 }
 
-export function useProject() {
-  return useQuery({ queryKey: keys.project, queryFn: api.project })
+/** The open project.
+ *
+ * `enabled` exists for callers that render before the session does. Asking for
+ * the project without a session cookie creates a second session on the server,
+ * and then the page shows one session's project while uploads go to another —
+ * the first-visit race that App.test.tsx's session-ordering test was written
+ * for. Panels mount only once the session is ready, so they need no flag; the
+ * shell itself does.
+ */
+export function useProject(enabled = true) {
+  return useQuery({ queryKey: keys.project, queryFn: api.project, enabled })
 }
 
 export function useTestTypes() {
@@ -80,10 +95,12 @@ export function useActiveTest() {
 }
 
 /** The readings a test already holds. Absent is a normal state, not an error. */
-export function useReadings(testId: string | undefined, enabled = true) {
+/** A test's readings. `rows` asks for more of the table than the preview. */
+export function useReadings(testId: string | undefined, enabled = true,
+                            rows?: number) {
   return useQuery({
-    queryKey: keys.readings(testId ?? ''),
-    queryFn: () => api.readings(testId!),
+    queryKey: keys.readings(testId ?? '', rows),
+    queryFn: () => api.readings(testId!, rows),
     enabled: Boolean(testId) && enabled,
     retry: false,
   })
@@ -315,9 +332,44 @@ function useChatMutation<TVars>(mutationFn: (vars: TVars) => Promise<unknown>,
   })
 }
 
+/** Send a question, and show it in the transcript straight away.
+ *
+ * The answer takes a few seconds: a classification call, retrieval, then the
+ * answer itself. Waiting for all of that before echoing the question left the
+ * words sitting in the box, so it read as though nothing had been sent and the
+ * same question got asked twice. The message is added to the cached conversation
+ * immediately and the server's own copy replaces it on success; a failure puts
+ * the transcript back as it was.
+ */
 export function useSendMessage() {
-  return useChatMutation((message: string) => api.sendMessage(message),
-                         'The consultant did not answer')
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (message: string) => api.sendMessage(message),
+    onMutate: (message: string) => {
+      const previous = queryClient.getQueryData<ChatState>(keys.chat)
+      if (previous) {
+        queryClient.setQueryData<ChatState>(keys.chat, {
+          ...previous,
+          messages: [...(previous.messages ?? []),
+                     { role: 'user', content: message }],
+          // The sources belong to the previous answer, not to a question that
+          // has not been answered yet.
+          retrieved: [],
+        })
+      }
+      return { previous }
+    },
+    onSuccess: (state) => {
+      queryClient.setQueryData(keys.chat, state)
+      queryClient.invalidateQueries({ queryKey: ['methods'] })
+    },
+    onError: (error, _message, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(keys.chat, context.previous)
+      }
+      reportError(error, 'The consultant did not answer')
+    },
+  })
 }
 
 export function useConfirmMethod() {
@@ -348,4 +400,56 @@ export function useSaveSetup(testId: string | undefined) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.project }),
     onError: (error) => reportError(error),
   })
+}
+
+
+// ── Keeping the work across a reload ─────────────────────────────────────────
+
+/**
+ * Keep a copy of the project file in this browser whenever the project changes.
+ *
+ * Hung off the project query rather than off each mutation: everything that
+ * changes a project already invalidates that query, so there is one place to
+ * watch and no way for a new mutation to forget to autosave. The copy is fetched
+ * from the server rather than assembled here, so what is stored is exactly the
+ * file the Save button writes.
+ *
+ * A fresh, untouched project is not worth keeping and must not overwrite a good
+ * copy from the last visit — the offer to restore it is the whole point.
+ */
+export function useAutosaveProject(enabled: boolean) {
+  const project = useProject(enabled)
+  const data = enabled ? project.data : undefined
+  // The summary changes whenever anything in the project does, which makes it a
+  // sound trigger and a cheap one.
+  const signature = data ? `${data.summary}|${data.tests?.length ?? 0}` : ''
+
+  useEffect(() => {
+    if (!data || !signature) return
+    if (isUntouched(data)) return
+    let cancelled = false
+    api.projectFile()
+      .then((json) => { if (!cancelled) saveProject(json, data.summary) })
+      .catch(() => undefined)      // a failed autosave is not worth a notification
+    return () => { cancelled = true }
+  }, [signature])                  // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Whether this is a new project nobody has put anything into yet. */
+export function isUntouched(project: Project): boolean {
+  const tests = project.tests ?? []
+  return tests.every((test) => !test.n_readings && !test.n_analyses)
+}
+
+/** Put a kept project back on the server, by the route a reopened file takes. */
+export function useRestoreProject() {
+  const open = useOpenProject()
+  return {
+    ...open,
+    restore: (json: string) => {
+      const file = new File([json], 'restored.hydroassist.json',
+                            { type: 'application/json' })
+      open.mutate(file, { onSuccess: () => dismissRestore() })
+    },
+  }
 }

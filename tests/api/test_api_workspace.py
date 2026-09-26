@@ -446,3 +446,40 @@ class TestAPhotographedFieldSheet:
 
         assert response.status_code == 503
         assert "Tesseract" in response.json()["detail"]
+
+
+class TestHowMuchOfTheTableComesBack:
+    """The preview was ten rows with no way to see the rest, so a user could
+    check the first few readings of their file and nothing else."""
+
+    def _upload(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        upload(client, THEIS_SAMPLE, test_id)
+        return test_id
+
+    def test_a_preview_by_default(self, client):
+        test_id = self._upload(client)
+
+        body = client.get(f"/api/tests/{test_id}/readings").json()
+
+        assert body["n_points"] == 50
+        assert len(body["preview"]) == 10
+
+    def test_the_whole_table_when_asked(self, client):
+        test_id = self._upload(client)
+
+        body = client.get(f"/api/tests/{test_id}/readings?rows=50").json()
+
+        assert len(body["preview"]) == 50
+
+    def test_asking_for_more_rows_than_exist_is_not_an_error(self, client):
+        test_id = self._upload(client)
+
+        body = client.get(f"/api/tests/{test_id}/readings?rows=5000").json()
+
+        assert len(body["preview"]) == 50
+
+    def test_a_nonsensical_row_count_is_refused_by_the_schema(self, client):
+        test_id = self._upload(client)
+
+        assert client.get(f"/api/tests/{test_id}/readings?rows=0").status_code == 422

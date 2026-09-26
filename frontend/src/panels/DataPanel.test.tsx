@@ -65,7 +65,9 @@ describe('the data step', () => {
 
     renderWithProviders(<DataPanel />)
 
-    expect(await screen.findByText('From pw1.csv')).toBeInTheDocument()
+    // Named, counted, and honest about what is kept: the numbers, not the file.
+    expect(await screen.findByText('pw1.csv')).toBeInTheDocument()
+    expect(screen.getByText(/The file itself is not kept/)).toBeInTheDocument()
     expect(screen.getByText('Replace file')).toBeInTheDocument()
   })
 
@@ -312,5 +314,47 @@ describe('a photograph of a field sheet', () => {
       screen.queryByText(/Check the readings from the photograph/)).toBeNull())
     expect(screen.getByText(/a time column and a drawdown column/))
       .toBeInTheDocument()
+  })
+})
+
+describe('seeing the readings that were read', () => {
+  it('shows them without being asked', async () => {
+    // They were behind a collapsed panel, so the numbers a fit was about to run
+    // on were never in front of the person running it.
+    stubFetch([
+      { url: '/readings', body: prepared() },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+
+    renderWithProviders(<DataPanel />)
+
+    expect(await screen.findByText(/The readings, as they were read/))
+      .toBeInTheDocument()
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
+  it('says how much of the table is on screen', async () => {
+    stubFetch([
+      { url: '/readings', body: prepared() },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+
+    renderWithProviders(<DataPanel />)
+
+    expect(await screen.findByText(/first 2 of 50/)).toBeInTheDocument()
+  })
+
+  it('fetches the whole table when asked for it', async () => {
+    const stub = stubFetch([
+      { url: '/readings', body: prepared() },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+
+    renderWithProviders(<DataPanel />)
+    fireEvent.click(await screen.findByRole('button',
+                                            { name: /Show all 50 readings/ }))
+
+    await waitFor(() => expect(stub.calls.some(
+      (call) => call.url.includes('rows=50'))).toBe(true))
   })
 })

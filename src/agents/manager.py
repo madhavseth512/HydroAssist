@@ -47,7 +47,23 @@ class ManagerAgent(BaseAgent):
             google_api_key=config.llm.api_key
         )
 
-        self.logger.info(f"Manager agent initialized with model: {config.llm.model}")
+        # Classification is a separate, smaller call. Two reasons, both of them
+        # things a user of the deployed site feels: a reasoning model pauses to
+        # think before emitting three JSON fields, which is latency spent on
+        # nothing, and the two models have separate free-tier allowances, so a
+        # day of testing affords twice as many questions. `thinking_budget=0`
+        # is the part that removes the pause.
+        self.classifier = ChatGoogleGenerativeAI(
+            model=config.llm.classifier_model,
+            temperature=0.0,
+            max_tokens=config.llm.classifier_max_tokens,
+            thinking_budget=0,
+            google_api_key=config.llm.api_key,
+        )
+
+        self.logger.info(
+            f"Manager agent initialized with model: {config.llm.model} "
+            f"(classifier: {config.llm.classifier_model})")
 
     def run(self, state: AgentState) -> AgentState:
         """
@@ -204,9 +220,7 @@ class ManagerAgent(BaseAgent):
             history=history if history else "No previous conversation"
         )
 
-        # Call Gemini
-        response = self.llm.invoke(prompt)
-        response_text = response.content
+        response_text = self._classify_call(prompt)
 
         # Parse JSON (handle markdown code blocks)
         clean_response = self._clean_json_response(response_text)
@@ -234,6 +248,23 @@ class ManagerAgent(BaseAgent):
                 "extracted_aquifer": "unknown",
                 "extracted_method": None
             }
+
+    def _classify_call(self, prompt: str) -> str:
+        """The classification call, falling back to the answering model.
+
+        A key that has no access to the smaller model, or has spent its
+        allowance, would otherwise fail every classification — and the failure
+        path defaults to "consultation", so the router would quietly stop
+        routing. One retry on the model we know works costs a request only when
+        something is already wrong.
+        """
+        try:
+            return self.classifier.invoke(prompt).content
+        except Exception as error:
+            self.logger.warning(
+                f"Classifier model {self.config.llm.classifier_model} failed "
+                f"({error}); retrying on {self.config.llm.model}")
+            return self.llm.invoke(prompt).content
 
     def _clean_json_response(self, response: str) -> str:
         """

@@ -21,10 +21,12 @@ import { SetupPanel } from './panels/SetupPanel'
 import { ProjectSidebar } from './panels/ProjectSidebar'
 import { api } from './api/client'
 import { ResizeHandle } from './components/ResizeHandle'
+import { RestoreBanner } from './components/RestoreBanner'
 import { Toolbar } from './components/Toolbar'
 import { LIMITS, readWidths, writeWidths, type Widths } from './layout'
 import {
-  useCurrentResult, useNewProject, useOpenProject, useSession,
+  useAutosaveProject, useCurrentResult, useNewProject, useOpenProject,
+  useProject, useSession,
 } from './hooks'
 import { useUnits } from './UnitsContext'
 import { UNIT_SYSTEMS } from './units'
@@ -44,6 +46,12 @@ export function App() {
   const openProject = useOpenProject()
   const newProject = useNewProject()
   const result = useCurrentResult(ready)
+  // Gated on the session: a project request without the cookie would create
+  // a second session of its own.
+  const project = useProject(ready)
+  // Keep a copy of the project in this browser after every change, so a reload
+  // or the host sleeping does not take the work with it.
+  useAutosaveProject(ready)
 
   // How wide the project tree and the consultant are. Read once from this
   // browser's last session; written back when a drag ends rather than on every
@@ -164,6 +172,7 @@ export function App() {
       <AppShell.Main>
         {ready && (
           <Stack gap="md">
+            <RestoreBanner project={project.data} />
             {/* Anchors the assistant can offer to scroll to. It never moves the
                 page itself — the offer is a button the user presses. */}
             <div id="panel-data"><DataPanel /></div>

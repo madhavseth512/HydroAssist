@@ -35,6 +35,17 @@ class LLMConfig:
     top_p: float = 0.95
     top_k: int = 40
 
+    # Every question costs two model calls: one to classify the intent, one to
+    # answer. Sorting a sentence into five buckets is not work for the model that
+    # writes the answer, and the split earns two things on a free key — the
+    # classification stops waiting on a reasoning model's thinking, and the two
+    # calls draw on separate daily allowances, which doubles how many questions a
+    # day of testing affords. Set classifier_model to the answering model to put
+    # it back.
+    classifier_model: str = "gemini-2.5-flash-lite"
+    # A JSON object of three short fields. The default 8,192 was for prose.
+    classifier_max_tokens: int = 512
+
     @property
     def api_key(self) -> str:
         """Get API key from environment."""
@@ -124,6 +135,7 @@ def _apply_env_overrides(config_dict: dict) -> dict:
     """
     overrides = {
         'HYDROASSIST_LLM_MODEL': ('llm', 'model'),
+        'HYDROASSIST_CLASSIFIER_MODEL': ('llm', 'classifier_model'),
         'HYDROASSIST_LLM_TEMPERATURE': ('llm', 'temperature', float),
         'HYDROASSIST_CHUNK_SIZE': ('retrieval', 'chunk_size', int),
         'HYDROASSIST_TOP_K': ('retrieval', 'top_k', int),
