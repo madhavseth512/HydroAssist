@@ -6,11 +6,11 @@
  * consultation in a drawer that is always one click away.
  */
 import {
-  AppShell, Badge, Burger, Button, Group, Loader, SegmentedControl, Stack, Text,
-  Title,
+  AppShell, Badge, Burger, Button, Group, Loader, ScrollArea, SegmentedControl,
+  Stack, Text, Title,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { IconMessageCircle } from '@tabler/icons-react'
 
 import { ChatDrawer } from './panels/ChatDrawer'
@@ -20,7 +20,9 @@ import { ResultsPanel } from './panels/ResultsPanel'
 import { SetupPanel } from './panels/SetupPanel'
 import { ProjectSidebar } from './panels/ProjectSidebar'
 import { api } from './api/client'
+import { ResizeHandle } from './components/ResizeHandle'
 import { Toolbar } from './components/Toolbar'
+import { LIMITS, readWidths, writeWidths, type Widths } from './layout'
 import {
   useCurrentResult, useNewProject, useOpenProject, useSession,
 } from './hooks'
@@ -43,6 +45,21 @@ export function App() {
   const newProject = useNewProject()
   const result = useCurrentResult(ready)
 
+  // How wide the project tree and the consultant are. Read once from this
+  // browser's last session; written back when a drag ends rather than on every
+  // pointer move, so a resize is one storage write and not two hundred.
+  const [widths, setWidths] = useState<Widths>(readWidths)
+  const resize = useCallback((column: keyof Widths) => (width: number) => {
+    setWidths((previous) => ({ ...previous, [column]: width }))
+  }, [])
+  const commit = useCallback((column: keyof Widths) => (width: number) => {
+    setWidths((previous) => {
+      const next = { ...previous, [column]: width }
+      writeWidths(next)
+      return next
+    })
+  }, [])
+
   // Opening a project is a file the user picks; the hidden input is what the
   // File menu and the toolbar both drive.
   const fileInput = useRef<HTMLInputElement>(null)
@@ -60,10 +77,11 @@ export function App() {
   return (
     <AppShell
       header={{ height: 56 }}
-      navbar={{ width: 320, breakpoint: 'sm', collapsed: { mobile: !navOpen } }}
+      navbar={{ width: widths.navbar, breakpoint: 'sm',
+                collapsed: { mobile: !navOpen } }}
       // Docked, not overlaid: consulting the assistant used to hide the plot
       // being discussed.
-      aside={{ width: 400, breakpoint: 'md',
+      aside={{ width: widths.aside, breakpoint: 'md',
                collapsed: { desktop: !chatOpen, mobile: !chatOpen } }}
       padding="md"
     >
@@ -120,14 +138,27 @@ export function App() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="md">
-        {session.isError ? (
-          <Text c="red" size="sm">{(session.error as Error).message}</Text>
-        ) : ready ? (
-          <ProjectSidebar />
-        ) : (
-          <Loader size="sm" />
-        )}
+      {/* The tree scrolls. It used to overflow instead, which put the fields at
+          the bottom of a long project out of reach entirely. */}
+      <AppShell.Navbar>
+        <AppShell.Section grow component={ScrollArea} p="md" type="auto">
+          {session.isError ? (
+            <Text c="red" size="sm">{(session.error as Error).message}</Text>
+          ) : ready ? (
+            <ProjectSidebar />
+          ) : (
+            <Loader size="sm" />
+          )}
+        </AppShell.Section>
+        <ResizeHandle
+          edge="right-of-column"
+          label="Width of the project panel"
+          value={widths.navbar}
+          min={LIMITS.navbar.min}
+          max={LIMITS.navbar.max}
+          onChange={resize('navbar')}
+          onCommit={commit('navbar')}
+        />
       </AppShell.Navbar>
 
       <AppShell.Main>
@@ -152,8 +183,21 @@ export function App() {
                event.currentTarget.value = ''
              }} />
 
-      <AppShell.Aside p="md">
-        {ready && <ChatDrawer onGoTo={goTo} />}
+      {/* Widen the consultant when an answer carries a derivation; a 400 px
+          column wraps an equation into a ribbon. */}
+      <AppShell.Aside>
+        <ResizeHandle
+          edge="left-of-column"
+          label="Width of the consultant panel"
+          value={widths.aside}
+          min={LIMITS.aside.min}
+          max={LIMITS.aside.max}
+          onChange={resize('aside')}
+          onCommit={commit('aside')}
+        />
+        <AppShell.Section grow p="md" style={{ minHeight: 0 }}>
+          {ready && <ChatDrawer onGoTo={goTo} />}
+        </AppShell.Section>
       </AppShell.Aside>
     </AppShell>
   )

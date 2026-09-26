@@ -18,6 +18,7 @@ import { UnitsProvider } from './UnitsContext'
 
 import '@mantine/core/styles.css'
 import '@mantine/notifications/styles.css'
+import './shell.css'
 
 const theme = createTheme({
   primaryColor: 'blue',

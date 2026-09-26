@@ -1,0 +1,40 @@
+/* The shell's own few rules: the column dividers, and numbers that line up.
+ *
+ * Everything else is Mantine. These two are here because they are properties of
+ * the whole page rather than of a component: a divider has to react to the
+ * pointer without React re-rendering the shell on every hover, and tabular
+ * figures are how a table of measurements is meant to read. */
+
+[data-resize-handle]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--mantine-color-blue-filled);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+[data-resize-handle]:hover::after,
+[data-resize-handle]:focus-visible::after {
+  opacity: 1;
+}
+
+[data-resize-handle]:focus-visible {
+  outline: none;
+}
+
+/* A column being dragged should not also be selecting text behind it. */
+[data-resize-handle]:active::after {
+  opacity: 1;
+  width: 2px;
+}
+
+/* Measurements read as measurements: same-width digits, so a column of numbers
+ * aligns on the decimal point without a monospace font everywhere. */
+table td,
+table th {
+  font-variant-numeric: tabular-nums;
+}
