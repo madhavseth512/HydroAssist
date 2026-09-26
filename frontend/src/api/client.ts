@@ -32,6 +32,7 @@ export type ComparisonRow = Schemas['ComparisonRowModel']
 export type ChatState = Schemas['ChatStateModel']
 export type ChatMessage = Schemas['MessageModel']
 export type Suggestion = Schemas['SuggestionModel']
+export type RetrievedDoc = Schemas['RetrievedDocModel']
 export type OCRTable = Schemas['OCRTableModel']
 export type OCRCell = Schemas['OCRCellModel']
 

@@ -370,9 +370,33 @@ class ComparisonModel(BaseModel):
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
+class RetrievedDocModel(BaseModel):
+    """One passage an answer was built from.
+
+    `document` is what the paper is called, not what folder it was filed in: the
+    field used to carry "Custom_Confined Aquifer", which identifies nothing a
+    reader could go and look up. `url` is present only where a link can be
+    derived rather than guessed — most of the corpus is paywalled, and a citation
+    that says so is more use than one that implies a link and 404s.
+    """
+    document: str = ""
+    page: Optional[int] = None
+    url: str = ""
+    method: str = ""
+    aquifer: str = ""
+    score: float = 0.0
+    # The opening of the passage, and the whole of it for a reader who wants to
+    # check the answer against what was actually retrieved.
+    preview: str = ""
+    text: str = ""
+
+
 class MessageModel(BaseModel):
     role: str
     content: str
+    # The documents this particular answer used. One list under the whole
+    # conversation belonged to the latest answer and was wrong under the rest.
+    sources: List[RetrievedDocModel] = Field(default_factory=list)
 
 
 class SuggestionModel(BaseModel):
@@ -380,14 +404,6 @@ class SuggestionModel(BaseModel):
     reason: str = ""
     confidence: float = 0.0
     supported: bool = True
-
-
-class RetrievedDocModel(BaseModel):
-    source: str = ""
-    method: str = ""
-    aquifer: str = ""
-    score: float = 0.0
-    preview: str = ""
 
 
 class ChatContextModel(BaseModel):

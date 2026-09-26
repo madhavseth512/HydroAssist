@@ -279,24 +279,33 @@ describe('sending a question', () => {
     expect(box).toHaveValue('')
   })
 
-  it('drops the previous answer’s sources while the next one is in flight', async () => {
+  it('leaves the previous answer’s sources with the previous answer', async () => {
+    // They used to be one list under the whole conversation, so asking a new
+    // question rewrote the citations of the old answer. Each answer owns its own
+    // now, and a question in flight has none because it has read nothing.
     stubFetch([
       { url: '/api/chat/messages', method: 'POST', pending: true },
       { url: '/api/chat', body: state({
-        messages: [{ role: 'assistant', content: 'Theis assumes a confined aquifer.' }],
-        retrieved: [{ source: 'Theis (1935)', method: 'theis_1935', aquifer: 'confined',
-                      score: 0.9, preview: 'the aquifer is confined…' }],
+        messages: [
+          { role: 'user', content: 'does Theis assume a confined aquifer?' },
+          { role: 'assistant', content: 'Yes — it is one of its assumptions.',
+            sources: [{ document: 'Theis (1935)', page: 519, url: '',
+                        method: 'theis_1935', aquifer: 'confined', score: 0.9,
+                        preview: 'the aquifer is confined…', text: 'full passage' }] },
+        ],
       }) },
     ])
     open()
 
-    expect(await screen.findByText(/Sources consulted/)).toBeInTheDocument()
+    expect(await screen.findByText(/What this answer read/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Message'),
                      { target: { value: 'and an unconfined one?' } })
     fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 
-    await waitFor(() =>
-      expect(screen.queryByText(/Sources consulted/)).toBeNull())
+    // Still exactly one block of sources: the earlier answer's.
+    await waitFor(() => expect(
+      screen.getByText('and an unconfined one?')).toBeInTheDocument())
+    expect(screen.getAllByText(/What this answer read/)).toHaveLength(1)
   })
 
   it('gives the question back if it could not be sent', async () => {

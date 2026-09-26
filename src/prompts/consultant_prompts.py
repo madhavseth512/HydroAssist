@@ -90,18 +90,18 @@ def format_retrieved_context(docs: list) -> str:
 
     context_parts = []
 
+    from src.retrieval import sources as source_names
+
     for i, doc in enumerate(docs, 1):
         metadata = doc.get('metadata', {})
-        source = metadata.get('source', 'Unknown')
-        page = metadata.get('page')
         method = metadata.get('method', 'N/A')
         aquifer = metadata.get('aquifer', 'N/A')
 
-        # Format citation
-        if page:
-            citation = f"[{source}, p.{page}]"
-        else:
-            citation = f"[{source}]"
+        # The citation the model will copy into its answer. It used to be built
+        # from the folder the paper was filed in, so answers cited "[Custom_
+        # Fractured Aquifers, p.5]" — a reader could not tell what had been read,
+        # let alone go and check it.
+        citation = source_names.resolve(metadata).citation
 
         context_parts.append(
             f"--- Document {i} {citation} ---\n"

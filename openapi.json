@@ -2135,6 +2135,13 @@
           "content": {
             "type": "string",
             "title": "Content"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievedDocModel"
+            },
+            "type": "array",
+            "title": "Sources"
           }
         },
         "type": "object",
@@ -2795,9 +2802,25 @@
       },
       "RetrievedDocModel": {
         "properties": {
-          "source": {
+          "document": {
             "type": "string",
-            "title": "Source",
+            "title": "Document",
+            "default": ""
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
             "default": ""
           },
           "method": {
@@ -2819,10 +2842,16 @@
             "type": "string",
             "title": "Preview",
             "default": ""
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "default": ""
           }
         },
         "type": "object",
-        "title": "RetrievedDocModel"
+        "title": "RetrievedDocModel",
+        "description": "One passage an answer was built from.\n\n`document` is what the paper is called, not what folder it was filed in: the\nfield used to carry \"Custom_Confined Aquifer\", which identifies nothing a\nreader could go and look up. `url` is present only where a link can be\nderived rather than guessed \u2014 most of the corpus is paywalled, and a citation\nthat says so is more use than one that implies a link and 404s."
       },
       "RunRequest": {
         "properties": {

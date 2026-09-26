@@ -51,16 +51,19 @@ class _ScriptedLLM:
 class _StubRetriever:
     def __init__(self):
         self.calls = []
-
-    def retrieve(self, query, top_k=None, metadata_filters=None):
-        self.calls.append(metadata_filters)
-        return [{
+        # Settable, so a test can have a second answer read a different paper —
+        # which is how "each answer keeps its own sources" is checked at all.
+        self.docs = [{
             "content": "Cooper & Jacob (1946): the approximation is tolerable "
                        "where u is less than about 0.02.",
             "metadata": {"source": "Cooper-Jacob-1946", "aquifer": "confined",
                          "method": "Cooper_Jacob_1946", "page": 3},
             "score": 0.78,
         }]
+
+    def retrieve(self, query, top_k=None, metadata_filters=None):
+        self.calls.append(metadata_filters)
+        return list(self.docs)
 
 
 def _classification(intent, aquifer="confined", method=None):
@@ -654,3 +657,76 @@ class TestAskingAboutTheApplication:
         prompt = chat.guide_llm.prompts[-1]
         assert "Validity notes on that fit" in prompt or "validity" in prompt.lower()
         assert "T = " in prompt
+
+
+class TestEachAnswerKeepsItsOwnSources:
+    """Reported from the deployed site: one "Sources consulted" list sat under the
+    whole conversation, so it described the latest answer and was wrong beneath
+    every earlier one — and it changed under them as each new question was asked.
+
+    The documents are recorded against the message they supported now.
+    """
+
+    def _answer(self, chat, manager_llm, question):
+        manager_llm.responses = [_classification("consultation")]
+        return chat.send_message(question)
+
+    @staticmethod
+    def _reading(document):
+        return [{"content": f"A passage from {document}.",
+                 "metadata": {"doc_id": f"{document}_page_12", "page": 12,
+                              "source": "Custom_Leaky Confined Aquifer",
+                              "type": "research_paper",
+                              "method": "hantush_jacob_1955", "aquifer": "leaky"},
+                 "score": 0.77}]
+
+    def test_an_answer_records_the_documents_it_read(self, wired):
+        chat, manager_llm, _, _ = wired
+
+        self._answer(chat, manager_llm, "When should I use Cooper-Jacob?")
+
+        # Keyed by position in the conversation: user at 0, answer at 1.
+        assert chat.state["sources_by_message"]["1"]
+
+    def test_a_second_answer_does_not_take_over_the_first_one_s_sources(self, wired):
+        chat, manager_llm, _, retriever = wired
+
+        self._answer(chat, manager_llm, "When should I use Cooper-Jacob?")
+        first = list(chat.state["sources_by_message"]["1"])
+
+        retriever.docs = self._reading("ISWSB-49")
+        self._answer(chat, manager_llm, "and what does leakage look like?")
+
+        assert chat.state["sources_by_message"]["1"] == first
+        assert chat.state["sources_by_message"]["3"] != first
+
+    def test_a_failed_answer_records_none(self, wired):
+        """The rule this extends: an answer that read nothing cites nothing, and
+        that stays true once the citations are kept per message."""
+        chat, manager_llm, consultant_llm, _ = wired
+        manager_llm.responses = [_classification("consultation")]
+        consultant_llm.fail_with = Exception(
+            "429 RESOURCE_EXHAUSTED: quota exceeded, limit: 20")
+
+        chat.send_message("What are the assumptions of the Theis method?")
+
+        assert chat.state["sources_by_message"]["1"] == []
+
+    def test_the_browser_gets_them_on_the_message(self, wired):
+        """Through the presenter, which is what the chat panel renders."""
+        from src.api import presenters
+
+        chat, manager_llm, _, _ = wired
+        self._answer(chat, manager_llm, "When should I use Cooper-Jacob?")
+
+        class _Session:
+            def __init__(self, chat):
+                self.chat = chat
+
+        state = presenters.chat_state(_Session(chat))
+
+        assert state.messages[0].role == "user"
+        assert state.messages[0].sources == []
+        assert state.messages[1].sources, "the answer should carry its sources"
+        # Named, not filed: the folder name must not reach the reader.
+        assert not state.messages[1].sources[0].document.startswith("Custom_")

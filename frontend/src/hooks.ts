@@ -352,9 +352,6 @@ export function useSendMessage() {
           ...previous,
           messages: [...(previous.messages ?? []),
                      { role: 'user', content: message }],
-          // The sources belong to the previous answer, not to a question that
-          // has not been answered yet.
-          retrieved: [],
         })
       }
       return { previous }

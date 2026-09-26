@@ -187,14 +187,17 @@ papers:
     methods: [dagan_1967]
     reviewed: true
   "2002-ZZpaper2001WR000401.pdf":
+    title: "Zhan (2002), a horizontal or slanted well in an unconfined aquifer"
     methods: [horizontal_well]
     note: Zhan, horizontal or slanted well in an unconfined aquifer
     reviewed: true
   "pp1629ver2.pdf":
+    title: "USGS Professional Paper 1629 — the Cape Cod aquifer test"
     methods: [moench_1997, neuman_1974]
     note: USGS PP 1629, the Cape Cod test analysed with Moench's model
     reviewed: true
   "31032.pdf":
+    title: "AQTESOLV for Windows — User's Guide"
     methods: [aqtesolv_guide, general_reference, theis_1935, theis_recovery_1935,
               cooper_jacob_1946, papadopulos_cooper_1967, hantush_jacob_1955,
               boulton_1963, warren_root_1963]
@@ -207,6 +210,7 @@ papers:
       Its worked examples are the validation fixtures in tests/validation/.
     reviewed: true
   "wri99-4225.pdf":
+    title: "USGS WRIR 99-4225 — WTAQ program documentation"
     methods: [wtaq_1999, neuman_1974, moench_1997, theis_1935]
     aquifer: unconfined
     note: |
@@ -219,12 +223,14 @@ papers:
 
   # ── Fractured ───────────────────────────────────────────────────────────────
   "spe-426-pa.pdf":
+    title: "Warren and Root (1963), the behavior of naturally fractured reservoirs (SPE-426-PA)"
     methods: [warren_root_1963]
     reviewed: true
   "PDF_Ppr_BARENBLATT_(1960)_Seepage_of_Homo_Liquids_in_Fissured_Rocks.pdf":
     methods: [barenblatt_1960]
     reviewed: true
   "Gringarten71.pdf":
+    title: "Gringarten (1971) dissertation — a single horizontal fracture with partial penetration"
     methods: [gringarten_1971]
     note: the dissertation — single horizontal fracture, partial penetration
     reviewed: true
@@ -236,10 +242,12 @@ papers:
     methods: [dougherty_babu_1984]
     reviewed: true
   "WR024i010p01796.pdf":
+    title: "Barker (1988), a generalized radial flow model for fractured rock"
     methods: [barker_1988]
     note: Barker, generalised radial flow in fractured rock
     reviewed: true
   "ML032580008.pdf":
+    title: "US NRC contractor letter on Moench's double-porosity model"
     methods: [moench_1984]
     note: NRC contractor letter enclosing Williams's comment on Moench's
       double-porosity model with fracture skin
@@ -256,10 +264,12 @@ papers:
     note: scanned; recovered by OCR. The equivalent-time paper recovery cites.
     reviewed: true
   "ISWSB-49.pdf":
+    title: "Walton (1962), Illinois State Water Survey Bulletin 49"
     methods: [general_reference, theis_1935, cooper_jacob_1946, hantush_jacob_1955]
     note: Walton, Illinois State Water Survey Bulletin 49 — many methods
     reviewed: true
   "sopaqu.pdf":
+    title: "EPA — conducting aquifer pumping tests"
     methods: [general_reference, theis_1935, cooper_jacob_1946]
     note: EPA guidance on conducting aquifer pumping tests
     reviewed: true

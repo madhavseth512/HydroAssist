@@ -17,7 +17,10 @@ class AgentState(TypedDict):
             user accepting a suggestion or running a fit
         discussed_method: The method the current message is about. Informational:
             a question about a method is not an instruction to switch to it
-        retrieved_docs: Document chunks from RAG retrieval
+        retrieved_docs: Document chunks from RAG retrieval — this turn's only
+        sources_by_message: Each answer's own documents, keyed by its position in
+            `messages`. One shared list belonged to the latest answer and was
+            wrong under every earlier one
         metadata_filters: Active filters for retrieval (only used during calculation)
         method_suggestion: Structured suggestion card {"method", "reason", "confidence"}
         suggestion_confirmed: True once user accepts or overrides the method suggestion
@@ -33,6 +36,7 @@ class AgentState(TypedDict):
     selected_method: str
     discussed_method: str
     retrieved_docs: List[Dict]
+    sources_by_message: Dict
     metadata_filters: Dict
     method_suggestion: Dict
     suggestion_confirmed: bool
@@ -52,6 +56,7 @@ def create_initial_state() -> AgentState:
         aquifer_context="unknown",
         selected_method="",
         discussed_method="",
+        sources_by_message={},
         retrieved_docs=[],
         metadata_filters={},
         method_suggestion={},

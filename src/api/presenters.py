@@ -193,32 +193,53 @@ def comparison_model(test) -> schemas.ComparisonModel:
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
-def _message_models(messages) -> list:
+def _message_models(messages, sources_by_message=None) -> list:
+    """The conversation, each answer carrying the documents it used.
+
+    Keyed by position in the message list, which is how the conversation records
+    them. A message with no entry — every question, and any answer that read
+    nothing — carries no sources, which is the point: the list under an answer
+    has to be the list that answer was built from.
+    """
+    sources_by_message = sources_by_message or {}
     out = []
-    for message in messages:
+    for index, message in enumerate(messages):
         role = "user" if message.__class__.__name__ == "HumanMessage" else "assistant"
-        out.append(schemas.MessageModel(role=role, content=message.content))
+        docs = sources_by_message.get(str(index)) or []
+        out.append(schemas.MessageModel(
+            role=role, content=message.content,
+            sources=_retrieved_models(docs) if role == "assistant" else [],
+        ))
     return out
 
 
+# How much of a passage to show before the reader asks for the rest.
+PREVIEW_CHARS = 320
+
+
 def _retrieved_models(docs) -> list:
+    """The passages an answer used, named so a reader can find them.
+
+    The name comes from `sources.resolve`, which reads the document's own
+    identity rather than the folder it was filed in — the field used to say
+    "Custom_Confined Aquifer", which told a reader nothing at all.
+    """
+    from src.retrieval import sources as source_names
+
     out = []
     for doc in docs:
-        meta = doc.get("metadata", {})
-        content = doc.get("content", "")
-        # A help passage has a document and a section rather than a method and
-        # an aquifer, and "HydroAssist help" alone says too little to be worth
-        # showing.
-        source = meta.get("source", "Unknown")
-        if meta.get("type") == "help":
-            source = f"{meta.get('document', source)} — {meta.get('section', '')}".strip(" —")
-
+        content = doc.get("content", "") or ""
+        source = source_names.resolve(doc.get("metadata", {}))
         out.append(schemas.RetrievedDocModel(
-            source=source,
-            method=meta.get("method", ""),
-            aquifer=meta.get("aquifer", ""),
+            document=source.document,
+            page=source.page,
+            url=source.url,
+            method=source.method,
+            aquifer=source.aquifer,
             score=doc.get("score", 0.0),
-            preview=content[:200] + "…" if len(content) > 200 else content,
+            preview=(content[:PREVIEW_CHARS] + "…"
+                     if len(content) > PREVIEW_CHARS else content),
+            text=content,
         ))
     return out
 
@@ -239,7 +260,8 @@ def chat_state(session) -> schemas.ChatStateModel:
         )
 
     return schemas.ChatStateModel(
-        messages=_message_models(state.get("messages", [])),
+        messages=_message_models(state.get("messages", []),
+                                 state.get("sources_by_message")),
         context=schemas.ChatContextModel(
             intent=context.get("intent", "unknown"),
             aquifer=context.get("aquifer", "unknown"),

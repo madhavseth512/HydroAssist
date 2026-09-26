@@ -11,7 +11,6 @@
  * sent to improve its products. The drawer says so before anyone types.
  */
 import {
-  Accordion,
   Alert,
   Badge,
   Button,
@@ -31,6 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { api, type ChatMessage, type Suggestion } from '../api/client'
 import { Markdown } from '../components/Markdown'
+import { Sources } from '../components/Sources'
 import {
   reportError,
   useChat,
@@ -61,7 +61,6 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
 
   const messages: ChatMessage[] = chat.data?.messages ?? []
   const context = chat.data?.context
-  const retrieved = chat.data?.retrieved ?? []
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: 'end' })
@@ -140,6 +139,10 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
                 ) : (
                   <Markdown>{message.content}</Markdown>
                 )}
+                {/* Under the answer they belong to, not under the conversation:
+                    one shared list described the latest answer and was wrong
+                    beneath every earlier one. */}
+                <Sources sources={message.sources ?? []} id={String(index)} />
               </Paper>
             ))}
             {send.isPending && <Loader size="sm" />}
@@ -154,27 +157,6 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
               </Button>
             ))}
 
-            {retrieved.length > 0 && (
-              <Accordion variant="contained" chevronPosition="left">
-                <Accordion.Item value="sources">
-                  <Accordion.Control>Sources consulted ({retrieved.length})</Accordion.Control>
-                  <Accordion.Panel>
-                    <Stack gap="xs">
-                      {retrieved.map((doc, index) => (
-                        <div key={index}>
-                          <Text size="xs" fw={500}>
-                            {doc.source}
-                            {doc.method ? ` · ${doc.method}` : ''}
-                            {doc.aquifer ? ` · ${doc.aquifer}` : ''}
-                          </Text>
-                          <Text size="xs" c="dimmed">{doc.preview}</Text>
-                        </div>
-                      ))}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
-            )}
             <div ref={bottom} />
           </Stack>
         </ScrollArea>

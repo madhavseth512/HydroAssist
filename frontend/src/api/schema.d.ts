@@ -799,6 +799,8 @@ export interface components {
             role: string;
             /** Content */
             content: string;
+            /** Sources */
+            sources?: components["schemas"]["RetrievedDocModel"][];
         };
         /** MethodListModel */
         MethodListModel: {
@@ -1126,13 +1128,29 @@ export interface components {
              */
             figure?: string | null;
         };
-        /** RetrievedDocModel */
+        /**
+         * RetrievedDocModel
+         * @description One passage an answer was built from.
+         *
+         *     `document` is what the paper is called, not what folder it was filed in: the
+         *     field used to carry "Custom_Confined Aquifer", which identifies nothing a
+         *     reader could go and look up. `url` is present only where a link can be
+         *     derived rather than guessed — most of the corpus is paywalled, and a citation
+         *     that says so is more use than one that implies a link and 404s.
+         */
         RetrievedDocModel: {
             /**
-             * Source
+             * Document
              * @default
              */
-            source: string;
+            document: string;
+            /** Page */
+            page?: number | null;
+            /**
+             * Url
+             * @default
+             */
+            url: string;
             /**
              * Method
              * @default
@@ -1153,6 +1171,11 @@ export interface components {
              * @default
              */
             preview: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
         };
         /** RunRequest */
         RunRequest: {

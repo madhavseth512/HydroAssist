@@ -183,6 +183,18 @@ class HydroAssistChat:
         # Run conversation turn
         self.state = run_conversation_turn(message, self.graph, self.state)
 
+        # Keep this answer's sources with this answer.
+        #
+        # `retrieved_docs` holds one turn's documents, so a single list shown
+        # under the whole conversation belonged to the latest answer and was
+        # wrong for every earlier one — and changed under them as soon as the
+        # next question was asked. Recording them against the message they
+        # supported is what lets each answer carry its own.
+        #
+        # Whatever a failure path cleared stays cleared: an answer that says the
+        # quota is gone cites nothing, because it read nothing.
+        self._attach_sources()
+
         # Get last assistant message
         assistant_messages = [msg for msg in self.state["messages"]
                              if msg.__class__.__name__ == "AIMessage"]
@@ -193,6 +205,22 @@ class HydroAssistChat:
             return response
         else:
             return "No response generated."
+
+    def _attach_sources(self) -> None:
+        """Record this turn's documents against the answer they supported."""
+        messages = self.state.get("messages") or []
+        last_answer = None
+        for index, message in enumerate(messages):
+            if message.__class__.__name__ == "AIMessage":
+                last_answer = index
+        if last_answer is None:
+            return
+
+        sources = self.state.setdefault("sources_by_message", {})
+        docs = self.state.get("retrieved_docs") or []
+        # Keyed by string: the state is serialised into a project file and JSON
+        # object keys are strings, so an int key would come back as one anyway.
+        sources[str(last_answer)] = list(docs)
 
     def reset(self):
         """Reset conversation state."""

@@ -80,7 +80,7 @@ test('a correction in the grid is the number that is analysed', async ({ page })
   await page.getByRole('button', { name: /Use these 13 readings/ }).click()
 
   await expect(page.getByText(/13 data points ready/)).toBeVisible()
-  await page.getByRole('button', { name: /Preview the formatted data/ }).click()
+  // The readings are on screen without asking now, so there is nothing to open.
   await expect(page.getByRole('cell', { name: '0.95', exact: true })).toBeVisible()
   await expect(page.getByRole('cell', { name: '0.68', exact: true }))
     .toHaveCount(0)

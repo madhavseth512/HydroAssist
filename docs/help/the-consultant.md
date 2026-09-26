@@ -22,9 +22,29 @@ papers, and from your own analysis once you have run one.
 
 ## Sources
 
-Answers list the passages they were drawn from, under **Sources consulted**. If
-an answer shows no sources, it was not drawn from the library — a message about
-a failure, or an answer about the interface, has nothing to cite.
+Each answer lists the passages it was drawn from, underneath itself, under **What
+this answer read**. Every entry names the document and the page, says how
+relevant the passage was, and expands to the whole passage so you can check the
+answer against it.
+
+Most of the library is published papers behind a paywall, so a source usually
+says *no public link* rather than offering one that would not open. Where a link
+can be derived — a journal article whose DOI is fixed — it is there.
+
+If an answer shows no sources, it was not drawn from the library: a message about
+a failure, or an answer about HydroAssist's own interface, has nothing to cite.
+
+## What it is analysing, and what it is discussing
+
+The panel shows both, and they are different things:
+
+- **analysing** — the method the workspace ran. Only you change this, by choosing
+  a method or accepting a suggestion.
+- **discussing** — the method this conversation is about.
+
+Asking about a method is a question, not an instruction to switch to it. If you
+want the workspace to use the method you are discussing, the suggestion card's
+button is what does it.
 
 ## Daily limit
 
