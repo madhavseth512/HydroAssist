@@ -21,7 +21,9 @@ Two deliberate design choices:
 Adding a method is one `MethodSpec` entry plus its implementation module.
 """
 
+import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Callable, Optional
 
 
@@ -548,7 +550,8 @@ def canonical_id(text: str) -> Optional[str]:
 
     Aliases are tried longest-first so a more specific name wins: both
     "Papadopulos-Cooper" and "Cooper-Jacob" contain "cooper", and the longer
-    alias must match first. Exact ids and labels are checked before aliases.
+    alias must match first. Exact ids and labels are checked before aliases, and
+    a near-miss spelling is tried last — see `_nearly`.
     """
     if not text:
         return None
@@ -563,9 +566,56 @@ def canonical_id(text: str) -> Optional[str]:
         for alias in spec.aliases:
             if alias in lowered:
                 candidates.append((len(alias), spec.id))
-    if not candidates:
+    if candidates:
+        return max(candidates)[1]
+    return _nearly(lowered)
+
+
+# A method is named after the people who published it, and those names are hard
+# to spell: "papadulous-cooper" and "papadopolous" are both real attempts at
+# Papadopulos. An exact-alias reading returns None for those, and the caller then
+# falls back to whatever the language model extracted — which is how a question
+# about Papadopulos-Cooper came back as Cooper-Jacob on the deployed site.
+#
+# The bar is deliberately high. A wrong method is worse than no method, so a
+# near-miss must be close, must be long enough that the closeness means
+# something, and must be unambiguous: where two methods match equally well, this
+# returns nothing and lets the caller ask.
+_NEARLY_RATIO = 0.82
+_NEARLY_SHORTEST = 6
+
+_WORDS = re.compile(r"[a-z]+")
+
+
+def _nearly(lowered: str) -> Optional[str]:
+    """The method whose name this text nearly spells, if exactly one does."""
+    words = _WORDS.findall(lowered)
+    if not words:
         return None
-    return max(candidates)[1]
+    # Aliases can be two words ("papadopulos cooper"), so adjacent pairs are
+    # candidates too.
+    phrases = words + [f"{a} {b}" for a, b in zip(words, words[1:])]
+
+    best: dict = {}
+    for spec in REGISTRY.values():
+        for alias in spec.aliases:
+            if len(alias) < _NEARLY_SHORTEST:
+                continue
+            for phrase in phrases:
+                if abs(len(phrase) - len(alias)) > 3:
+                    continue
+                ratio = SequenceMatcher(None, phrase, alias).ratio()
+                if ratio >= _NEARLY_RATIO and ratio > best.get(spec.id, 0.0):
+                    best[spec.id] = ratio
+    if not best:
+        return None
+
+    ranked = sorted(best.items(), key=lambda item: -item[1])
+    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < 0.05:
+        # Two methods spelled about as nearly. Guessing between them would put a
+        # wrong transmissivity on screen with no sign that a guess was made.
+        return None
+    return ranked[0][0]
 
 
 def canonical_label(text: str) -> Optional[str]:

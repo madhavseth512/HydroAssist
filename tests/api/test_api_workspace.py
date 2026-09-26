@@ -483,3 +483,75 @@ class TestHowMuchOfTheTableComesBack:
         test_id = self._upload(client)
 
         assert client.get(f"/api/tests/{test_id}/readings?rows=0").status_code == 422
+
+
+class TestWhoOwnsTheMethod:
+    """The workspace owns the method; the conversation only proposes one.
+
+    Reported from the deployed site: Theis was selected and run, then a message
+    about another method changed what the chat said the method was. The rule
+    taken from that — and already the rule for the guide's offers — is that
+    nothing in a conversation moves the analysis without the user pressing
+    something.
+    """
+
+    def _ran_theis(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        upload(client, THEIS_SAMPLE, test_id)
+        client.put(f"/api/tests/{test_id}/setup", json=setup_payload())
+        response = client.post("/api/analyses/run", json={
+            "method": "theis_1935", "setup": setup_payload()})
+        assert response.status_code == 200
+        return test_id
+
+    def _preselected(self, client):
+        body = client.get("/api/methods").json()
+        return body["offered"][body["default_index"]]["label"]
+
+    def test_the_form_opens_on_the_method_that_was_run(self, client):
+        self._ran_theis(client)
+
+        assert "Theis" in self._preselected(client)
+
+    def test_the_conversation_does_not_move_it(self, client, store):
+        """The case as reported: a fit exists, and the chat starts discussing
+        something else."""
+        self._ran_theis(client)
+
+        # What a message naming another method leaves in the conversation.
+        _discussing(store, "Cooper-Jacob (1946)")
+
+        assert "Theis" in self._preselected(client)
+
+    def test_accepting_a_suggestion_does_move_it(self, client):
+        """Because that is the user pressing a button, which is the whole
+        difference."""
+        self._ran_theis(client)
+
+        response = client.post("/api/chat/confirm",
+                               json={"method": "Cooper-Jacob (1946)"})
+        assert response.status_code == 200
+
+        assert "Cooper-Jacob" in self._preselected(client)
+
+    def test_before_any_fit_the_conversation_still_leads(self, client, store):
+        """Nothing has been run, so the suggestion is the best guess there is."""
+        test_id = client.get("/api/project").json()["active_test_id"]
+        upload(client, THEIS_SAMPLE, test_id)
+
+        _discussing(store, "Cooper-Jacob (1946)")
+
+        assert "Cooper-Jacob" in self._preselected(client)
+
+
+def _discussing(store, method: str) -> None:
+    """Put a method into the conversation, as a message naming one would.
+
+    The conversation is normally written by the model, which these tests do not
+    call; setting the field directly is how "the user mentioned Cooper-Jacob" is
+    expressed without spending a request from the daily allowance.
+    """
+    for session in store._sessions.values():
+        session.chat.state["discussed_method"] = method
+        if not session.chat.state.get("suggestion_confirmed"):
+            session.chat.state["selected_method"] = method

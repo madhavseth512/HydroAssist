@@ -88,8 +88,32 @@ def list_methods(
     validation = (prepared.validation
                   if (filtered and prepared and prepared.test_type == test_type)
                   else None)
-    suggested = session.chat.state.get("selected_method", "") or ""
-    return presenters.method_list(validation, test_type, suggested)
+    return presenters.method_list(validation, test_type,
+                                  preselect_for(session, test_type))
+
+
+def preselect_for(session: SessionState, test_type: str) -> str:
+    """Which method the form should open on.
+
+    The workspace owns the method; the conversation only proposes one. So the
+    order is: a method the user accepted from a suggestion card, then the method
+    the workspace last actually ran, and only then what the conversation is
+    currently talking about.
+
+    Without that last distinction, mentioning a method in the chat quietly moved
+    the form under a user who had already chosen and run a different one — which
+    is how a fit in progress could end up labelled with a method nobody selected.
+    """
+    chat_state = session.chat.state
+    if chat_state.get("suggestion_confirmed"):
+        return chat_state.get("selected_method", "") or ""
+
+    result = getattr(session, "result", None)
+    ran = getattr(result, "method", "") if result is not None else ""
+    if ran:
+        return ran
+
+    return chat_state.get("selected_method", "") or ""
 
 
 # ── Project ───────────────────────────────────────────────────────────────────

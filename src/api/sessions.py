@@ -51,7 +51,8 @@ class UnavailableChat:
         self.reason = reason
         self.state = {
             "messages": [], "user_intent": "unknown", "aquifer_context": "unknown",
-            "selected_method": "", "retrieved_docs": [], "metadata_filters": {},
+            "selected_method": "", "discussed_method": "",
+            "retrieved_docs": [], "metadata_filters": {},
             "method_suggestion": {}, "suggestion_confirmed": False,
             "calculation_input": {}, "calculation_result": {}, "staged_series": {},
         }
@@ -65,7 +66,8 @@ class UnavailableChat:
     def get_context(self) -> dict:
         return {
             "intent": "unknown", "aquifer": "unknown",
-            "method": self.state.get("selected_method", ""),
+            "method": (self.state.get("discussed_method")
+                       or self.state.get("selected_method", "")),
             "suggestion_confirmed": self.state.get("suggestion_confirmed", False),
             "method_suggestion": {},
             "has_result": bool(self.state.get("calculation_result")),

@@ -13,7 +13,10 @@ class AgentState(TypedDict):
         messages: Full conversation history (managed by LangGraph)
         user_intent: Classified intent from Manager
         aquifer_context: Aquifer type extracted from conversation
-        selected_method: Hydrogeological method extracted from user message by Manager
+        selected_method: The method the workspace will run — moved only by the
+            user accepting a suggestion or running a fit
+        discussed_method: The method the current message is about. Informational:
+            a question about a method is not an instruction to switch to it
         retrieved_docs: Document chunks from RAG retrieval
         metadata_filters: Active filters for retrieval (only used during calculation)
         method_suggestion: Structured suggestion card {"method", "reason", "confidence"}
@@ -28,6 +31,7 @@ class AgentState(TypedDict):
                          "clarification", "unknown"]
     aquifer_context: Literal["confined", "unconfined", "leaky", "fractured", "unknown"]
     selected_method: str
+    discussed_method: str
     retrieved_docs: List[Dict]
     metadata_filters: Dict
     method_suggestion: Dict
@@ -47,6 +51,7 @@ def create_initial_state() -> AgentState:
         user_intent="unknown",
         aquifer_context="unknown",
         selected_method="",
+        discussed_method="",
         retrieved_docs=[],
         metadata_filters={},
         method_suggestion={},

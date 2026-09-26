@@ -235,3 +235,59 @@ class TestImportsAreCheap:
                              capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr
         assert out.stdout.strip() == "[]", f"registry pulled in {out.stdout.strip()}"
+
+
+class TestAMisspeltMethodName:
+    """A method is named after the people who published it, and those names are
+    hard to spell.
+
+    Reported from the deployed site: a question about Papadopulos-Cooper came
+    back as Cooper-Jacob. The exact-alias reading returned None for the spelling
+    used, so the caller fell back to the language model's extraction — and that
+    was wrong. Reading a near-miss here removes the fallback.
+    """
+
+    @pytest.mark.parametrize("text,expected", [
+        ("papadulous-cooper", "papadopulos_cooper_1967"),
+        ("papadopolous cooper", "papadopulos_cooper_1967"),
+        ("tell me about papadulous cooper for a large well",
+         "papadopulos_cooper_1967"),
+        ("coper-jacob", "cooper_jacob_1946"),
+        ("theiss method", "theis_1935"),
+        ("hantush jakob", "hantush_jacob_1955"),
+        ("boluton", "boulton_1963"),
+    ])
+    def test_a_near_miss_still_resolves(self, text, expected):
+        assert R.canonical_id(text) == expected
+
+    def test_an_exact_name_is_unaffected(self):
+        assert R.canonical_id("papadopulos-cooper") == \
+            "papadopulos_cooper_1967"
+        assert R.canonical_id("cooper-jacob") == "cooper_jacob_1946"
+
+    @pytest.mark.parametrize("text", [
+        "cooper",                      # shared by two methods, so still ambiguous
+        "what is transmissivity",
+        "the aquifer is confined",
+        "my drawdown readings look odd",
+        "",
+    ])
+    def test_it_does_not_invent_a_method(self, text):
+        """A wrong method is worse than no method: it produces a plausible fit
+        and a transmissivity nobody asked for."""
+        assert R.canonical_id(text) is None
+
+    def test_two_names_spelled_about_as_nearly_resolve_to_neither(self):
+        """Where the text is as close to one method as to another, guessing
+        between them would be a coin toss with a number on the end of it."""
+        # "cooper jacob" against "papadopulos cooper" and "cooper-jacob": the
+        # exact alias wins here, so the guard is tested on its own terms.
+        from src.calculator.registry import _nearly
+
+        assert _nearly("cooper") is None
+
+    def test_a_short_word_is_not_treated_as_a_name(self):
+        from src.calculator.registry import _nearly
+
+        assert _nearly("the") is None
+        assert _nearly("a b c") is None

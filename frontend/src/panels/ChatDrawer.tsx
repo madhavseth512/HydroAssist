@@ -24,6 +24,7 @@ import {
   Stack,
   Text,
   Textarea,
+  Tooltip,
 } from '@mantine/core'
 import { IconArrowRight, IconSend } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
@@ -34,6 +35,7 @@ import {
   reportError,
   useChat,
   useConfirmMethod,
+  useCurrentResult,
   useMethods,
   useProject,
   useResetChat,
@@ -48,6 +50,10 @@ export interface ChatDrawerProps {
 
 export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
   const chat = useChat()
+  // What the workspace actually ran, which is not the same as what is being
+  // talked about. Read from the result rather than from the conversation.
+  const result = useCurrentResult()
+  const analysing = result.data?.success ? result.data.method : ''
   const send = useSendMessage()
   const reset = useResetChat()
   const [draft, setDraft] = useState('')
@@ -85,12 +91,27 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
         {context && (
           <Group gap="xs">
             <Badge variant="light">aquifer: {context.aquifer}</Badge>
-            {context.method && (
-              <Badge variant="light" color={context.suggestion_confirmed ? 'teal' : 'blue'}>
-                {context.method}{context.suggestion_confirmed ? ' ✓' : ''}
-              </Badge>
+            {/* Two different things, which used to be one badge and so read as
+                the same thing. What the workspace is analysing is a fact about
+                the analysis and only the user changes it; what the conversation
+                is about changes with every message. Mentioning a method in here
+                is a question about it, not an instruction to switch. */}
+            {analysing && (
+              <Tooltip label="The method the workspace ran. Only you change this.">
+                <Badge variant="filled" color="grape">analysing: {analysing}</Badge>
+              </Tooltip>
             )}
-            {context.has_result && <Badge variant="light" color="grape">result loaded</Badge>}
+            {context.method && context.method !== analysing && (
+              <Tooltip label={context.suggestion_confirmed
+                ? 'Accepted for the workspace'
+                : 'What this conversation is about — the analysis is unchanged'}>
+                <Badge variant="light"
+                       color={context.suggestion_confirmed ? 'teal' : 'blue'}>
+                  discussing: {context.method}
+                  {context.suggestion_confirmed ? ' ✓' : ''}
+                </Badge>
+              </Tooltip>
+            )}
           </Group>
         )}
 

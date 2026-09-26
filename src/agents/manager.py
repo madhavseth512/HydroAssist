@@ -103,11 +103,24 @@ class ManagerAgent(BaseAgent):
             state["user_intent"] = classification["intent"]
             state["aquifer_context"] = classification.get("extracted_aquifer", "unknown")
 
+            # What this message is about, which is not the same as what the
+            # workspace is analysing. Two separate facts, and conflating them is
+            # how a fit labelled Theis came to be described as Cooper-Jacob after
+            # one question about a third method.
+            #
+            # The user's own words are read first: the registry knows every alias
+            # and tolerates a misspelt author name, while the extraction is a
+            # model's paraphrase of them.
             extracted = classification.get("extracted_method")
-            if extracted:
-                # Normalise to the canonical label the calculator dropdown uses,
-                # so "theis method" and "Theis (1935)" select the same entry.
-                state["selected_method"] = canonical_method(extracted) or extracted
+            discussed = (canonical_method(user_message)
+                         or (canonical_method(extracted) or extracted or ""))
+            state["discussed_method"] = discussed or ""
+
+            # The workspace's own method is only moved when it has not been
+            # settled. Running a fit confirms it, and a conversation must not
+            # silently change the method under a result that is on screen.
+            if discussed and not state.get("suggestion_confirmed", False):
+                state["selected_method"] = discussed
 
             # Build the method suggestion card that bridges chat → calculator.
             self._update_method_suggestion(state, user_message)
@@ -151,6 +164,13 @@ class ManagerAgent(BaseAgent):
         on a later unrelated turn would silently change the method under them.
         """
         if state.get("suggestion_confirmed", False):
+            return
+
+        # Once a fit exists, the workspace has a method of its own and the
+        # conversation must not move it in passing. A suggestion is still offered
+        # when the user names a method themselves — that is them asking — but a
+        # theory question about a different method leaves the analysis alone.
+        if state.get("calculation_result") and not registry.canonical_id(user_message):
             return
 
         intent = state.get("user_intent", "unknown")

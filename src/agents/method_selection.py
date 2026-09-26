@@ -169,7 +169,13 @@ def suggest_method(
     text = user_message or ""
 
     # ── 1. An explicitly named method wins ────────────────────────────────────
-    named = canonical_method(selected_method) or canonical_method(text)
+    #
+    # The user's own words are read first, and the classifier's extraction only
+    # afterwards. Two reasons, both seen on the deployed site: the extraction can
+    # be wrong — a question about Papadopulos-Cooper came back as Cooper-Jacob —
+    # and `selected_method` persists across turns, so a method named three
+    # messages ago would otherwise outrank the one named in this one.
+    named = canonical_method(text) or canonical_method(selected_method)
     if named:
         return {
             "method": named,

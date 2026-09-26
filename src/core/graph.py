@@ -209,7 +209,8 @@ class HydroAssistChat:
         return {
             "intent": self.state.get("user_intent", "unknown"),
             "aquifer": self.state.get("aquifer_context", "unknown"),
-            "method": self.state.get("selected_method", ""),
+            "method": (self.state.get("discussed_method")
+                       or self.state.get("selected_method", "")),
             "suggestion_confirmed": self.state.get("suggestion_confirmed", False),
             "method_suggestion": self.state.get("method_suggestion", {}),
             "has_result": bool(self.state.get("calculation_result")),
