@@ -1097,6 +1097,60 @@
         }
       }
     },
+    "/api/analyses/history": {
+      "get": {
+        "tags": [
+          "analysis"
+        ],
+        "summary": "Analysis History",
+        "description": "Every fit run in this session, oldest first.\n\nSaving an analysis to the project is a deliberate act, so a fit that was run\nand not saved used to leave no trace at all \u2014 the next one overwrote it. This\nis what was run, which is a different question from what was kept.",
+        "operationId": "analysis_history_api_analyses_history_get",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnalysisRunModel"
+                  },
+                  "title": "Response Analysis History Api Analyses History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/analyses/manual-match": {
       "post": {
         "tags": [
@@ -1648,6 +1702,64 @@
         }
       }
     },
+    "/api/chat/messages/stream": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Stream Message",
+        "description": "The same turn as POST /messages, with the answer sent as it is written.\n\nAn answer takes several seconds, and the first sentence of an interpretation\nusually says whether the fit can be trusted. There is no reason to withhold it\nuntil the last sentence exists.\n\nServer-sent events, three kinds:\n\n    {\"type\": \"token\", \"text\": \"\u2026\"}    a piece of the answer\n    {\"type\": \"state\", ...}            the whole chat state, once, at the end\n    {\"type\": \"error\", \"detail\": \"\u2026\"}  the turn failed; replace the partial text\n\nThe turn runs in a worker thread and pushes tokens into a queue that this\nresponse drains \u2014 the alternative, generating inside the request, cannot yield\nanything until the model has finished, which is the problem being solved.\n\nWhat is *stored* is identical to the non-streaming route, so a reload shows\nthe same conversation either way, and the browser can fall back to\nPOST /messages whenever streaming is unavailable.",
+        "operationId": "stream_message_api_chat_messages_stream_post",
+        "parameters": [
+          {
+            "name": "hydroassist_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hydroassist Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -1692,6 +1804,83 @@
         "type": "object",
         "title": "ActionModel",
         "description": "Somewhere the guide offered to take the user.\n\nAn offer, never a move: the browser renders a button and nothing happens\nuntil it is pressed. An assistant that navigates the workspace by itself\nwhile someone is mid-analysis is a worse failure than one that answers\nbadly."
+      },
+      "AnalysisRunModel": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": ""
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "T_day": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "T Day"
+          },
+          "S": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S"
+          },
+          "r_squared": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "R Squared"
+          },
+          "rmse": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rmse"
+          },
+          "n_points": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Points"
+          },
+          "error_message": {
+            "type": "string",
+            "title": "Error Message",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AnalysisRunModel",
+        "description": "One fit run in this session, saved or not.\n\nThe workspace keeps saved analyses in the project, but a fit that was run and\nnot saved existed nowhere: it vanished when the next one replaced it, which is\nhow three analyses in a row came to look like one. This is the log of what was\nactually run."
       },
       "Body_open_project_api_project_open_post": {
         "properties": {

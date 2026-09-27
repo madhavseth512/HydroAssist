@@ -361,6 +361,24 @@ class ComparisonRowModel(BaseModel):
     evidence: str = ""
 
 
+class AnalysisRunModel(BaseModel):
+    """One fit run in this session, saved or not.
+
+    The workspace keeps saved analyses in the project, but a fit that was run and
+    not saved existed nowhere: it vanished when the next one replaced it, which is
+    how three analyses in a row came to look like one. This is the log of what was
+    actually run.
+    """
+    method: str = ""
+    success: bool = True
+    T_day: Optional[float] = None
+    S: Optional[float] = None
+    r_squared: Optional[float] = None
+    rmse: Optional[float] = None
+    n_points: Optional[int] = None
+    error_message: str = ""
+
+
 class ComparisonModel(BaseModel):
     test_id: str
     test_name: str

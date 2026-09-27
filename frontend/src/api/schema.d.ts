@@ -360,6 +360,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analyses/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analysis History
+         * @description Every fit run in this session, oldest first.
+         *
+         *     Saving an analysis to the project is a deliberate act, so a fit that was run
+         *     and not saved used to leave no trace at all — the next one overwrote it. This
+         *     is what was run, which is a different question from what was kept.
+         */
+        get: operations["analysis_history_api_analyses_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analyses/manual-match": {
         parameters: {
             query?: never;
@@ -563,6 +587,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/messages/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Message
+         * @description The same turn as POST /messages, with the answer sent as it is written.
+         *
+         *     An answer takes several seconds, and the first sentence of an interpretation
+         *     usually says whether the fit can be trusted. There is no reason to withhold it
+         *     until the last sentence exists.
+         *
+         *     Server-sent events, three kinds:
+         *
+         *         {"type": "token", "text": "…"}    a piece of the answer
+         *         {"type": "state", ...}            the whole chat state, once, at the end
+         *         {"type": "error", "detail": "…"}  the turn failed; replace the partial text
+         *
+         *     The turn runs in a worker thread and pushes tokens into a queue that this
+         *     response drains — the alternative, generating inside the request, cannot yield
+         *     anything until the model has finished, which is the problem being solved.
+         *
+         *     What is *stored* is identical to the non-streaming route, so a reload shows
+         *     the same conversation either way, and the browser can fall back to
+         *     POST /messages whenever streaming is unavailable.
+         */
+        post: operations["stream_message_api_chat_messages_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -612,6 +674,42 @@ export interface components {
              * @default
              */
             label: string;
+        };
+        /**
+         * AnalysisRunModel
+         * @description One fit run in this session, saved or not.
+         *
+         *     The workspace keeps saved analyses in the project, but a fit that was run and
+         *     not saved existed nowhere: it vanished when the next one replaced it, which is
+         *     how three analyses in a row came to look like one. This is the log of what was
+         *     actually run.
+         */
+        AnalysisRunModel: {
+            /**
+             * Method
+             * @default
+             */
+            method: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+            /** T Day */
+            T_day?: number | null;
+            /** S */
+            S?: number | null;
+            /** R Squared */
+            r_squared?: number | null;
+            /** Rmse */
+            rmse?: number | null;
+            /** N Points */
+            n_points?: number | null;
+            /**
+             * Error Message
+             * @default
+             */
+            error_message: string;
         };
         /** Body_open_project_api_project_open_post */
         Body_open_project_api_project_open_post: {
@@ -1980,6 +2078,37 @@ export interface operations {
             };
         };
     };
+    analysis_history_api_analyses_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                hydroassist_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunModel"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     manual_match_api_analyses_manual_match_post: {
         parameters: {
             query?: never;
@@ -2286,6 +2415,41 @@ export interface operations {
             };
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_message_api_chat_messages_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                hydroassist_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -113,7 +113,8 @@ def create_hydroassist_graph(config: AppConfig):
 def run_conversation_turn(
     user_message: str,
     graph,
-    current_state: AgentState
+    current_state: AgentState,
+    config: dict = None,
 ) -> AgentState:
     """
     Run one turn of conversation.
@@ -138,7 +139,7 @@ def run_conversation_turn(
 
     # Run graph
     try:
-        result = graph.invoke(current_state)
+        result = graph.invoke(current_state, config=config) if config             else graph.invoke(current_state)
         logger.info("Conversation turn completed successfully")
         return result
 
@@ -168,7 +169,7 @@ class HydroAssistChat:
 
         self.logger.info("HydroAssist chat initialized")
 
-    def send_message(self, message: str) -> str:
+    def send_message(self, message: str, token_sink=None) -> str:
         """
         Send a message and get response.
 
@@ -180,8 +181,12 @@ class HydroAssistChat:
         """
         self.logger.info(f"User: {message}")
 
-        # Run conversation turn
-        self.state = run_conversation_turn(message, self.graph, self.state)
+        # Run conversation turn. A token sink, where the caller gave one,
+        # travels in the graph's config rather than in the state: it belongs to
+        # this one call, and the state is serialised into project files.
+        config = ({"configurable": {"token_sink": token_sink}}
+                  if token_sink is not None else None)
+        self.state = run_conversation_turn(message, self.graph, self.state, config)
 
         # Keep this answer's sources with this answer.
         #
@@ -268,13 +273,49 @@ class HydroAssistChat:
 
         `result` must be the plain-dict form of CalculationResult — numpy
         arrays are dropped by the caller so the state stays serialisable.
+
+        Every run is also appended to `analysis_history`. There was one slot, so
+        a second fit overwrote the first and the conversation could not answer
+        "compare the two" or even "did we run Papadopulos-Cooper?" — asked on the
+        deployed site after three fits, and answered wrongly, because from the
+        conversation's point of view only the last one had ever happened.
         """
         self.state["calculation_result"] = result or {}
         self.state["calculation_input"] = calc_input or {}
+        self._remember_analysis(result or {}, calc_input or {})
         self.logger.info(
             f"Recorded calculation: {result.get('method', 'unknown')} "
             f"success={result.get('success')}"
         )
+
+    # Enough to hold a working session's worth of fits without the prompt growing
+    # without bound. The oldest go first.
+    HISTORY_KEPT = 12
+
+    def _remember_analysis(self, result: dict, calc_input: dict) -> None:
+        """Keep a compact record of a run, for later questions about it."""
+        history = list(self.state.get("analysis_history") or [])
+        entry = {
+            "method": result.get("method", "unknown"),
+            "success": bool(result.get("success")),
+            "T_day": result.get("T_day"),
+            "S": result.get("S"),
+            "r_squared": result.get("r_squared"),
+            "rmse": result.get("rmse"),
+            "Q_m3d": (calc_input.get("Q") or 0) * 86400 or None,
+            "r_m": calc_input.get("r"),
+            "n_points": calc_input.get("n_points"),
+            "error_message": result.get("error_message", ""),
+        }
+
+        # A method re-run on the same data replaces its earlier entry rather than
+        # appearing twice: the later fit is the one that stands, and two rows for
+        # one method invite a comparison that is not a comparison.
+        history = [row for row in history
+                   if not (row.get("method") == entry["method"]
+                           and row.get("n_points") == entry["n_points"])]
+        history.append(entry)
+        self.state["analysis_history"] = history[-self.HISTORY_KEPT:]
 
     def stage_series(self, time_s, drawdown_m, Q=None) -> None:
         """Publish the uploaded series so method selection can read the data.
@@ -293,6 +334,12 @@ class HydroAssistChat:
         self.state["staged_series"] = {}
 
     def clear_calculation(self) -> None:
-        """Drop any recorded result (e.g. after a new CSV is uploaded)."""
+        """Drop any recorded result (e.g. after a new CSV is uploaded).
+
+        The history goes with it: those fits were run on readings that are no
+        longer loaded, and comparing them with fits on the new data would be
+        comparing two different tests.
+        """
         self.state["calculation_result"] = {}
         self.state["calculation_input"] = {}
+        self.state["analysis_history"] = []

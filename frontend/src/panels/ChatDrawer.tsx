@@ -54,7 +54,15 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
   // talked about. Read from the result rather than from the conversation.
   const result = useCurrentResult()
   const analysing = result.data?.success ? result.data.method : ''
-  const send = useSendMessage()
+  // The answer as it is being written. Held in a ref as well as in state: the
+  // tokens arrive faster than React re-renders, and appending to the ref cannot
+  // lose one to a stale closure.
+  const partial = useRef('')
+  const [writing, setWriting] = useState('')
+  const send = useSendMessage((text) => {
+    partial.current += text
+    setWriting(partial.current)
+  })
   const reset = useResetChat()
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
@@ -73,7 +81,14 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
     // way and already in the transcript. If it fails, the draft comes back so
     // nothing anyone typed is lost.
     setDraft('')
-    send.mutate(message, { onError: () => setDraft(message) })
+    partial.current = ''
+    setWriting('')
+    send.mutate(message, {
+      onError: () => setDraft(message),
+      // The finished answer is in the conversation now; the partial copy would
+      // otherwise sit underneath it as a duplicate.
+      onSettled: () => { partial.current = ''; setWriting('') },
+    })
   }
 
   return (
@@ -145,7 +160,16 @@ export function ChatDrawer({ onGoTo }: ChatDrawerProps) {
                 <Sources sources={message.sources ?? []} id={String(index)} />
               </Paper>
             ))}
-            {send.isPending && <Loader size="sm" />}
+            {/* The answer as it arrives. Rendered as markdown like any other,
+                so a heading or a list does not appear as characters first and
+                reflow into place afterwards. */}
+            {writing && (
+              <Paper p="sm" radius="md" withBorder mr="xl">
+                <Text size="xs" c="dimmed" mb={4}>Consultant</Text>
+                <Markdown>{writing}</Markdown>
+              </Paper>
+            )}
+            {send.isPending && !writing && <Loader size="sm" />}
 
             {chat.data?.suggestion && <SuggestionCard suggestion={chat.data.suggestion} />}
 

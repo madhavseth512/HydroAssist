@@ -3,6 +3,7 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage
 
+from src.agents.answering import answer_text, sink_from
 from src.agents.base import BaseAgent
 from src.agents.errors import explain_model_failure, retry_delay_seconds
 from src.core.state import AgentState
@@ -13,6 +14,7 @@ from src.prompts.consultant_prompts import (
     CONSULTANT_SYSTEM_PROMPT,
     format_retrieved_context,
     format_analysis_context,
+    format_method_catalogue,
     NO_CONTEXT_RESPONSE
 )
 
@@ -50,7 +52,7 @@ class ConsultantAgent(BaseAgent):
 
         self.logger.info("Consultant agent initialized")
 
-    def run(self, state: AgentState) -> AgentState:
+    def run(self, state: AgentState, config=None) -> AgentState:
         """
         Retrieve relevant docs and generate answer.
 
@@ -131,19 +133,25 @@ class ConsultantAgent(BaseAgent):
             # Any completed workspace analysis travels with the prompt, so the
             # consultant can answer questions about the user's own T and S
             # rather than only about theory.
+            # Every fit this session, not only the latest: a second analysis used
+            # to overwrite the first, so the conversation could not compare two
+            # methods or say which had been tried.
             analysis_context = format_analysis_context(
                 state.get("calculation_result") or {},
                 state.get("calculation_input") or {},
+                state.get("analysis_history") or [],
             )
 
             prompt = CONSULTANT_SYSTEM_PROMPT.format(
                 retrieved_context=context,
+                method_catalogue=format_method_catalogue(),
                 analysis_context=analysis_context,
                 question=question
             )
 
-            response = self.llm.invoke(prompt)
-            answer = response.content
+            # Streamed when someone is waiting on the other end of an HTTP
+            # response, and identical otherwise. See src/agents/answering.py.
+            answer = answer_text(self.llm, prompt, sink_from(config))
 
             self.logger.info(f"Generated answer ({len(answer)} chars)")
 

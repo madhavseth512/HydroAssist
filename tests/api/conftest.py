@@ -47,14 +47,20 @@ class TestStubChat:
             "messages": [], "user_intent": "unknown", "aquifer_context": "unknown",
             "selected_method": "", "retrieved_docs": [], "metadata_filters": {},
             "method_suggestion": {}, "suggestion_confirmed": False,
-            "calculation_input": {}, "calculation_result": {}, "staged_series": {},
+            "calculation_input": {}, "calculation_result": {},
+            "analysis_history": [], "staged_series": {},
         }
 
-    def send_message(self, message: str) -> str:
+    def send_message(self, message: str, token_sink=None) -> str:
         if self.fail_with is not None:
             raise self.fail_with
         self.state["messages"].append(HumanMessage(message))
         reply = f"Stub reply to: {message}"
+        # A word at a time, as the real one streams, so a streaming route can be
+        # tested without a model.
+        if token_sink is not None:
+            for word in reply.split(" "):
+                token_sink(word + " ")
         self.state["messages"].append(AIMessage(reply))
         self.state["user_intent"] = "consultation"
         return reply

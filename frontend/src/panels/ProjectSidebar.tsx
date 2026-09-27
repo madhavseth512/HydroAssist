@@ -30,6 +30,7 @@ import {
 import { useEffect, useState } from 'react'
 
 import { type ProjectInfo, type Test } from '../api/client'
+import { RunHistory } from '../components/RunHistory'
 import {
   useActivateTest,
   useAddTest,
@@ -125,6 +126,10 @@ export function ProjectSidebar() {
           )}
         </Group>
       )}
+
+      {/* What was run, as against what was saved. A fit that was not saved used
+          to leave no trace once the next one replaced it. */}
+      {activeTest && <RunHistory />}
 
       <Button
         variant="subtle"

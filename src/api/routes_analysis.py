@@ -76,6 +76,22 @@ def current_result(session: SessionState = Depends(current_session)):
     return presenters.result_model(session.result, session.record)
 
 
+@router.get("/analyses/history", response_model=list[schemas.AnalysisRunModel])
+def analysis_history(session: SessionState = Depends(current_session)):
+    """Every fit run in this session, oldest first.
+
+    Saving an analysis to the project is a deliberate act, so a fit that was run
+    and not saved used to leave no trace at all — the next one overwrote it. This
+    is what was run, which is a different question from what was kept.
+    """
+    history = session.chat.state.get("analysis_history") or []
+    return [schemas.AnalysisRunModel(**{
+        key: row.get(key) for key in
+        ("method", "success", "T_day", "S", "r_squared", "rmse", "n_points")
+        if row.get(key) is not None
+    }) for row in history]
+
+
 @router.post("/analyses/manual-match", response_model=schemas.ManualMatchModel)
 def manual_match(payload: schemas.ManualMatchRequest,
                  session: SessionState = Depends(current_session)):

@@ -54,10 +54,11 @@ class UnavailableChat:
             "selected_method": "", "discussed_method": "",
             "retrieved_docs": [], "metadata_filters": {},
             "method_suggestion": {}, "suggestion_confirmed": False,
-            "calculation_input": {}, "calculation_result": {}, "staged_series": {},
+            "calculation_input": {}, "calculation_result": {},
+            "analysis_history": [], "staged_series": {},
         }
 
-    def send_message(self, message: str) -> str:
+    def send_message(self, message: str, token_sink=None) -> str:
         raise RuntimeError(self.reason)
 
     def reset(self) -> None:
@@ -80,8 +81,19 @@ class UnavailableChat:
         self.state["suggestion_confirmed"] = True
 
     def record_calculation(self, result: dict, calc_input: dict) -> None:
+        # The history is kept here too, so a session without a working consultant
+        # still has one when the model comes back.
         self.state["calculation_result"] = result or {}
         self.state["calculation_input"] = calc_input or {}
+        history = list(self.state.get("analysis_history") or [])
+        history.append({"method": (result or {}).get("method", "unknown"),
+                        "success": bool((result or {}).get("success")),
+                        "T_day": (result or {}).get("T_day"),
+                        "S": (result or {}).get("S"),
+                        "r_squared": (result or {}).get("r_squared"),
+                        "rmse": (result or {}).get("rmse"),
+                        "n_points": (calc_input or {}).get("n_points")})
+        self.state["analysis_history"] = history[-12:]
 
     def stage_series(self, time_s, drawdown_m, Q=None) -> None:
         self.state["staged_series"] = {"time_s": time_s, "drawdown_m": drawdown_m,
@@ -93,6 +105,7 @@ class UnavailableChat:
     def clear_calculation(self) -> None:
         self.state["calculation_result"] = {}
         self.state["calculation_input"] = {}
+        self.state["analysis_history"] = []
 
 
 def _build_chat(factory: Callable[[], object]) -> object:

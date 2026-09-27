@@ -31,6 +31,7 @@ export const keys = {
   readings: (testId: string, rows?: number) =>
     rows ? (['readings', testId, rows] as const) : (['readings', testId] as const),
   result: ['result'] as const,
+  history: ['analysis-history'] as const,
   comparison: (testId: string) => ['comparison', testId] as const,
   chat: ['chat'] as const,
 }
@@ -104,6 +105,14 @@ export function useReadings(testId: string | undefined, enabled = true,
     enabled: Boolean(testId) && enabled,
     retry: false,
   })
+}
+
+/** Every fit run in this session, oldest first.
+ *
+ * Invalidated by a run like everything else, so the list grows as the user works.
+ */
+export function useAnalysisHistory() {
+  return useQuery({ queryKey: keys.history, queryFn: api.analysisHistory })
 }
 
 export function useCurrentResult(enabled = true) {
@@ -273,6 +282,7 @@ export function useRunAnalysis() {
       api.run(method, setup),
     onSuccess: (result) => {
       queryClient.setQueryData(keys.result, result)
+      queryClient.invalidateQueries({ queryKey: keys.history })
       queryClient.invalidateQueries({ queryKey: keys.project })
       // The result is published into the conversation on the server.
       queryClient.invalidateQueries({ queryKey: keys.chat })
@@ -341,10 +351,15 @@ function useChatMutation<TVars>(mutationFn: (vars: TVars) => Promise<unknown>,
  * immediately and the server's own copy replaces it on success; a failure puts
  * the transcript back as it was.
  */
-export function useSendMessage() {
+export function useSendMessage(onToken?: (text: string) => void) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) => api.sendMessage(message),
+    // Streamed when the caller wants the tokens, and the ordinary route
+    // otherwise. Both store the same conversation, so the difference is only in
+    // when the reader sees it.
+    mutationFn: (message: string) => (onToken
+      ? api.streamMessage(message, onToken)
+      : api.sendMessage(message)),
     onMutate: (message: string) => {
       const previous = queryClient.getQueryData<ChatState>(keys.chat)
       if (previous) {

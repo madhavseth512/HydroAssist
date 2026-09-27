@@ -730,3 +730,111 @@ class TestEachAnswerKeepsItsOwnSources:
         assert state.messages[1].sources, "the answer should carry its sources"
         # Named, not filed: the folder name must not reach the reader.
         assert not state.messages[1].sources[0].document.startswith("Custom_")
+
+
+class TestTheConversationRemembersEveryAnalysis:
+    """Reported from the deployed site, with the transcript.
+
+    Papadopulos-Cooper was run and interpreted. Cooper-Jacob was run next, and
+    from then on the conversation behaved as though the first had never happened:
+    "compare the two analyses" was answered as though one had been done, and
+    "did we run Papadopulos-Cooper?" was answered
+
+        "there isn't a widely recognised 'Papadopulos-Cooper' method"
+
+    about one of the seven methods this application implements, which had just
+    produced the numbers under discussion.
+
+    Two causes, one per class of test below: a single slot for the result, and a
+    prompt that never said which methods exist.
+    """
+
+    def _fit(self, method, T_day, S, r2, rmse):
+        return {"method": method, "success": True, "T_day": T_day, "S": S,
+                "r_squared": r2, "rmse": rmse, "T": T_day / 86400}
+
+    def _run_three(self, chat):
+        chat.record_calculation(
+            self._fit("Papadopulos-Cooper (1967)", 136.42, 1e-2, 0.7867, 0.59374),
+            {"Q": 500 / 86400, "r": 50.0, "n_points": 50})
+        chat.record_calculation(
+            self._fit("Cooper-Jacob (1946)", 64.11, 4.5e-6, 0.965, 0.24067),
+            {"Q": 500 / 86400, "r": 50.0, "n_points": 50})
+        chat.record_calculation(
+            self._fit("Theis (1935)", 62.90, 4.9567e-6, 0.959, 0.26015),
+            {"Q": 500 / 86400, "r": 50.0, "n_points": 50})
+
+    def test_all_three_are_kept(self, wired):
+        chat, _, _, _ = wired
+
+        self._run_three(chat)
+
+        assert [row["method"] for row in chat.state["analysis_history"]] == [
+            "Papadopulos-Cooper (1967)", "Cooper-Jacob (1946)", "Theis (1935)"]
+
+    def test_the_latest_is_still_the_current_one(self, wired):
+        chat, _, _, _ = wired
+
+        self._run_three(chat)
+
+        assert chat.state["calculation_result"]["method"] == "Theis (1935)"
+
+    def test_re_running_a_method_replaces_its_entry(self, wired):
+        """Two rows for one method would invite a comparison that is not one."""
+        chat, _, _, _ = wired
+
+        self._run_three(chat)
+        chat.record_calculation(
+            self._fit("Cooper-Jacob (1946)", 64.50, 4.6e-6, 0.966, 0.239),
+            {"Q": 500 / 86400, "r": 50.0, "n_points": 50})
+
+        methods = [row["method"] for row in chat.state["analysis_history"]]
+        assert methods.count("Cooper-Jacob (1946)") == 1
+        assert [row["T_day"] for row in chat.state["analysis_history"]
+                if row["method"] == "Cooper-Jacob (1946)"] == [64.50]
+
+    def test_new_readings_clear_the_history(self, wired):
+        """Those fits were run on data that is no longer loaded; comparing them
+        with fits on the new readings would compare two different tests."""
+        chat, _, _, _ = wired
+
+        self._run_three(chat)
+        chat.clear_calculation()
+
+        assert chat.state["analysis_history"] == []
+
+    def test_all_three_reach_the_prompt(self, wired):
+        """The failure as reported: only the latest did."""
+        chat, manager_llm, consultant_llm, _ = wired
+        self._run_three(chat)
+        manager_llm.responses = [_classification("consultation")]
+
+        chat.send_message("Compare the analyses we have run.")
+
+        prompt = consultant_llm.prompts[-1]
+        assert "Papadopulos-Cooper (1967)" in prompt
+        assert "Cooper-Jacob (1946)" in prompt
+        assert "136.42" in prompt and "64.11" in prompt
+
+    def test_the_prompt_says_which_methods_exist(self, wired):
+        """So that a method this application implements is never denied."""
+        chat, manager_llm, consultant_llm, _ = wired
+        manager_llm.responses = [_classification("consultation")]
+
+        chat.send_message("did we run papadulous cooper?")
+
+        prompt = consultant_llm.prompts[-1]
+        assert "METHODS HYDROASSIST CAN RUN" in prompt
+        assert "Papadopulos-Cooper (1967)" in prompt
+
+    def test_the_guide_knows_what_has_been_tried(self, wired):
+        """It is asked "what have we done so far?" as often as the consultant."""
+        from src.prompts.guide_prompts import format_workspace_context
+
+        chat, _, _, _ = wired
+        self._run_three(chat)
+
+        context = format_workspace_context(chat.state)
+
+        assert "3 analyses have been run" in context
+        assert "Papadopulos-Cooper (1967)" in context

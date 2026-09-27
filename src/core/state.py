@@ -25,7 +25,11 @@ class AgentState(TypedDict):
         method_suggestion: Structured suggestion card {"method", "reason", "confidence"}
         suggestion_confirmed: True once user accepts or overrides the method suggestion
         calculation_input: Merged CSV data + well parameters from the calculator workspace
-        calculation_result: Computed T, S, goodness-of-fit and plot data
+        calculation_result: Computed T, S, goodness-of-fit and plot data — the
+            most recent run only
+        analysis_history: Every run this session, oldest first. One slot held only
+            the latest, so the conversation could not compare two fits or say
+            which methods had been tried
         staged_series: Uploaded time/drawdown arrays, so the Manager can read the
             flow regime off the data rather than guessing from the message
     """
@@ -42,6 +46,7 @@ class AgentState(TypedDict):
     suggestion_confirmed: bool
     calculation_input: Dict
     calculation_result: Dict
+    analysis_history: List[Dict]
     staged_series: Dict
     # What the guide offered to do next, which the browser renders as a button.
     # Never acted on here: nothing moves until the user clicks.
@@ -63,6 +68,7 @@ def create_initial_state() -> AgentState:
         suggestion_confirmed=False,
         calculation_input={},
         calculation_result={},
+        analysis_history=[],
         staged_series={},
         proposed_actions=[]
     )

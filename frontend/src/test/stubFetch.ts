@@ -17,6 +17,12 @@ export interface StubRoute {
   /** Never answer. For what the UI shows while a request is still in flight —
    * an optimistic message, a spinner, a disabled button. */
   pending?: boolean
+  /** Answer as server-sent events: these tokens, then `body` as the final
+   * state. For the streamed consultation. */
+  tokens?: string[]
+  /** Send the tokens and leave the stream open, so what is on screen is the
+   * half-written answer and nothing else could have put it there. */
+  holdOpen?: boolean
 }
 
 export interface FetchStub {
@@ -46,6 +52,10 @@ export function stubFetch(routes: StubRoute[]): FetchStub {
     if (route.pending) {
       // Resolves never. The test asserts on what is on screen meanwhile.
       return new Promise<Response>(() => {})
+    }
+    if (route.tokens) {
+      return sseResponse(route.tokens, route.holdOpen ? undefined : route.body,
+                         route.holdOpen ?? false)
     }
     return new Response(
       route.body === undefined ? null : JSON.stringify(route.body),
@@ -128,4 +138,31 @@ export function prepared(overrides: Record<string, unknown> = {}) {
     derivative_figure: JSON.stringify({ data: [], layout: {} }),
     ...overrides,
   }
+}
+
+
+/** A server-sent-event response: each token as its own frame, then the state.
+ *
+ * Framed one event per chunk deliberately — the client has to reassemble events
+ * that arrive split, and a stub that hands it whole events would never exercise
+ * that. */
+function sseResponse(tokens: string[], state: unknown,
+                     holdOpen = false): Response {
+  const encoder = new TextEncoder()
+  const frame = (payload: unknown) =>
+    encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)
+
+  const stream = new ReadableStream({
+    start(controller) {
+      tokens.forEach((text) => controller.enqueue(frame({ type: 'token', text })))
+      if (state !== undefined) {
+        controller.enqueue(frame({ type: 'state', state }))
+      }
+      if (!holdOpen) controller.close()
+    },
+  })
+  return new Response(stream, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  })
 }

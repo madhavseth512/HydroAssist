@@ -111,4 +111,12 @@ def format_workspace_context(state) -> str:
     else:
         lines.append("No analysis has been run yet.")
 
+    # Which methods have been run, so "what have we tried?" is answerable. The
+    # guide is asked this as often as the consultant is.
+    history = state.get("analysis_history") or []
+    if len(history) > 1:
+        tried = ", ".join(row.get("method", "unknown") for row in history)
+        lines.append(f"{len(history)} analyses have been run this session, in "
+                     f"order: {tried}. They are all on the same readings.")
+
     return "\n".join(lines)

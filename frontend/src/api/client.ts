@@ -33,6 +33,7 @@ export type ChatState = Schemas['ChatStateModel']
 export type ChatMessage = Schemas['MessageModel']
 export type Suggestion = Schemas['SuggestionModel']
 export type RetrievedDoc = Schemas['RetrievedDocModel']
+export type AnalysisRun = Schemas['AnalysisRunModel']
 export type OCRTable = Schemas['OCRTableModel']
 export type OCRCell = Schemas['OCRCellModel']
 
@@ -106,6 +107,79 @@ async function requestText(path: string): Promise<string> {
   return response.text()
 }
 
+/**
+ * A streamed answer: tokens as they are written, then the whole chat state.
+ *
+ * Server-sent events over `fetch`, rather than `EventSource`, for two reasons —
+ * the request is a POST with a body, which EventSource cannot make, and this
+ * carries the session cookie the same way every other call does.
+ *
+ * It falls back to the ordinary route whenever streaming cannot be used: an old
+ * browser without ReadableStream, a proxy that buffers the response into one
+ * piece, or any error before the first token. Nothing is lost by falling back —
+ * the server stores the same conversation either way — so the caller gets a
+ * complete answer and at worst waits for it as before.
+ */
+/** What separates one server-sent event from the next, and its lines. */
+const NEWLINE = '\n'
+const BLANK_LINE = '\n\n'
+
+async function streamChat(message: string,
+                          onToken: (text: string) => void): Promise<ChatState> {
+  let response: Response
+  try {
+    response = await fetch('/api/chat/messages/stream', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message }),
+    })
+  } catch {
+    throw new ApiError(0, 'Cannot reach the server. Check that it is running.')
+  }
+
+  if (!response.ok) throw new ApiError(response.status, await detailOf(response))
+  if (!response.body) {
+    // No readable stream here: ask again the ordinary way rather than fail.
+    return json<ChatState>('/api/chat/messages', 'POST', { message })
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let state: ChatState | null = null
+  let failure = ''
+
+  // Events are separated by a blank line; a chunk can split one anywhere, so the
+  // tail of the buffer is kept until its terminator arrives.
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (value) buffer += decoder.decode(value, { stream: true })
+    let cut = buffer.indexOf(BLANK_LINE)
+    while (cut !== -1) {
+      const frame = buffer.slice(0, cut)
+      buffer = buffer.slice(cut + 2)
+      const line = frame.split(NEWLINE).find((part) => part.startsWith('data: '))
+      if (line) {
+        const event = JSON.parse(line.slice(6)) as {
+          type: string; text?: string; detail?: string; state?: ChatState
+        }
+        if (event.type === 'token' && event.text) onToken(event.text)
+        else if (event.type === 'state' && event.state) state = event.state
+        else if (event.type === 'error') failure = event.detail ?? 'The consultant failed.'
+      }
+      cut = buffer.indexOf(BLANK_LINE)
+    }
+    if (done) break
+  }
+
+  if (failure) throw new ApiError(502, failure)
+  // The stream ended without the closing state — a dropped connection, say. The
+  // turn may well have completed on the server, so read the conversation rather
+  // than guess at it.
+  return state ?? request<ChatState>('/api/chat')
+}
+
 async function download(path: string, fallbackName: string): Promise<void> {
   const response = await fetch(path, { credentials: 'include' })
   if (!response.ok) throw new ApiError(response.status, await detailOf(response))
@@ -175,6 +249,8 @@ export const api = {
   run: (method: string, setup: Setup) =>
     json<Result>('/api/analyses/run', 'POST', { method, setup }),
   currentResult: () => request<Result>('/api/analyses/current'),
+  // What has been run this session, saved or not.
+  analysisHistory: () => request<AnalysisRun[]>('/api/analyses/history'),
   manualMatch: (T: number, S: number | null) =>
     json<ManualMatch>('/api/analyses/manual-match', 'POST', { T, S }),
   saveAnalysis: () => json<Comparison>('/api/analyses/save', 'POST'),
@@ -188,6 +264,10 @@ export const api = {
   chat: () => request<ChatState>('/api/chat'),
   sendMessage: (message: string) =>
     json<ChatState>('/api/chat/messages', 'POST', { message }),
+  // The same turn, with the answer arriving as it is written. Falls back to the
+  // plain route by itself, so a browser or proxy that cannot stream still works.
+  streamMessage: (message: string, onToken: (text: string) => void) =>
+    streamChat(message, onToken),
   confirmMethod: (method: string) =>
     json<ChatState>('/api/chat/confirm', 'POST', { method }),
   resetChat: () => json<ChatState>('/api/chat/reset', 'POST'),

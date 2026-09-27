@@ -13,6 +13,7 @@ than one that answers a question badly.
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage
 
+from src.agents.answering import answer_text, sink_from
 from src.agents.base import BaseAgent
 from src.agents.errors import explain_model_failure, retry_delay_seconds
 from src.core.config import AppConfig
@@ -56,7 +57,7 @@ class GuideAgent(BaseAgent):
         self.retriever = HelpRetriever(config)
         self.logger.info("Guide agent initialized")
 
-    def run(self, state: AgentState) -> AgentState:
+    def run(self, state: AgentState, config=None) -> AgentState:
         self._log_execution(state, "guiding")
 
         if not state["messages"]:
@@ -86,7 +87,7 @@ class GuideAgent(BaseAgent):
         )
 
         try:
-            answer = self.llm.invoke(prompt).content
+            answer = answer_text(self.llm, prompt, sink_from(config))
         except Exception as error:
             self.logger.error(f"Guide answer failed: {error}")
             delay = retry_delay_seconds(error)

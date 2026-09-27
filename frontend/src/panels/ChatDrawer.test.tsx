@@ -55,7 +55,8 @@ describe('the consultation', () => {
 
   it('sends a message and shows the reply', async () => {
     const stub = stubFetch([
-      { url: '/api/chat/messages', method: 'POST', body: CONVERSATION },
+      { url: '/api/chat/messages/stream', method: 'POST',
+        tokens: ['When u < ', '0.02 at ', 'late time.'], body: CONVERSATION },
       { url: '/api/chat', body: state() },
     ])
 
@@ -65,7 +66,7 @@ describe('the consultation', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 
     expect(await screen.findByText('When u < 0.02 at late time.')).toBeInTheDocument()
-    expect(bodyOf(stub, '/api/chat/messages').message)
+    expect(bodyOf(stub, '/api/chat/messages/stream').message)
       .toBe('When should I use Cooper-Jacob?')
   })
 
@@ -325,5 +326,88 @@ describe('sending a question', () => {
     await waitFor(() => expect(box).toHaveValue('Why was u filtered?'))
     expect(screen.queryAllByText('Why was u filtered?')
       .every((node) => node.tagName === 'TEXTAREA')).toBe(true)
+  })
+})
+
+describe('an answer as it is written', () => {
+  /** Tokens, then the conversation, as the streaming route sends them. */
+  function streaming(tokens: string[], final = CONVERSATION) {
+    return stubFetch([
+      { url: '/api/chat/messages/stream', method: 'POST', tokens, body: final },
+      { url: '/api/chat', body: state() },
+    ])
+  }
+
+  /** Tokens sent, then the stream held open: what is on screen is the
+   * half-written answer, which only streaming can produce. */
+  function halfWritten(tokens: string[]) {
+    return stubFetch([
+      { url: '/api/chat/messages/stream', method: 'POST', tokens,
+        holdOpen: true },
+      { url: '/api/chat', body: state() },
+    ])
+  }
+
+  it('shows the answer before it is finished', async () => {
+    // The point of the feature: the first sentence of an interpretation usually
+    // says whether the fit can be trusted, and there is no reason to withhold it
+    // until the last sentence exists.
+    halfWritten(['The fit is ', 'trustworthy: ', 'R² = 0.96.'])
+    open()
+
+    fireEvent.change(await screen.findByLabelText('Message'),
+                     { target: { value: 'is the fit any good?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    expect(await screen.findByText(/The fit is trustworthy/)).toBeInTheDocument()
+  })
+
+  it('leaves one copy of the answer, not two', async () => {
+    // The partial text is replaced by the stored conversation, not added to it.
+    streaming(['When u < ', '0.02 at late time.'])
+    open()
+
+    fireEvent.change(await screen.findByLabelText('Message'),
+                     { target: { value: 'when?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    await waitFor(() => expect(
+      screen.getAllByText('When u < 0.02 at late time.')).toHaveLength(1))
+  })
+
+  it('reassembles an event that arrives in pieces', async () => {
+    // A chunk can split an event anywhere; the client keeps the tail until its
+    // terminator arrives. The stub frames one event per chunk, and the tokens
+    // here are deliberately fragments of words.
+    halfWritten(['Papado', 'pulos-', 'Cooper ', 'assumes ', 'a large well.'])
+    open()
+
+    fireEvent.change(await screen.findByLabelText('Message'),
+                     { target: { value: 'what does it assume?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    expect(await screen.findByText(/Papadopulos-Cooper assumes a large well/))
+      .toBeInTheDocument()
+  })
+
+  it('falls back to the plain route when nothing can be streamed', async () => {
+    // A proxy that buffers, or a browser without readable streams: the answer
+    // still arrives, it simply arrives all at once.
+    const stub = stubFetch([
+      { url: '/api/chat/messages/stream', method: 'POST', body: {} },
+      { url: '/api/chat/messages', method: 'POST', body: CONVERSATION },
+      { url: '/api/chat', body: state() },
+    ])
+    open()
+
+    fireEvent.change(await screen.findByLabelText('Message'),
+                     { target: { value: 'when?' } })
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+    // The stream answered with no events at all, so the conversation is read back
+    // from the server rather than left half-written.
+    await waitFor(() => expect(stub.calls.some(
+      (call) => call.url.includes('/api/chat'))).toBe(true))
+    expect(screen.queryByText(/undefined/)).toBeNull()
   })
 })

@@ -6,6 +6,7 @@ keeps the stub honest.
 """
 
 import inspect
+import json
 
 import pytest
 
@@ -159,3 +160,99 @@ class TestResultsReachTheConversation:
         project = client.get("/api/project").json()
         assert project["info"]["title"] == "Kept"
         assert project["tests"][0]["n_readings"] == 50
+
+
+class TestStreamingAnAnswer:
+    """The answer sent as it is written.
+
+    An interpretation takes several seconds and its first sentence usually says
+    whether the fit can be trusted, so it is sent in pieces. What matters in these
+    tests is that streaming changes *when* the reader sees the answer and nothing
+    about what is stored: a reload must show the same conversation either way.
+    """
+
+    def _events(self, client, message="When should I use Cooper-Jacob?"):
+        with client.stream("POST", "/api/chat/messages/stream",
+                           json={"message": message}) as response:
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            events = []
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    events.append(json.loads(line[len("data: "):]))
+            return events
+
+    def test_the_answer_arrives_in_pieces(self, client):
+        events = self._events(client)
+        tokens = [event for event in events if event["type"] == "token"]
+
+        assert len(tokens) > 1, "a single piece is not streaming"
+        assert "".join(token["text"] for token in tokens).strip() \
+            == "Stub reply to: When should I use Cooper-Jacob?"
+
+    def test_the_whole_state_comes_last(self, client):
+        events = self._events(client)
+
+        assert events[-1]["type"] == "state"
+        state = events[-1]["state"]
+        assert [m["role"] for m in state["messages"]] == ["user", "assistant"]
+        assert state["context"]["message_count"] == 2
+
+    def test_what_is_stored_is_what_the_plain_route_stores(self, client,
+                                                           second_client):
+        """The guarantee that lets the browser fall back to POST /messages."""
+        streamed = self._events(client)[-1]["state"]
+        plain = second_client.post(
+            "/api/chat/messages",
+            json={"message": "When should I use Cooper-Jacob?"}).json()
+
+        assert [m["content"] for m in streamed["messages"]] \
+            == [m["content"] for m in plain["messages"]]
+
+    def test_the_conversation_holds_the_answer_afterwards(self, client):
+        self._events(client)
+
+        body = client.get("/api/chat").json()
+        assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
+        assert "Stub reply" in body["messages"][1]["content"]
+
+    def test_a_failure_is_reported_as_an_event(self, client, monkeypatch):
+        """Tokens already sent cannot be recalled, so the browser is told to
+        replace what it has rather than leave half an answer looking finished."""
+        monkeypatch.setattr(TestStubChat, "fail_with",
+                            RuntimeError("the daily allowance is gone"))
+
+        events = self._events(client)
+
+        assert events[-1]["type"] == "error"
+        assert "daily allowance" in events[-1]["detail"]
+
+    def test_it_is_rate_limited_like_the_plain_route(self, client, store):
+        from src.api.deps import set_limiter
+        from src.api.ratelimit import ChatRateLimiter
+
+        set_limiter(ChatRateLimiter(per_session=0, per_day=0))
+        try:
+            response = client.post("/api/chat/messages/stream",
+                                   json={"message": "hello"})
+            assert response.status_code == 429
+        finally:
+            set_limiter(None)
+
+    def test_an_empty_message_is_refused_by_the_schema(self, client):
+        response = client.post("/api/chat/messages/stream", json={"message": ""})
+
+        assert response.status_code == 422
+
+    def test_a_first_visit_that_starts_here_keeps_its_session(self, client, store):
+        """FastAPI merges the session cookie into a response it serialises, not
+        into one a route returns itself. Without carrying it across, a visitor
+        whose first request was a streamed message would be given a session they
+        never kept — and every message after it another one."""
+        before = len(store._sessions)
+
+        self._events(client)
+        self._events(client, "and Theis?")
+
+        assert len(store._sessions) == before + 1
+        assert len(client.get("/api/chat").json()["messages"]) == 4

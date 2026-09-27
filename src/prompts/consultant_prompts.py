@@ -19,6 +19,7 @@ Guidelines:
 
 Context documents (retrieved from knowledge base):
 {retrieved_context}
+{method_catalogue}
 {analysis_context}
 User question:
 {question}
@@ -26,22 +27,36 @@ User question:
 Provide a technical but accessible answer with proper citations."""
 
 
-def format_analysis_context(result: dict, calc_input: dict = None) -> str:
-    """Format a completed calculation for the consultant prompt.
+def format_analysis_context(result: dict, calc_input: dict = None,
+                            history: list = None) -> str:
+    """Format the session's analyses for the consultant prompt.
 
-    Returns an empty string when no analysis has been run, so the prompt reads
+    Returns an empty string when nothing has been run, so the prompt reads
     naturally in the pure-consultation case. When a result exists the consultant
     can answer questions about the user's own numbers ("is this S plausible?")
     instead of only about theory.
+
+    `history` is every fit run this session, and it is a parameter because of a
+    failure reported from the deployed site. Three methods were run in turn, but
+    only the latest ever reached the prompt: "compare the two analyses" was
+    answered as though one had been done, and "did we run Papadopulos-Cooper?"
+    was answered "no — there is no widely recognised method of that name", about
+    a method this application implements and had just run.
     """
-    if not result:
+    if not result and not history:
         return ""
+
+    earlier = _format_earlier_analyses(history, result)
+
+    if not result:
+        return earlier
 
     if not result.get("success", False):
         return (
             "\nThe user's most recent analysis FAILED to converge: "
             f"{result.get('error_message', 'unknown error')}\n"
             "If they ask about it, help them diagnose the cause.\n"
+            + earlier
         )
 
     lines = [
@@ -72,7 +87,70 @@ def format_analysis_context(result: dict, calc_input: dict = None) -> str:
         lines += [f"    - {n}" for n in notes]
 
     lines.append("")
+    return "\n".join(lines) + earlier
+
+
+def _format_earlier_analyses(history: list, current: dict = None) -> str:
+    """The other fits run this session, as a table the model can read.
+
+    The current one is left out of the table — it is stated in full above — but
+    the count includes it, because "how many have we run" is a question about the
+    session, not about this prompt's layout.
+    """
+    history = list(history or [])
+    if len(history) < 2:
+        return ""
+
+    current_method = (current or {}).get("method")
+    rows = [row for row in history if row.get("method") != current_method]
+    if not rows:
+        return ""
+
+    lines = [
+        "",
+        f"EARLIER ANALYSES IN THIS SESSION ({len(history)} in all, most recent "
+        "last). They were run on the same readings, so they are directly "
+        "comparable — use them when the user asks to compare methods, or which "
+        "methods have been tried:",
+    ]
+    for row in rows:
+        method = row.get("method", "unknown")
+        if not row.get("success"):
+            lines.append(f"  {method}: failed to converge")
+            continue
+        parts = []
+        if row.get("T_day") is not None:
+            parts.append(f"T = {row['T_day']:.2f} m2/day")
+        if row.get("S") is not None:
+            parts.append(f"S = {row['S']:.4e}")
+        if row.get("r_squared") is not None:
+            parts.append(f"R2 = {row['r_squared']:.4f}")
+        if row.get("rmse") is not None:
+            parts.append(f"RMSE = {row['rmse'] * 1000:.2f} mm")
+        lines.append(f"  {method}: " + ", ".join(parts) if parts
+                     else f"  {method}")
+    lines.append("")
     return "\n".join(lines)
+
+
+def format_method_catalogue() -> str:
+    """The methods this application implements.
+
+    In the prompt because of the same report. Asked whether Papadopulos-Cooper
+    had been run, the consultant replied that no method of that name is widely
+    recognised — about one of the seven below, which had just produced the
+    numbers under discussion. The model knows the literature; it does not know
+    this application unless it is told.
+    """
+    from src.calculator import registry
+
+    labels = registry.labels(implemented_only=True)
+    return (
+        "\nMETHODS HYDROASSIST CAN RUN (never tell the user that a method on this "
+        "list does not exist, and never rename one):\n"
+        + "\n".join(f"  - {label}" for label in labels)
+        + "\nOther methods can be discussed but cannot be computed here.\n"
+    )
 
 
 def format_retrieved_context(docs: list) -> str:
