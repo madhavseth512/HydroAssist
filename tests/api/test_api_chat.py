@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from conftest import THEIS_SAMPLE, TestStubChat, run, upload
+from conftest import RECOVERY_SAMPLE, THEIS_SAMPLE, TestStubChat, run, upload
 
 
 class TestTheStubMatchesTheRealChat:
@@ -135,10 +135,23 @@ class TestResultsReachTheConversation:
         dataset."""
         upload(client)
         run(client)
-        upload(client)
+        upload(client, RECOVERY_SAMPLE)          # different readings
 
         assert client.get("/api/chat").json()["context"]["has_result"] is False
         assert client.get("/api/analyses/current").status_code == 404
+
+    def test_re_uploading_the_same_readings_keeps_the_result(self, client):
+        """Nothing changed, so there is nothing to retire. Picking the same file
+        again — which an upload widget invites — should not cost someone the fit
+        they were reading, and the conversation must agree with the workspace
+        about whether one exists.
+        """
+        upload(client)
+        run(client)
+        upload(client)
+
+        assert client.get("/api/analyses/current").status_code == 200
+        assert client.get("/api/chat").json()["context"]["has_result"] is True
 
     def test_resetting_clears_the_conversation_and_the_result(self, client):
         upload(client)

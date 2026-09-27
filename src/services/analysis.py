@@ -18,6 +18,9 @@ from src.calculator import registry
 from src.calculator.base import CalculationResult
 from src.project import workspace as ws
 from src.project.model import AnalysisRecord, PumpingTest, TestSetup
+from src.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 # ── Running a fit ─────────────────────────────────────────────────────────────
@@ -235,6 +238,47 @@ def save_analysis(test: PumpingTest, result: CalculationResult,
         spec.id if spec else result.method_id,
         setup=ws.setup_from_run(record),
     )
+
+
+def restore_last_analysis(test: PumpingTest):
+    """The test's most recent saved analysis, fitted again so it can be shown.
+
+    Opening a test used to show nothing, because a result lived for one session
+    and one test. Its readings and its saved analyses are in the project file, so
+    what a reopened test is missing is only the fit itself — and a fit is
+    deterministic: the same method under the same setup on the same readings
+    reproduces it exactly, in milliseconds.
+
+    Re-running rather than storing the result whole is deliberate. The curve, the
+    residuals and the figures are derived from the readings, which are already
+    here; keeping a copy of them per analysis would multiply the size of every
+    project file for numbers that can be recomputed.
+
+    Returns `(result, record)`, or `(None, {})` when there is nothing to restore —
+    no saved analysis, one that describes replaced readings, or a method this
+    version no longer has. None of those is an error; the panel is simply empty.
+    """
+    if test.readings is None:
+        return None, {}
+
+    current = [record for record in test.analyses
+               if not test.is_stale(record) and record.success]
+    if not current:
+        return None, {}
+
+    saved = current[-1]
+    try:
+        setup = saved.setup
+        result = run_analysis(test.readings.to_frame(),
+                              saved.method_id or saved.method_label, setup)
+        if not result.success:
+            return None, {}
+        return result, run_record(setup, saved.method_id or saved.method_label,
+                                  result, n_points=len(test.readings))
+    except Exception as error:                              # noqa: BLE001
+        logger.warning(f"Could not restore {saved.method_label} on "
+                       f"{test.name}: {error}")
+        return None, {}
 
 
 def report_filename(method_label: str) -> str:

@@ -58,6 +58,14 @@ def run_analysis(payload: schemas.RunRequest,
     session.result = result
     session.record = record
     session.saved_result = None
+    # Against this test, so opening it again shows its own fit, and against the
+    # project, so it survives a reload. Saving to the project is still what makes
+    # an analysis part of the comparison and the report; this is the record of
+    # what was run, which used to be kept nowhere at all.
+    session.remember_result(test.id, result, record)
+    test.record_run(result, record.get("method", payload.method),
+                    method_id=payload.method, n_points=len(df))
+    session.project.touch()
 
     # Publish the result into the conversation, which is what lets the
     # consultant discuss these numbers.
@@ -70,7 +78,30 @@ def run_analysis(payload: schemas.RunRequest,
 
 @router.get("/analyses/current", response_model=schemas.ResultModel)
 def current_result(session: SessionState = Depends(current_session)):
-    """The last result, for a browser that reloaded mid-session."""
+    """The active test's analysis: the one just run, or the one it already had.
+
+    A result lived for one session and one test, so opening a saved project — or
+    coming back to the first of two tests — showed an empty panel beside readings
+    and a saved analysis that plainly existed. The fit is recovered here rather
+    than in each route that opens a test, so every path benefits: activating a
+    test, opening a file, restoring the autosaved project, or reloading the page.
+
+    Recovering means fitting again, which is deterministic and takes milliseconds.
+    See analysis.restore_last_analysis for why that is better than storing the
+    curve.
+    """
+    if session.result is None:
+        test = session.active_test()
+        result, record = analysis_service.restore_last_analysis(test)
+        if result is not None:
+            session.result = result
+            session.record = record
+            session.remember_result(test.id, result, record)
+            # The conversation was told about the fit when it was first run, in a
+            # session that may be gone; it needs telling again.
+            session.chat.record_calculation(result.to_state_dict(),
+                                            analysis_service.chat_record(record))
+
     if session.result is None:
         raise HTTPException(status_code=404, detail="No analysis has been run yet.")
     return presenters.result_model(session.result, session.record)
@@ -84,7 +115,16 @@ def analysis_history(session: SessionState = Depends(current_session)):
     and not saved used to leave no trace at all — the next one overwrote it. This
     is what was run, which is a different question from what was kept.
     """
-    history = session.chat.state.get("analysis_history") or []
+    # From the active test, so the list belongs to the test on screen. The
+    # conversation holds the same rows; the test is the authority because it is
+    # what a project file keeps.
+    test = session.active_test()
+    history = [
+        {"method": run.method_label, "success": run.success, "T_day": run.T_day,
+         "S": run.S, "r_squared": run.r_squared, "rmse": run.rmse,
+         "n_points": run.n_points}
+        for run in test.current_runs()
+    ]
     return [schemas.AnalysisRunModel(**{
         key: row.get(key) for key in
         ("method", "success", "T_day", "S", "r_squared", "rmse", "n_points")

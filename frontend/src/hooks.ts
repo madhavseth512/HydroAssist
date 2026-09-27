@@ -158,11 +158,15 @@ function useProjectMutation<TData, TVars>(
     onSuccess: (...args: Parameters<NonNullable<typeof onSuccess>>) => {
       queryClient.invalidateQueries({ queryKey: keys.project })
       if (invalidateAll) {
-        // Switching or replacing a test invalidates the analysis too: the old
-        // result describes data this workspace is no longer showing.
-        // resetQueries, not removeQueries: removing the entry detaches the results
-      // panel that is subscribed to it, so the next result would never show.
-      queryClient.resetQueries({ queryKey: keys.result })
+        // Switching or replacing a test changes which analysis is current: the
+        // server answers with that test's own, which may be one it has just
+        // recovered from the project file.
+        // resetQueries, not removeQueries: removing the entry detaches the
+        // results panel that is subscribed to it, so the next result would never
+        // show.
+        queryClient.resetQueries({ queryKey: keys.result })
+        // The run log belongs to the test, so it changes with the test.
+        queryClient.invalidateQueries({ queryKey: keys.history })
         queryClient.invalidateQueries({ queryKey: keys.chat })
       }
       onSuccess?.(...args)

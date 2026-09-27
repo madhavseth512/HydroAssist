@@ -34,7 +34,7 @@ import {
   IconFileUpload,
   IconInfoCircle,
 } from '@tabler/icons-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { PreparedData, Test } from '../api/client'
 import { OCRGrid } from '../components/OCRGrid'
@@ -62,6 +62,10 @@ export function DataPanel() {
   const photograph = useReadImage(testId)
   const [pasting, pastingControls] = useDisclosure(false)
   const [pasted, setPasted] = useState('')
+  // Emptying the file inputs after a choice, so choosing the same file again is
+  // still a change the browser reports.
+  const resetFile = useRef<() => void>(null)
+  const resetPhoto = useRef<() => void>(null)
   // Whether the reader asked for the whole table rather than the first rows.
   // The count comes from the test, so the request is made once and cached.
   const [allRows, setAllRows] = useState(false)
@@ -74,6 +78,19 @@ export function DataPanel() {
   // separate request, and once it arrives it is what should be shown.
   const prepared = (allRows ? readings.data : undefined)
     ?? upload.data ?? readings.data
+
+  // A mutation's result outlives the test it came from, so opening another test
+  // showed the previous one's readings until its own arrived — the same fault as
+  // a result outliving its test, one layer up. Cleared when the test changes.
+  useEffect(() => {
+    upload.reset()
+    paste.reset()
+    photograph.reset()
+    setAllRows(false)
+    // Only when the test changes: including the mutations would clear them the
+    // moment they succeeded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testId])
 
   return (
     <Card withBorder padding="md">
@@ -92,8 +109,11 @@ export function DataPanel() {
                 dialog, not about what the reader can do. */}
             {/* A field sheet that exists only on paper. `capture` offers the
                 camera directly on a phone, which is where the photograph is. */}
-            <FileButton accept="image/*" capture="environment"
-                        onChange={(file) => file && photograph.mutate(file)}>
+            <FileButton resetRef={resetPhoto} accept="image/*" capture="environment"
+                        onChange={(file) => {
+                          if (file) photograph.mutate(file)
+                          resetPhoto.current?.()
+                        }}>
               {(props) => (
                 <Button {...props} size="xs" variant="subtle"
                         leftSection={<IconCamera size={16} />}
@@ -103,8 +123,16 @@ export function DataPanel() {
                 </Button>
               )}
             </FileButton>
-            <FileButton accept=".csv,.txt,.tsv,.dat,.prn,.xlsx,.xlsm,.lev,.mon,.xle,text/csv,text/plain"
-                        onChange={(file) => file && upload.mutate(file)}>
+            {/* `resetRef` empties the input after each choice. Without it the
+                browser fires no change event when the same file is picked again —
+                so re-uploading an edited file, or giving a second test the same
+                readings, silently did nothing. */}
+            <FileButton resetRef={resetFile}
+                        accept=".csv,.txt,.tsv,.dat,.prn,.xlsx,.xlsm,.lev,.mon,.xle,text/csv,text/plain"
+                        onChange={(file) => {
+                          if (file) upload.mutate(file)
+                          resetFile.current?.()
+                        }}>
               {(props) => (
                 <Button {...props} size="xs" variant="light"
                         leftSection={<IconFileUpload size={16} />}

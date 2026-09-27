@@ -7,10 +7,13 @@
  * turn therefore looked like one, and asking the consultant to compare them got
  * an answer about the only one it could still see.
  *
- * This is the log of what was run, which is a different question from what was
- * kept. It is per session and goes when the session does — saving to the project
- * is still what makes an analysis part of the record, and the badge says which
- * ones are.
+ * This is the log of what was run, which is a different question from which ones
+ * were saved for comparison. It belongs to the test and travels in the project
+ * file, so it survives a reload and switching between tests.
+ *
+ * Runs against readings that have since been replaced are kept in the file — they
+ * happened — but are not listed here, for the same reason a stale analysis is not
+ * offered for comparison.
  */
 import { Badge, Group, Stack, Text, Tooltip } from '@mantine/core'
 
@@ -50,8 +53,7 @@ export function RunHistory() {
         )
       })}
       <Text size="xs" c="dimmed">
-        Kept only while this session lasts. Save an analysis to the project to
-        compare it, export it, or keep it.
+        Save an analysis to add it to the comparison and the report.
       </Text>
     </Stack>
   )

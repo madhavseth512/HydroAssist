@@ -108,6 +108,17 @@ class UnavailableChat:
         self.state["analysis_history"] = []
 
 
+def _chat_record(record: dict) -> dict:
+    """The slice of a run record the conversation is told about.
+
+    The same projection as `services.analysis.chat_record`, imported lazily so
+    session handling does not depend on the calculator layer.
+    """
+    from src.services.analysis import chat_record
+
+    return chat_record(record or {})
+
+
 def _build_chat(factory: Callable[[], object]) -> object:
     """The real conversation, or an UnavailableChat that says why not."""
     try:
@@ -134,6 +145,10 @@ class SessionState:
     # The last prepared dataset (services.data_intake.PreparedData).
     prepared: object = None
     saved_result: object = None       # the result already written to the project
+    # The last fit for each test, so opening a test again shows its own result.
+    # There was one slot for the whole session and switching test emptied it, so
+    # a project with two tests showed an analysis for neither.
+    results: dict = field(default_factory=dict)   # test id -> (result, record)
     created_at: float = field(default_factory=time.time)
     last_seen: float = field(default_factory=time.time)
 
@@ -154,16 +169,58 @@ class SessionState:
             return self.project.tests[0]
 
     def load_test(self, test: PumpingTest) -> PumpingTest:
-        """Point the workspace at `test`: its readings, and a clean slate for
-        results, so a stale fit is never shown against another test's data."""
+        """Point the workspace at `test`: its readings, and its own last result.
+
+        Never another test's: showing a fit from Test 1 against Test 2's readings
+        would be a silent lie about which numbers produced it. That is why this
+        used to clear the result outright — correct, and it meant an analysis
+        vanished the moment a second test was opened, which is how two tests came
+        to show an analysis for neither.
+        """
         self.active_test_id = test.id
-        self.result = None
-        self.record = {}
         self.prepared = None
+
+        remembered = self.results.get(test.id) or (None, {})
+        self.result, self.record = remembered
+        self.record = self.record or {}
+        # A result recovered this way was not necessarily saved; the save route
+        # compares identity, and only an identical object counts as saved.
         self.saved_result = None
+
         self.chat.clear_calculation()
         self.chat.clear_staged_series()
+        # The conversation follows the test. Both parts matter: its own runs, so
+        # "compare the two" means the two on this test's readings, and its own
+        # result, so the consultant is not told there is no analysis while the
+        # workspace is showing one.
+        if self.result is not None:
+            self.chat.record_calculation(self.result.to_state_dict(),
+                                         _chat_record(self.record))
+        self._publish_runs(test)
         return test
+
+    def remember_result(self, test_id: str, result, record: dict) -> None:
+        """Keep this test's latest fit, for when the user comes back to it."""
+        self.results[test_id] = (result, dict(record or {}))
+
+    def forget_results(self, test_id: str) -> None:
+        """Drop a test's remembered fit — its readings have been replaced."""
+        self.results.pop(test_id, None)
+
+    def _publish_runs(self, test: PumpingTest) -> None:
+        """Give the conversation this test's run history."""
+        history = [
+            {"method": run.method_label, "success": run.success,
+             "T_day": run.T_day, "S": run.S, "r_squared": run.r_squared,
+             "rmse": run.rmse, "n_points": run.n_points}
+            for run in test.current_runs()
+        ]
+        try:
+            self.chat.state["analysis_history"] = history
+        except Exception:                                   # noqa: BLE001
+            # An unavailable consultant still has a state dict; anything else that
+            # cannot take one must not stop the test from opening.
+            pass
 
     def open_project(self, project: Project) -> Project:
         """Replace the open project and show its first test."""

@@ -201,6 +201,43 @@ class AnalysisRecord:
         return self.gof.get("n_params")
 
 
+# How many runs a test keeps. A working session tries a handful of methods; the
+# cap is only there so a project file cannot grow without bound.
+RUNS_KEPT = 20
+
+
+@dataclass
+class RunRecord:
+    """A fit that was run against this test — saved for comparison or not.
+
+    `analyses` holds the ones deliberately saved, with everything needed to trust
+    them later: the full result, the setup, the readings fingerprint. This is the
+    lighter record of *what was run*, and it exists because those were two
+    different questions and only one of them had an answer.
+
+    Reported twice from the deployed site: two tests in the project panel, and
+    clicking either showed no analysis at all. The readings were kept per test;
+    the fit was kept once per session and discarded the moment another test was
+    opened, so an afternoon's work left nothing behind.
+
+    Deliberately not a whole `CalculationResult`: the fitted curve and the
+    residuals are derived from the readings, which are here, and storing them per
+    run would multiply the file size for numbers a re-run reproduces exactly.
+    """
+
+    method_label: str
+    method_id: str = ""
+    success: bool = True
+    T_day: Optional[float] = None
+    S: Optional[float] = None
+    r_squared: Optional[float] = None
+    rmse: Optional[float] = None
+    n_points: Optional[int] = None
+    readings_fingerprint: str = ""
+    error_message: str = ""
+    created_at: str = field(default_factory=_now)
+
+
 @dataclass
 class PumpingTest:
     """One test: its wells, readings, setup and the analyses run against it."""
@@ -212,11 +249,55 @@ class PumpingTest:
     readings: Optional[Readings] = None
     setup: TestSetup = field(default_factory=TestSetup)
     analyses: List[AnalysisRecord] = field(default_factory=list)
+    runs: List[RunRecord] = field(default_factory=list)
 
     def set_readings(self, readings: Readings) -> None:
         """Replace the data. Earlier analyses are kept but become stale, because
         they describe data this test no longer holds."""
         self.readings = readings
+
+    def record_run(self, result, method_label: str, method_id: str = "",
+                   n_points: Optional[int] = None) -> RunRecord:
+        """Note that this fit was run, whether or not it is saved.
+
+        A method re-run on the same readings replaces its earlier entry: the later
+        fit is the one that stands, and two rows for one method invite a
+        comparison that is not one. Re-run after the readings change, it does not
+        replace anything — those are different results about different data.
+        """
+        payload = (result.to_state_dict() if hasattr(result, "to_state_dict")
+                   else dict(result or {}))
+        fingerprint = self.readings.fingerprint if self.readings else ""
+        run = RunRecord(
+            method_label=method_label,
+            method_id=method_id or payload.get("method_id", ""),
+            success=bool(payload.get("success")),
+            T_day=payload.get("T_day"),
+            S=payload.get("S"),
+            r_squared=payload.get("r_squared"),
+            rmse=payload.get("rmse"),
+            n_points=n_points if n_points is not None else (
+                len(self.readings) if self.readings else None),
+            readings_fingerprint=fingerprint,
+            error_message=payload.get("error_message", "") or "",
+        )
+        self.runs = [existing for existing in self.runs
+                     if not (existing.method_label == run.method_label
+                             and existing.readings_fingerprint == fingerprint)]
+        self.runs.append(run)
+        self.runs = self.runs[-RUNS_KEPT:]
+        return run
+
+    def current_runs(self) -> List[RunRecord]:
+        """The runs that describe the readings this test holds now.
+
+        A run against replaced data is kept in the file — it happened — but it is
+        not offered for comparison, for the same reason a stale analysis is not.
+        """
+        if self.readings is None:
+            return []
+        return [run for run in self.runs
+                if run.readings_fingerprint == self.readings.fingerprint]
 
     def add_analysis(self, result, method_label: str, method_id: str = "",
                      setup: Optional[TestSetup] = None,
@@ -326,6 +407,9 @@ class Project:
                 "setup": vars(t.setup),
                 "analyses": [{**{k: v for k, v in vars(a).items() if k != "setup"},
                               "setup": vars(a.setup)} for a in t.analyses],
+                # What was run, as against what was saved. Additive: a file
+                # written before this field simply has none.
+                "runs": [vars(r) for r in t.runs],
             }
 
         return _sanitise({
@@ -378,6 +462,7 @@ class Project:
                     readings=readings,
                     setup=TestSetup(**t.get("setup", {})),
                     analyses=analyses,
+                    runs=[RunRecord(**r) for r in (t.get("runs") or [])],
                 ))
             return cls(info=ProjectInfo(**data.get("info", {})), tests=tests,
                        created_at=data.get("created_at", _now()),

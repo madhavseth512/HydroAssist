@@ -179,7 +179,11 @@ def add_test(session: SessionState = Depends(current_session)):
 
 @router.post("/tests/{test_id}/activate", response_model=schemas.ProjectModel)
 def activate_test(test_id: str, session: SessionState = Depends(current_session)):
+    """Show a test: its readings, its runs, and its own last result."""
     session.load_test(test_or_404(session, test_id))
+    # A saved analysis this session has not fitted is recovered by
+    # GET /analyses/current, which the panel asks for next — one place, so every
+    # way of opening a test behaves the same.
     return schemas.ProjectModel.from_session(session)
 
 
@@ -228,11 +232,15 @@ async def upload_readings(test_id: str,
     # reads what was done to their numbers.
     prepared.conversions.extend(notes)
 
-    data_intake.store_readings(test, prepared.df,
-                               source_name=file.filename or "",
-                               conversions=prepared.conversions)
+    changed = data_intake.store_readings(test, prepared.df,
+                                         source_name=file.filename or "",
+                                         conversions=prepared.conversions)
     # New data invalidates the last fit, and the conversation must not go on
-    # discussing numbers from the previous dataset.
+    # discussing numbers from the previous dataset. `load_test` restores a test's
+    # own remembered result, so that result has to be forgotten first — it
+    # describes readings this test no longer holds.
+    if changed:
+        session.forget_results(test.id)
     session.load_test(test)
     session.prepared = prepared
     _stage_for_chat(session, prepared)
@@ -269,8 +277,9 @@ def paste_readings(test_id: str, payload: schemas.PastedReadings,
                             detail=f"Failed to process the readings: {exc}")
 
     prepared.conversions.extend(notes)
-    data_intake.store_readings(test, prepared.df, source_name="pasted",
-                               conversions=prepared.conversions)
+    if data_intake.store_readings(test, prepared.df, source_name="pasted",
+                                  conversions=prepared.conversions):
+        session.forget_results(test.id)
     session.load_test(test)
     session.prepared = prepared
     _stage_for_chat(session, prepared)
