@@ -25,6 +25,15 @@ readings.
 Use the **Choose file** button to upload, or **Replace file** to swap the
 readings on a test that already has some.
 
+## Files that begin with notes
+
+Many data files open with `#` comment lines — where the test was run, who
+analysed it, what was published from it. Those are skipped, and shown to you
+under **Conversions applied** rather than dropped, so the provenance travels with
+the readings. The header row can follow blank lines too.
+
+A `#` further into the file is left alone: `MW#3` is a well, not a remark.
+
 ## What the columns should hold
 
 Two columns are enough: elapsed time, and drawdown.
@@ -93,3 +102,6 @@ correcting it.
   program installed, which it will say; every other way of getting data in still
   works.
 - *"the table has no rows"* — the file has a header and nothing else.
+- *"the first row of this file does not look like a header"* — the columns it
+  found are listed in the message. Usually a title row or a block of notes that
+  is not marked with `#`; delete it, or paste the two columns instead.

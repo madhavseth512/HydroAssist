@@ -46,8 +46,8 @@ def _suffix(filename: str) -> str:
     return name[dot:] if dot > 0 else ""
 
 
-def _read_delimited(raw: bytes) -> pd.DataFrame:
-    """CSV, TSV or whitespace-delimited text.
+def _read_delimited(raw: bytes) -> Tuple[pd.DataFrame, List[str]]:
+    """CSV, TSV or whitespace-delimited text, and what was skipped to read it.
 
     `sep=None` with the Python engine sniffs the delimiter, which is what lets
     one path serve a comma file, a tab file and a pasted column pair. The
@@ -56,13 +56,65 @@ def _read_delimited(raw: bytes) -> pd.DataFrame:
     """
     for encoding in ("utf-8-sig", "latin-1"):
         try:
-            return pd.read_csv(io.BytesIO(raw), sep=None, engine="python",
-                               encoding=encoding, skip_blank_lines=True)
+            text = raw.decode(encoding)
         except UnicodeDecodeError:
             continue
+        body, notes = _past_the_comments(text)
+        if not body.strip():
+            raise UnreadableTable(
+                "the file holds only comments — no header row and no readings")
+        try:
+            return pd.read_csv(io.StringIO(body), sep=None, engine="python",
+                               skip_blank_lines=True), notes
         except Exception as exc:
             raise UnreadableTable(str(exc)) from exc
     raise UnreadableTable("the text is in an encoding this cannot read")
+
+
+# A leading `#` marks a comment in nearly every ASCII data file a hydrogeologist
+# meets: USGS exports carry provenance that way, and so do this project's own
+# field-data fixtures. Reading the first such line as the header row is what
+# happened before — the prose was split on the commas inside it, the real header
+# became a row of data, and the upload failed with pandas' "[''] not in index".
+_COMMENT = "#"
+
+# Enough of the provenance to be worth reading, not so much that it buries the
+# conversions underneath it.
+_COMMENTS_SHOWN = 6
+
+
+def _past_the_comments(text: str) -> Tuple[str, List[str]]:
+    """The file from its header row on, and the comments that preceded it.
+
+    Only the leading block is skipped. A `#` further down is left alone: it is
+    more likely part of a well name — "MW#3" — than a comment, and truncating a
+    line of readings at it would lose data silently.
+    """
+    lines = text.splitlines()
+    comments, start = [], 0
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            start = index + 1
+            continue
+        if stripped.startswith(_COMMENT):
+            comments.append(stripped.lstrip("# ").strip())
+            start = index + 1
+            continue
+        start = index
+        break
+
+    if not comments:
+        return text, []
+
+    notes = [f"Skipped {len(comments)} comment line(s) above the header row"]
+    # The comments usually say where the readings came from, which is worth
+    # putting in front of the user rather than dropping on the floor.
+    notes.extend(f"From the file: {comment}"
+                 for comment in comments[:_COMMENTS_SHOWN] if comment)
+    if len(comments) > _COMMENTS_SHOWN:
+        notes.append(f"…and {len(comments) - _COMMENTS_SHOWN} more comment line(s)")
+    return "\n".join(lines[start:]), notes
 
 
 def _read_excel(raw: bytes, sheet: Optional[str]) -> Tuple[pd.DataFrame, List[str]]:
@@ -139,7 +191,7 @@ def read_table(raw: bytes, filename: str = "",
             raise UnreadableTable(str(error)) from error
         frame, notes = readings.df, list(readings.notes)
     elif suffix in DELIMITED or not suffix:
-        frame, notes = _read_delimited(raw), []
+        frame, notes = _read_delimited(raw)
     else:
         raise UnreadableTable(
             f"{suffix} is not a format this reads. Supported: "

@@ -555,3 +555,57 @@ def _discussing(store, method: str) -> None:
         session.chat.state["discussed_method"] = method
         if not session.chat.state.get("suggestion_confirmed"):
             session.chat.state["selected_method"] = method
+
+
+class TestAFieldFileWithAProvenanceHeader:
+    """Reported from the deployed site: uploading this repository's own Gridley
+    fixture failed with `Failed to process the file: "[''] not in index"`.
+
+    Its first four lines are `#` comments naming the test and what Walton
+    published from it. They were read as the header row, so the readings never
+    arrived. Driven over HTTP here because that is how it was found.
+    """
+
+    GRIDLEY = "tests/fixtures/field_data/gridley_well1.csv"
+
+    def _upload(self, client, name="gridley1.csv"):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        with open(self.GRIDLEY, "rb") as handle:
+            return client.post(
+                f"/api/tests/{test_id}/readings",
+                files={"file": (name, handle.read(), "text/csv")})
+
+    def test_it_uploads(self, client):
+        response = self._upload(client)
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["n_points"] == 22
+
+    def test_the_columns_and_units_are_read(self, client):
+        body = self._upload(client).json()
+
+        assert body["inspection"]["time_unit"] == "minutes"
+        assert body["inspection"]["drawdown_unit"] == "feet"
+
+    def test_where_the_readings_came_from_reaches_the_user(self, client):
+        body = self._upload(client).json()
+        notes = " ".join(body["conversions"])
+
+        assert "comment line" in notes
+        assert "Bulletin 49" in notes
+
+    def test_it_can_then_be_fitted(self, client):
+        """Walton's own analysis of this test was Theis, and his published
+        transmissivity is 11,000 gpd/ft — about 137 m²/day."""
+        self._upload(client)
+        setup = dict(setup_payload(), q_value=1199.2, q_unit="m³/day", r_m=251.2)
+        client.put(f"/api/tests/"
+                   f"{client.get('/api/project').json()['active_test_id']}/setup",
+                   json=setup)
+
+        response = client.post("/api/analyses/run",
+                               json={"method": "theis_1935", "setup": setup})
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["success"] is True
+        assert 100 < response.json()["T_day"] < 200

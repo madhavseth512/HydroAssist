@@ -229,3 +229,100 @@ class TestEveryRouteGivesTheSameNumbers:
 
         pd.testing.assert_frame_equal(from_csv, from_text)
         pd.testing.assert_frame_equal(from_csv, from_excel, check_dtype=False)
+
+
+class TestAFileThatBeginsWithNotes:
+    """Reported from the deployed site, uploading this repository's own fixture:
+
+        Failed to process the file: "[''] not in index"
+
+    Its first four lines are `#` comments recording where the readings came from.
+    They were read as the header row, split on the commas inside the prose, and
+    the real header became a row of data — after which column detection named a
+    column that did not exist and pandas raised from deep inside the formatter.
+
+    A leading `#` marks a comment in nearly every ASCII data file a
+    hydrogeologist meets, so this was not an unusual file.
+    """
+
+    GRIDLEY = "tests/fixtures/field_data/gridley_well1.csv"
+
+    def test_the_readings_are_read(self):
+        frame, _ = read_table(open(self.GRIDLEY, "rb").read(), "gridley1.csv")
+
+        assert list(frame.columns) == ["time_min", "drawdown_ft"]
+        assert len(frame) == 22
+        assert frame.time_min.iloc[0] == 3
+
+    def test_the_provenance_is_shown_rather_than_dropped(self):
+        """Those comments say which test this is and what Walton published from
+        it, which is worth putting in front of the user."""
+        _, notes = read_table(open(self.GRIDLEY, "rb").read(), "gridley1.csv")
+
+        assert any("Skipped 4 comment line" in note for note in notes)
+        assert any("Bulletin 49" in note for note in notes)
+
+    def test_every_field_dataset_in_the_repository_reads(self):
+        """All three carry the same provenance header."""
+        import glob
+
+        for path in glob.glob("tests/fixtures/field_data/*.csv"):
+            frame, _ = read_table(open(path, "rb").read(), path)
+            assert len(frame.columns) == 2, path
+            assert len(frame) > 5, path
+
+    def test_a_comment_only_file_says_so(self):
+        with pytest.raises(UnreadableTable, match="only comments"):
+            read_table(b"# a note\n# another\n", "notes.csv")
+
+    def test_blank_lines_before_the_header_are_skipped_too(self):
+        frame, _ = read_table(b"\n\n# a note\n\ntime_s,drawdown_m\n60,0.12\n",
+                              "field.csv")
+
+        assert list(frame.columns) == ["time_s", "drawdown_m"]
+
+    def test_a_hash_inside_a_well_name_is_not_a_comment(self):
+        """`MW#3` is a well, not a remark. Truncating a line of readings at a
+        `#` further down the file would lose data silently, so only the leading
+        block is skipped."""
+        frame, _ = read_table(b"time_s,MW#3,MW#4\n60,0.12,0.09\n", "wells.csv")
+
+        assert list(frame.columns) == ["time_s", "MW#3", "MW#4"]
+        assert frame["MW#3"].iloc[0] == 0.12
+
+    def test_a_file_with_no_comments_gains_no_notes(self):
+        _, notes = read_table(b"time_s,drawdown_m\n60,0.12\n", "field.csv")
+
+        assert notes == []
+
+    def test_pasted_text_may_also_start_with_a_comment(self):
+        """Copying a fixture out of a text editor brings its header along."""
+        frame, notes = read_table(
+            b"# from the logger export\ntime_min\tdrawdown_m\n1\t0.34\n",
+            table_reader.PASTED)
+
+        assert list(frame.columns) == ["time_min", "drawdown_m"]
+        assert notes
+
+
+class TestWhenTheHeaderIsNotAHeader:
+    """The other half of the same report: if detection ever does name a column
+    the table has not got, the user must get a sentence rather than pandas'."""
+
+    def test_the_failure_is_explained_in_words(self):
+        import pandas as pd
+
+        from src.data.csv_inspector import CSVInspector
+        from src.data.formatter import DataFormatter
+
+        frame = pd.DataFrame({"# Gridley, Illinois": ["Bulletin 49", "time_min"],
+                              "unnamed": ["Table 7", "drawdown_ft"]})
+        inspection = CSVInspector().inspect(frame)
+
+        with pytest.raises(ValueError) as raised:
+            DataFormatter().format(frame, inspection)
+
+        message = str(raised.value)
+        assert "does not look like a header" in message
+        assert "# Gridley, Illinois" in message      # what it actually read
+        assert "not in index" not in message

@@ -55,6 +55,22 @@ class DataFormatter:
         cols_to_keep = [result.time_col] + result.drawdown_cols
         if result.well_id_col:
             cols_to_keep.append(result.well_id_col)
+
+        # Detection can name a column the table does not have — an empty name,
+        # most often, when the header row was not a header at all. Indexing on it
+        # raised a bare pandas KeyError, which reached the user as
+        # `"[''] not in index"`: true, and no help to anyone. Reported from the
+        # deployed site, uploading a file whose first lines were comments.
+        missing = [name for name in cols_to_keep if name not in df.columns]
+        if missing:
+            found = ", ".join(repr(str(name)) for name in df.columns[:8])
+            raise ValueError(
+                "The time and drawdown columns could not be identified — the "
+                "first row of this file does not look like a header. Its columns "
+                f"read as: {found}. If the file begins with notes, a title or a "
+                "blank line, remove them so the header row comes first, or paste "
+                "the two columns instead.")
+
         out = df[cols_to_keep].copy()
 
         # 2. Rename to standard names
