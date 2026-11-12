@@ -32,8 +32,8 @@ vocabulary:
     - hantush_jacob_1955
     - boulton_1963
     - warren_root_1963
-    - ogata_banks_1961          # no paper in the corpus yet
-    - sauty_1980                # no paper in the corpus yet
+    - ogata_banks_1961
+    - thiery_2022
 
   # In the corpus, not in the calculator.
   other:
@@ -72,6 +72,7 @@ vocabulary:
     - tartakovsky_neuman_2007   # three-dimensional saturated-unsaturated
     - wtaq_1999                 # the USGS WTAQ program
     - general_reference         # handbooks and procedure guides, many methods
+    - gelhar_1992               # field-scale dispersivity review, 59 sites
 
 papers:
 
@@ -258,6 +259,19 @@ papers:
   # ── Step drawdown ───────────────────────────────────────────────────────────
   "Groundwater - March 1980 - Birsoy - Determination of Aquifer Parameters from Step Tests and Intermittent Pumping Data.pdf":
     methods: [birsoy_summers_1980]
+    reviewed: true
+
+  # ── Tracer tests ────────────────────────────────────────────────────────────
+  # Added 12 November 2026, at the project owner's request.
+  "Journal of Hydrology - 2022 - Thiery - Simple approximate closed-form expressions for tracer injection in radial flow.pdf":
+    title: "Thiéry (2022), closed-form expressions for tracer tests in radially converging or diverging flow"
+    methods: [thiery_2022]
+    note: the paper the radial tracer calculator implements; also compares Sauty (1980) and twelve field tests
+    reviewed: true
+  "Water Resources Research - July 1992 - Gelhar - A critical review of data on field-scale dispersion in aquifers.pdf":
+    title: "Gelhar, Welty and Rehfeldt (1992), a critical review of field-scale dispersion data"
+    methods: [gelhar_1992, ogata_banks_1961, thiery_2022]
+    note: a scan with a text layer. Dispersivity against scale and reliability, incl. Sauty's Corbas tests
     reviewed: true
 
   # ── General ─────────────────────────────────────────────────────────────────

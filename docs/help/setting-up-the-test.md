@@ -35,8 +35,8 @@ the injection.
 - **Ogata-Banks (1961)** is for a natural-gradient test: tracer carried by ambient
   flow to a downgradient well. No pumping rate is needed. Enter hydraulic
   conductivity and gradient to get effective porosity.
-- **Sauty (1980)** is for a forced-gradient test: tracer drawn radially to a pumped
-  well. Enter Q. Aquifer thickness gives effective porosity, and for a pulse the
+- **Thiéry (2022)** is for a forced-gradient test, also called a radially convergent
+  test: tracer drawn radially to a pumped well. Enter Q. Aquifer thickness gives effective porosity, and for a pulse the
   injected mass gives the fraction recovered.
 
 For both, the **distance** is from the injection to the sampling well, **injection**

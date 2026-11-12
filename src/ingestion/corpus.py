@@ -46,6 +46,8 @@ AQUIFER_BY_FOLDER = {
     "Fractured Aquifers": "fractured",
     "General": "general",
     "Step drawdown test": "general",
+    # Tracer tests are run in the registry's "porous" aquifer type.
+    "Tracer Tests": "porous",
 }
 
 # Below this, a text layer is captions and page furniture rather than the paper.
