@@ -32,6 +32,8 @@ vocabulary:
     - hantush_jacob_1955
     - boulton_1963
     - warren_root_1963
+    - ogata_banks_1961          # no paper in the corpus yet
+    - sauty_1980                # no paper in the corpus yet
 
   # In the corpus, not in the calculator.
   other:

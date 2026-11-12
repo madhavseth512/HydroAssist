@@ -46,7 +46,7 @@ class TestMethodCatalogue:
 
     def test_only_test_types_with_a_method_are_offered(self, client):
         ids = [t["id"] for t in client.get("/api/test-types").json()]
-        assert ids == ["constant_rate", "recovery"]
+        assert ids == ["constant_rate", "recovery", "tracer"]
 
     def test_methods_are_listed_for_a_test_type(self, client):
         body = client.get("/api/methods", params={"test_type": "constant_rate"}).json()

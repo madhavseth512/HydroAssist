@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from src.calculator import registry
 from src.project import workspace as ws
-from src.project.model import ProjectInfo, TestSetup
+from src.project.model import ProjectInfo, TRACER_FIELDS, TestSetup
 
 
 # ── Test setup ────────────────────────────────────────────────────────────────
@@ -38,6 +38,19 @@ class SetupModel(BaseModel):
     recovery_clock: str = Field(
         default="since_stop",
         description="Whether the time column counts from pump start or stop")
+    tracer_injection: str = Field(default="pulse", description="pulse or continuous")
+    tracer_conc_unit: str = Field(default="mg/L")
+    tracer_background: float = Field(default=0.0, ge=0.0)
+    tracer_C0: Optional[float] = Field(
+        default=None, gt=0.0, description="Plateau concentration, if known")
+    tracer_M_kg: Optional[float] = Field(
+        default=None, gt=0.0, description="Injected tracer mass")
+    tracer_b_m: Optional[float] = Field(
+        default=None, gt=0.0, description="Aquifer thickness")
+    tracer_K_m_day: Optional[float] = Field(
+        default=None, gt=0.0, description="Hydraulic conductivity")
+    tracer_gradient: Optional[float] = Field(
+        default=None, gt=0.0, description="Hydraulic gradient")
 
     def to_setup(self) -> TestSetup:
         return TestSetup(
@@ -50,6 +63,7 @@ class SetupModel(BaseModel):
             test_type=self.test_type,
             t_p_s=(self.t_p_hours * 3600.0) if self.t_p_hours else None,
             recovery_clock=self.recovery_clock,
+            **{name: getattr(self, name) for name in TRACER_FIELDS},
         )
 
     @classmethod
@@ -64,6 +78,7 @@ class SetupModel(BaseModel):
             test_type=values[ws.KEY_TEST_TYPE],
             t_p_hours=(setup.t_p_s / 3600.0) if setup.t_p_s else None,
             recovery_clock=values[ws.KEY_CLOCK],
+            **{name: values[name] for name in TRACER_FIELDS},
         )
 
 
@@ -89,6 +104,7 @@ class MethodModel(BaseModel):
     assumptions: List[str] = Field(default_factory=list)
     needs_well_geometry: bool
     estimates_storativity: bool
+    uses_pumping_rate: bool = True
 
     @classmethod
     def from_spec(cls, spec) -> "MethodModel":
@@ -105,6 +121,7 @@ class MethodModel(BaseModel):
             assumptions=list(spec.assumptions),
             needs_well_geometry=spec.data_source == registry.PUMPED_WELL,
             estimates_storativity="S" in spec.parameters,
+            uses_pumping_rate=spec.uses_pumping_rate,
         )
 
 
@@ -315,6 +332,15 @@ class RunRequest(BaseModel):
     setup: SetupModel
 
 
+class ManualAxisModel(BaseModel):
+    """One parameter a hand-matching slider moves, when it is not T or S."""
+    name: str
+    symbol: str
+    value: float
+    display_scale: float = 1.0
+    display_unit: str = ""
+
+
 class ResultModel(BaseModel):
     success: bool
     error_message: str = ""
@@ -334,6 +360,14 @@ class ResultModel(BaseModel):
     validity_notes: List[str] = Field(default_factory=list)
     figure: Optional[str] = Field(default=None,
                                   description="Plotly JSON for the fit diagnostic")
+    response_unit: str = Field(
+        default="",
+        description="A tracer test's concentration unit, which its RMSE is in. "
+                    "Empty for a pumping test, whose RMSE is in metres.")
+    manual_axes: List[ManualAxisModel] = Field(
+        default_factory=list,
+        description="What the sliders move, sent as T and S in a manual-match "
+                    "request. Empty for a pumping test, whose sliders are T and S.")
 
 
 class ManualMatchRequest(BaseModel):
@@ -354,6 +388,7 @@ class ComparisonRowModel(BaseModel):
     n_params: Optional[int] = None
     T_m2_per_day: Optional[float] = None
     S: Optional[float] = None
+    estimates: str = ""
     r_squared: Optional[float] = None
     aicc: Optional[float] = None
     delta_aicc: Optional[float] = None

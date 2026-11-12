@@ -17,7 +17,9 @@ import pandas as pd
 from src.calculator import registry
 from src.calculator.base import CalculationResult
 from src.project import workspace as ws
-from src.project.model import AnalysisRecord, PumpingTest, TestSetup
+from src.project.model import (
+    AnalysisRecord, PumpingTest, Readings, TRACER_FIELDS, TestSetup,
+)
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -35,6 +37,9 @@ def build_inputs(df: pd.DataFrame, setup: TestSetup, spec) -> "CalculationInput"
     """
     from src.calculator.base import CalculationInput
     from src.calculator.geometry import PumpingSchedule, RateStep
+
+    if registry.TRACER in spec.test_types:
+        return _tracer_inputs(df, setup, spec)
 
     extra = {}
     if setup.test_type == registry.RECOVERY:
@@ -55,6 +60,49 @@ def build_inputs(df: pd.DataFrame, setup: TestSetup, spec) -> "CalculationInput"
         return CalculationInput(df=df, Q=setup.Q_m3s, r=setup.r_w_m,
                                 r_w=setup.r_w_m, r_c=setup.r_c_m, **extra)
     return CalculationInput(df=df, Q=setup.Q_m3s, r=setup.r_m, **extra)
+
+
+def _tracer_inputs(df: pd.DataFrame, setup: TestSetup, spec) -> "CalculationInput":
+    from src.calculator.base import CalculationInput
+    from src.calculator.geometry import AquiferGeometry, TracerGeometry
+
+    K_day = setup.tracer_K_m_day
+    return CalculationInput(
+        df=df,
+        # A natural-gradient test has no rate, whatever the form still holds.
+        Q=setup.Q_m3s if spec.uses_pumping_rate else None,
+        r=setup.r_m,
+        test_type=registry.TRACER,
+        aquifer=AquiferGeometry(b=setup.tracer_b_m),
+        tracer=TracerGeometry(
+            injection=setup.tracer_injection,
+            conc_unit=setup.tracer_conc_unit,
+            background=setup.tracer_background or 0.0,
+            C0=setup.tracer_C0,
+            M_injected=setup.tracer_M_kg,
+            K=K_day / 86400.0 if K_day else None,
+            gradient=setup.tracer_gradient,
+        ),
+    )
+
+
+def check_readings_suit(readings: Readings, method: str) -> None:
+    """Refuse to fit a method to the wrong kind of measurement.
+
+    Any curve fits something. Theis on a breakthrough curve converges and reports
+    a transmissivity, with nothing on screen to say the number means nothing.
+    """
+    spec = registry.require(method)
+    wants_concentration = registry.TRACER in spec.test_types
+    if wants_concentration and readings.quantity != "concentration":
+        raise ValueError(
+            f"{spec.label} is fitted to concentrations, but these readings were read "
+            "as drawdown. Upload them again now that the test type is set to Tracer, "
+            "or name the column, for example concentration_mg_L.")
+    if not wants_concentration and readings.quantity == "concentration":
+        raise ValueError(
+            f"{spec.label} is fitted to drawdown, but these readings are "
+            "concentrations. Choose the Tracer test type, or upload drawdown readings.")
 
 
 def run_analysis(df: pd.DataFrame, method: str,
@@ -90,6 +138,7 @@ def run_record(setup: TestSetup, method: str, result: CalculationResult,
         "t_p_s": setup.t_p_s,
         "recovery_clock": setup.recovery_clock,
         "n_points": n_points,
+        **{name: getattr(setup, name) for name in TRACER_FIELDS},
     }
 
 
@@ -204,7 +253,7 @@ def format_ci(ci, scale: float = 86400.0, unit: str = "m²/day") -> str:
 
 def plot_context(record: dict) -> registry.PlotContext:
     return registry.PlotContext(
-        Q=record.get("Q"),
+        Q=record.get("Q") or 0.0,
         r=record.get("r") or 0.0,
         r_w=record.get("r_w") or 0.10,
         r_c=record.get("r_c") or 0.10,
@@ -224,7 +273,8 @@ def diagnostic_plot(result: CalculationResult, record: dict):
 def manual_match(result: CalculationResult, record: dict,
                  T_manual: float, S_manual: float) -> tuple:
     """(figure, RMSE in mm) for hand-matched parameters. Every parameter other
-    than T and S stays at its fitted value."""
+    than T and S stays at its fitted value. A tracer method's sliders move its own
+    `manual_parameters` instead, and these two values carry them."""
     return _spec_for(result, record).interactive_plot(
         result, plot_context(record), T_manual, S_manual)
 

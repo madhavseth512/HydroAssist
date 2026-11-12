@@ -101,11 +101,13 @@ def generate_pdf(
 
     story += _header_section(method, styles)
     story += _project_section(project_info, test_label, styles)
-    story += _config_section(Q_si, r, df, method, styles)
+    story += (_tracer_config_section(result, Q_si, r, df, method, styles)
+              if _tracer_info(result) else
+              _config_section(Q_si, r, df, method, styles))
     story += _results_section(result, styles)
     story += _validity_section(result, styles)
     story += _plot_section(result, Q_si, r, method, n_excluded, styles, r_c)
-    story += _data_table_section(df, styles)
+    story += _data_table_section(df, styles, _tracer_info(result))
     story += _footer_section(method, styles)
 
     doc.build(story)
@@ -162,13 +164,27 @@ def _aquifer_phrase(method: str) -> str:
     return " / ".join(sorted(spec.aquifer_types)).title() + " "
 
 
+def _tracer_info(result: CalculationResult) -> dict:
+    """What a tracer result carries about its test; empty for any other method."""
+    return result.curves.get("tracer") or {}
+
+
+def _test_kind(method: str) -> str:
+    from src.calculator import registry
+
+    spec = registry.get(method)
+    if spec is not None and registry.TRACER in spec.test_types:
+        return "Tracer Test"
+    return "Pumping Test"
+
+
 def _header_section(method: str, s: dict) -> list:
     now = datetime.now().strftime("%Y-%m-%d  %H:%M")
     return [
         Paragraph("HydroAssist", s["title"]),
         # Was hardcoded "Confined Aquifer..." — wrong once leaky, unconfined and
         # fractured methods existed. Derived from the method's registry entry.
-        Paragraph(f"{_aquifer_phrase(method)}Aquifer Pumping Test Analysis",
+        Paragraph(f"{_aquifer_phrase(method)}Aquifer {_test_kind(method)} Analysis",
                   s["subtitle"]),
         Paragraph(f"Method: <b>{method}</b>  |  Generated: {now}", s["subtitle"]),
         HRFlowable(width=USABLE_W, thickness=2, color=BLUE, spaceAfter=10),
@@ -207,6 +223,31 @@ def _config_section(Q_si: float, r: float, df: pd.DataFrame,
     return flowables
 
 
+def _tracer_config_section(result: CalculationResult, Q_si: float, r: float,
+                           df: pd.DataFrame, method: str, s: dict) -> list:
+    """The test as a tracer test was run: no drawdown, and a rate only if pumped."""
+    from src.calculator import registry
+
+    info = _tracer_info(result)
+    t = df["time_s"]
+    rows = [["Parameter", "Value"]]
+    if registry.require(method).uses_pumping_rate:
+        rows.append(["Pumping rate Q", f"{Q_si:.6f} m³/s  ({Q_si*86400:.2f} m³/day)"])
+    rows += [
+        ["Travel distance", f"{r:.1f} m"],
+        ["Injection", info["injection"].capitalize()],
+        ["Background concentration", f"{info['background']:g} {info['unit']}"],
+        ["Number of data points", str(len(df))],
+        ["Time range", f"{float(t.min()) / 3600:.2f} h  –  {float(t.max()) / 3600:.2f} h"],
+        ["Analysis method", method],
+    ]
+    return [
+        Paragraph("Test Configuration", s["section"]),
+        _make_table(rows, col_widths=[6.5*cm, USABLE_W - 6.5*cm]),
+        Spacer(1, 0.3*cm),
+    ]
+
+
 # Readable names for the PDF. ASCII only: reportlab's built-in Helvetica has no
 # glyphs for Greek letters, so "alpha" rather than a symbol that renders as a box.
 _PARAMETER_NAMES = {
@@ -222,6 +263,17 @@ _PARAMETER_NAMES = {
     "lambda": "Interporosity coefficient lambda",
     "S_fracture": "Fracture storativity",
     "S_matrix": "Matrix storativity",
+    "v": "Average linear velocity v",
+    "t_c": "Advective travel time t_c",
+    "alpha_L": "Longitudinal dispersivity alpha_L",
+    "D_L": "Dispersion coefficient D_L",
+    "Pe": "Peclet number",
+    "n_e": "Effective porosity n_e",
+    "C0": "Plateau concentration C0",
+    "A_over_n": "Mass per flow area M/(A n)",
+    "M_over_Q": "Recovered mass over rate M/Q",
+    "M_recovered": "Recovered mass",
+    "recovery": "Mass recovery fraction",
 }
 
 
@@ -261,7 +313,8 @@ def _results_section(result: CalculationResult, s: dict) -> list:
     rows += [_parameter_row(p) for p in result.parameters]
     rows += [
         ["R² (coefficient of determination)", f"{result.r_squared:.6f}", "—"],
-        ["RMSE", f"{result.rmse*1000:.3f} mm", "—"],
+        ["RMSE", (f"{result.rmse:.4g} {_tracer_info(result)['unit']}"
+                  if _tracer_info(result) else f"{result.rmse*1000:.3f} mm"), "—"],
     ]
     gof = result.gof
     if gof is not None and np.isfinite(gof.aicc):
@@ -347,6 +400,14 @@ _FIGURE_CAPTIONS = {
         "Red line: fitted PC well function. "
         "Note: S has questionable reliability (paper p. 244)."
     ),
+    "ogata_banks_1961": (
+        "Ogata-Banks (1961) breakthrough curve. "
+        "Blue circles: observed concentration. Red line: fitted solution."
+    ),
+    "sauty_1980": (
+        "Sauty (1980) radial convergent breakthrough curve. "
+        "Blue circles: observed concentration. Red line: fitted solution."
+    ),
 }
 
 
@@ -400,12 +461,13 @@ def _plot_section(result: CalculationResult, Q_si: float, r: float,
     ]
 
 
-def _data_table_section(df: pd.DataFrame, s: dict) -> list:
+def _data_table_section(df: pd.DataFrame, s: dict, tracer: dict = None) -> list:
     MAX_ROWS = 40
     show = df.head(MAX_ROWS).copy()
     show["time_min"] = (show["time_s"] / 60).round(3)
 
-    header = ["Time (s)", "Time (min)", "Drawdown (m)"]
+    header = ["Time (s)", "Time (min)",
+              f"Concentration ({tracer['unit']})" if tracer else "Drawdown (m)"]
     rows = [header] + [
         [f"{row.time_s:.1f}", f"{row.time_min:.3f}", f"{row.drawdown_m:.4f}"]
         for _, row in show.iterrows()
@@ -711,6 +773,40 @@ def _recovery_mpl(result: CalculationResult) -> plt.Figure:
     ax_res.set_xlabel("t/t' (time since pumping started / time since it stopped)",
                       fontsize=9)
     ax_res.grid(True, which="both", color="#e0e0e0", linewidth=0.5)
+    fig.tight_layout(h_pad=0.5)
+    return fig
+
+
+def _tracer_mpl(result: CalculationResult) -> plt.Figure:
+    """The breakthrough curve on linear axes, with residuals in concentration."""
+    from src.calculator.methods.tracer import curve_from_result
+    from src.calculator.plots import _tracer_fitted
+
+    unit = _tracer_info(result)["unit"]
+    t = np.asarray(result.time_s, dtype=float)
+    c_obs = np.asarray(result.drawdown_obs, dtype=float)
+    c_fit = np.asarray(result.drawdown_fitted, dtype=float)
+    smooth = np.linspace(t.min(), t.max(), 300)
+
+    fig, (ax_main, ax_res) = plt.subplots(
+        2, 1, figsize=(8, 5.5), gridspec_kw={"height_ratios": [3, 1]}, sharex=True,
+    )
+    ax_main.scatter(t / 3600.0, c_obs, s=18, color="#1f77b4", facecolors="none",
+                    linewidths=1.2, label="Observed", zorder=3)
+    ax_main.plot(smooth / 3600.0,
+                 curve_from_result(result, smooth, *_tracer_fitted(result)),
+                 color="#d62728", lw=1.8, label="Fitted solution")
+    ax_main.set_ylabel(f"Concentration ({unit})", fontsize=9)
+    ax_main.legend(fontsize=8, framealpha=0.9)
+    ax_main.grid(True, color="#e0e0e0", linewidth=0.5)
+    ax_main.set_title(f"{result.method}  |  R² = {result.r_squared:.4f}  |  "
+                      f"RMSE = {result.rmse:.3g} {unit}", fontsize=10)
+
+    ax_res.scatter(t / 3600.0, c_obs - c_fit, s=10, color="#1f77b4")
+    ax_res.axhline(0, color="black", lw=0.8)
+    ax_res.set_ylabel(f"Res. ({unit})", fontsize=8)
+    ax_res.set_xlabel("Time since injection (hours)", fontsize=9)
+    ax_res.grid(True, color="#e0e0e0", linewidth=0.5)
     fig.tight_layout(h_pad=0.5)
     return fig
 

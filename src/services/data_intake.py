@@ -36,11 +36,21 @@ class PreparedData:
     consistent_methods: list = field(default_factory=list)   # labels
 
     @property
+    def quantity(self) -> str:
+        """What the response column holds."""
+        return "concentration" if self.test_type == registry.TRACER else "drawdown"
+
+    @property
     def is_usable(self) -> bool:
         return bool(self.validation is not None and self.validation.is_usable)
 
     def summary(self) -> str:
         """The one-line description of the series the workspace shows."""
+        if self.test_type == registry.TRACER:
+            return (f"{len(self.df)} data points ready | "
+                    f"t: {self.df.time_s.min():.0f}s – {self.df.time_s.max():.0f}s | "
+                    f"C: {self.df.drawdown_m.min():.3g} – "
+                    f"{self.df.drawdown_m.max():.3g}")
         return (f"{len(self.df)} data points ready | "
                 f"t: {self.df.time_s.min():.0f}s – {self.df.time_s.max():.0f}s | "
                 f"s: {self.df.drawdown_m.min():.3f}m – "
@@ -67,7 +77,8 @@ def consistent_method_labels(signature) -> list:
     return [spec.label for spec in specs if spec]
 
 
-def inspect_and_format(raw_df: pd.DataFrame, llm=None) -> tuple:
+def inspect_and_format(raw_df: pd.DataFrame, llm=None,
+                       test_type: str = registry.CONSTANT_RATE) -> tuple:
     """(formatted frame, inspection, formatting outcome).
 
     `llm` is the CSVInspector's layer-3 fallback for ambiguous column names; it
@@ -76,7 +87,8 @@ def inspect_and_format(raw_df: pd.DataFrame, llm=None) -> tuple:
     from src.data.csv_inspector import CSVInspector
     from src.data.formatter import DataFormatter
 
-    inspection = CSVInspector(llm=llm).inspect(raw_df)
+    inspection = CSVInspector(llm=llm).inspect(
+        raw_df, tracer=test_type == registry.TRACER)
     formatted = DataFormatter().format(raw_df, inspection)
     return formatted.df, inspection, formatted
 
@@ -96,7 +108,10 @@ def prepare(df: pd.DataFrame, *,
     """
     from src.data.validator import DataValidator
 
-    signature, error = diagnose_series(df.time_s.values, df.drawdown_m.values)
+    # The Bourdet derivative reads a flow regime off drawdown. On a breakthrough
+    # curve it would name one anyway, so it is not asked.
+    signature, error = (None, "") if test_type == registry.TRACER else (
+        diagnose_series(df.time_s.values, df.drawdown_m.values))
     validation = DataValidator().validate(
         df,
         well_radius_m=well_radius_m,
@@ -118,22 +133,33 @@ def prepare(df: pd.DataFrame, *,
 
 
 def prepare_upload(raw_df: pd.DataFrame, *, llm=None, **kwargs) -> PreparedData:
-    """Inspect, format, diagnose and validate an uploaded file in one step."""
-    df, inspection, formatted = inspect_and_format(raw_df, llm=llm)
+    """Inspect, format, diagnose and validate an uploaded file in one step.
+
+    Readings are usually uploaded before the test type is chosen in Step 2, so a
+    column named as a concentration decides the type by itself.
+    """
+    from src.data.csv_inspector import CONCENTRATION
+
+    df, inspection, formatted = inspect_and_format(
+        raw_df, llm=llm, test_type=kwargs.get("test_type", registry.CONSTANT_RATE))
+    if inspection.drawdown_unit == CONCENTRATION:
+        kwargs["test_type"] = registry.TRACER
     return prepare(df, inspection=inspection,
                    conversions=formatted.conversions_applied,
                    rows_removed=formatted.rows_removed, **kwargs)
 
 
 def store_readings(test: PumpingTest, df: pd.DataFrame, source_name: str = "",
-                   conversions: Sequence[str] = ()) -> bool:
+                   conversions: Sequence[str] = (),
+                   quantity: str = "drawdown") -> bool:
     """Record readings against a project test. Returns whether they changed.
 
     Guarded by fingerprint because an upload widget re-delivers the same file on
     every interaction, and replacing readings marks existing analyses stale.
     """
     readings = Readings.from_frame(df, source_name=source_name,
-                                   conversions=list(conversions))
+                                   conversions=list(conversions),
+                                   quantity=quantity)
     if test.readings is not None and test.readings.fingerprint == readings.fingerprint:
         return False
     test.set_readings(readings)

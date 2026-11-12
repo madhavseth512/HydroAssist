@@ -158,7 +158,7 @@ export function DataPanel() {
         {pasting && (
           <Stack gap="xs">
             <Textarea
-              label="Paste time and drawdown columns"
+              label="Paste a time column and a drawdown or concentration column"
               description="Copy two columns from a spreadsheet, headers included. Tabs, commas or spaces all work."
               placeholder={'time_s\tdrawdown_m\n60\t0.12\n120\t0.19'}
               aria-label="Pasted readings"
@@ -192,7 +192,9 @@ export function DataPanel() {
             directly: its timestamps become elapsed time and its water levels
             become drawdown, with every conversion listed. A photograph of a
             printed table is read too — into a grid you check first, because a
-            misread digit fits as well as the right number.
+            misread digit fits as well as the right number. For a tracer test, name
+            the column as a concentration, for example concentration_mg_L, or choose
+            the Tracer test type in Step 2 first.
           </Alert>
         )}
 
@@ -243,7 +245,9 @@ function PreparedView({ prepared, test, allRows, loadingRows, onShowAllRows }: {
         <Group gap="xs">
           <Badge variant="light">time: {inspection.time_col} ({inspection.time_unit})</Badge>
           <Badge variant="light">
-            drawdown: {(inspection.drawdown_cols ?? []).join(', ')} ({inspection.drawdown_unit})
+            {inspection.drawdown_unit === 'concentration'
+              ? `concentration: ${(inspection.drawdown_cols ?? []).join(', ')}`
+              : `drawdown: ${(inspection.drawdown_cols ?? []).join(', ')} (${inspection.drawdown_unit})`}
           </Badge>
           <Badge variant="light" color="gray">
             detected with {Math.round(inspection.confidence * 100)}% confidence

@@ -10,7 +10,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import PC_SAMPLE, RECOVERY_SAMPLE, THEIS_SAMPLE, run, setup_payload, upload
+from conftest import (
+    PC_SAMPLE, RECOVERY_SAMPLE, THEIS_SAMPLE, TRACER_CONVERGENT_SAMPLE,
+    TRACER_NATURAL_SAMPLE, run, setup_payload, upload,
+)
 
 from src.calculator import registry
 
@@ -225,6 +228,11 @@ class TestEveryMethodThroughTheApi:
     broken for the browser, however well its own tests pass."""
 
     def _run(self, client, spec):
+        if registry.TRACER in spec.test_types:
+            sample = (TRACER_CONVERGENT_SAMPLE if spec.uses_pumping_rate
+                      else TRACER_NATURAL_SAMPLE)
+            upload(client, sample)
+            return run(client, method=spec.id, test_type="tracer", r_m=15.0)
         if registry.RECOVERY in spec.test_types:
             upload(client, RECOVERY_SAMPLE)
             return run(client, method=spec.id, **RECOVERY_SETUP)
@@ -245,9 +253,112 @@ class TestEveryMethodThroughTheApi:
         result = self._run(client, spec).json()
 
         assert client.post("/api/analyses/save").status_code == 200
+        axes = result["manual_axes"]
+        sliders = ({"T": axes[0]["value"], "S": axes[1]["value"]} if axes
+                   else {"T": result["T"], "S": result["S"]})
         assert client.post("/api/analyses/manual-match",
-                           json={"T": result["T"], "S": result["S"]}).status_code == 200
+                           json=sliders).status_code == 200
         assert client.get("/api/report.pdf").content.startswith(b"%PDF-")
+
+
+class TestTracerThroughTheApi:
+
+    def _setup(self, **overrides):
+        return dict(test_type="tracer", r_m=15.0, tracer_b_m=10.0,
+                    tracer_M_kg=5.0, **overrides)
+
+    def test_a_concentration_file_switches_the_test_to_tracer(self, client):
+        body = upload(client, TRACER_CONVERGENT_SAMPLE).json()
+        project = client.get("/api/project").json()
+
+        assert project["tests"][0]["setup"]["test_type"] == "tracer"
+        assert body["inspection"]["drawdown_unit"] == "concentration"
+        assert body["diagnosis"] is None and body["derivative_figure"] is None
+        assert "concentration" in body["preview"][0]
+        assert "drawdown_m" not in body["preview"][0]
+
+    def test_it_is_offered_as_a_test_type_with_its_two_methods(self, client):
+        types = {t["id"]: t["label"] for t in client.get("/api/test-types").json()}
+        methods = client.get("/api/methods", params={"test_type": "tracer"}).json()
+
+        assert types["tracer"] == "Tracer test"
+        assert [(m["id"], m["uses_pumping_rate"]) for m in methods["offered"]] == [
+            ("ogata_banks_1961", False), ("sauty_1980", True)]
+
+    def test_the_fit_reports_transport_and_not_t_or_s(self, client):
+        upload(client, TRACER_CONVERGENT_SAMPLE)
+        body = run(client, method="sauty_1980", **self._setup()).json()
+
+        assert body["success"] and body["response_unit"] == "mg/L"
+        assert body["T"] == 0.0 and body["S"] is None
+        assert {p["name"] for p in body["parameters"]} >= {"t_c", "alpha_L", "n_e", "recovery"}
+        assert [axis["name"] for axis in body["manual_axes"]] == ["t_c", "alpha_L"]
+
+    def test_the_inputs_read_back_as_they_were_entered(self, client):
+        upload(client, TRACER_CONVERGENT_SAMPLE)
+        run(client, method="sauty_1980", **self._setup(tracer_conc_unit="ppb"))
+        setup = client.get("/api/project").json()["tests"][0]["setup"]
+
+        assert setup["tracer_b_m"] == 10.0 and setup["tracer_conc_unit"] == "ppb"
+
+    def test_a_drawdown_method_is_refused_on_concentrations(self, client):
+        upload(client, TRACER_CONVERGENT_SAMPLE)
+        response = run(client, method="theis_1935")
+
+        assert response.status_code == 400
+        assert "concentrations" in response.json()["detail"]
+
+    def test_a_tracer_method_is_refused_on_drawdown(self, client):
+        upload(client, THEIS_SAMPLE)
+        response = run(client, method="ogata_banks_1961", test_type="tracer")
+
+        assert response.status_code == 400
+        assert "drawdown" in response.json()["detail"]
+
+    def test_choosing_tracer_first_reads_an_unnamed_column_as_concentration(self, client):
+        test_id = client.get("/api/project").json()["active_test_id"]
+        client.put(f"/api/tests/{test_id}/setup",
+                   json=setup_payload(test_type="tracer", r_m=25.0))
+        text = "time_h,value\n" + "\n".join(
+            f"{h},{v}" for h, v in zip(range(1, 13), [0, 0, 1, 40, 300, 700, 500, 200,
+                                                      80, 20, 5, 1]))
+        body = client.post(f"/api/tests/{test_id}/readings/text",
+                           json={"text": text}).json()
+
+        assert body["inspection"]["drawdown_unit"] == "concentration"
+        assert any("concentration" in issue for issue in body["inspection"]["issues"])
+        # 700 is well past the point the drawdown fallback would read as feet.
+        assert max(row["concentration"] for row in body["preview"]) == 700
+
+    def test_it_saves_compares_and_comes_back_after_a_reload(self, client):
+        upload(client, TRACER_CONVERGENT_SAMPLE)
+        run(client, method="sauty_1980", **self._setup())
+        rows = client.post("/api/analyses/save").json()["rows"]
+
+        assert rows[0]["T_m2_per_day"] is None and "n_e" in rows[0]["estimates"]
+
+        raw = client.get("/api/project/file").content
+        client.post("/api/project/open", files={"file": ("p.hydroassist.json", raw)})
+        body = client.get("/api/analyses/current").json()
+
+        assert body["method_id"] == "sauty_1980"
+        assert body["response_unit"] == "mg/L"
+
+    def test_a_tracer_run_is_logged_without_a_transmissivity(self, client):
+        upload(client, TRACER_NATURAL_SAMPLE)
+        run(client, method="ogata_banks_1961", test_type="tracer", r_m=25.0)
+        history = client.get("/api/analyses/history").json()
+
+        assert history[0]["success"] and history[0].get("T_day") is None
+
+    def test_the_second_slider_defaults_to_the_fit(self, client):
+        upload(client, TRACER_NATURAL_SAMPLE)
+        body = run(client, method="ogata_banks_1961", test_type="tracer", r_m=25.0).json()
+        first = body["manual_axes"][0]["value"]
+
+        match = client.post("/api/analyses/manual-match", json={"T": first}).json()
+
+        assert match["rmse_mm"] == pytest.approx(match["auto_rmse_mm"], rel=1e-3)
 
 
 class TestComingBackToATest:

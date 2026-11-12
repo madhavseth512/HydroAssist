@@ -42,6 +42,8 @@ export function ComparePanel() {
     .find((candidate) => candidate.label === best?.method)
   const stale = comparison.data?.n_stale ?? 0
   if (rows.length === 0 && stale === 0) return null
+  // A tracer test has no T or S to line up, so its estimates take those columns.
+  const isTracer = rows.length > 0 && rows.every((row) => Boolean(row.estimates))
 
   return (
     <Card withBorder padding="md">
@@ -56,8 +58,9 @@ export function ComparePanel() {
             method={bestMethod}
             result={{
               rank: 1,
-              transmissivity: formatQuantity(
+              transmissivity: best.estimates ? undefined : formatQuantity(
                 transmissivity(best.T_m2_per_day ?? 0, system)),
+              estimates: best.estimates || undefined,
               storativity: best.S === null || best.S === undefined
                 ? undefined : best.S.toExponential(2),
               rSquared: best.r_squared ?? undefined,
@@ -75,8 +78,14 @@ export function ComparePanel() {
                 <Table.Th>Rank</Table.Th>
                 <Table.Th>Method</Table.Th>
                 <Table.Th>Parameters</Table.Th>
-                <Table.Th>T ({transmissivity(0, system).unit})</Table.Th>
-                <Table.Th>S</Table.Th>
+                {isTracer ? (
+                  <Table.Th>Estimates</Table.Th>
+                ) : (
+                  <>
+                    <Table.Th>T ({transmissivity(0, system).unit})</Table.Th>
+                    <Table.Th>S</Table.Th>
+                  </>
+                )}
                 <Table.Th>R²</Table.Th>
                 <Table.Th>AICc</Table.Th>
                 <Table.Th>ΔAICc</Table.Th>
@@ -91,12 +100,18 @@ export function ComparePanel() {
                   <Table.Td>{row.rank}</Table.Td>
                   <Table.Td>{row.method}</Table.Td>
                   <Table.Td>{row.n_params ?? '—'}</Table.Td>
-                  <Table.Td style={NUMERIC_STYLE}>
-                    {formatNumber(transmissivity(row.T_m2_per_day ?? 0, system).value)}
-                  </Table.Td>
-                  <Table.Td>
-                    {row.S === null || row.S === undefined ? '—' : row.S.toExponential(2)}
-                  </Table.Td>
+                  {isTracer ? (
+                    <Table.Td style={NUMERIC_STYLE}>{row.estimates}</Table.Td>
+                  ) : (
+                    <>
+                      <Table.Td style={NUMERIC_STYLE}>
+                        {formatNumber(transmissivity(row.T_m2_per_day ?? 0, system).value)}
+                      </Table.Td>
+                      <Table.Td>
+                        {row.S === null || row.S === undefined ? '—' : row.S.toExponential(2)}
+                      </Table.Td>
+                    </>
+                  )}
                   <Table.Td>{fixed(row.r_squared, 4)}</Table.Td>
                   <Table.Td>{fixed(row.aicc, 1)}</Table.Td>
                   <Table.Td>{fixed(row.delta_aicc, 1)}</Table.Td>

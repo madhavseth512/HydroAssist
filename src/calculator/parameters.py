@@ -101,6 +101,18 @@ class FittedParameter:
         )
 
 
+def summarise_parameters(parameters: list) -> list:
+    """Parameter dicts as "symbol = value unit" lines, for a method that reports
+    neither T nor S and so has nothing to show in the usual two places."""
+    lines = []
+    for p in parameters or []:
+        value = p["value"] * p.get("display_scale", 1.0)
+        unit = p.get("display_unit") or p.get("unit", "")
+        unit = "" if unit in ("", "-") else " " + unit.replace("^2", "²")
+        lines.append(f"{p.get('symbol') or p['name']} = {value:.3g}{unit}")
+    return lines
+
+
 # ── Constructors for the two parameters every confined method reports ─────────
 # Centralised so that T is shown in m^2/day everywhere without each method
 # repeating the conversion.

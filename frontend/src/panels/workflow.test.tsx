@@ -24,7 +24,7 @@ const THEIS = {
   citation: '', aquifer_types: ['confined'], test_types: ['constant_rate'],
   parameters: ['T', 'S'], data_source: 'observation_well', requires: [],
   ui_help: 'Full-curve type-curve fit.', selection_rationale: '',
-  needs_well_geometry: false, estimates_storativity: true,
+  needs_well_geometry: false, estimates_storativity: true, uses_pumping_rate: true,
 }
 
 const RESULT = {

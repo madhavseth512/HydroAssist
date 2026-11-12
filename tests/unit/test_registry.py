@@ -59,6 +59,8 @@ class TestTableIntegrity:
             "Hantush-Jacob (1955)",
             "Boulton (1963)",
             "Warren-Root (1963)",
+            "Ogata-Banks (1961)",
+            "Sauty (1980)",
         ]
 
     @pytest.mark.parametrize("spec", R.all_specs(implemented_only=False),
@@ -192,8 +194,8 @@ class TestFiltering:
         one canonical method per aquifer type."""
         assert R.supported_aquifers() == set(R.AQUIFER_TYPES)
 
-    def test_every_method_but_recovery_is_constant_rate(self):
-        assert len(R.for_test_type(R.CONSTANT_RATE)) == len(R.all_specs()) - 1
+    def test_every_method_but_recovery_and_tracer_is_constant_rate(self):
+        assert len(R.for_test_type(R.CONSTANT_RATE)) == len(R.all_specs()) - 3
 
     def test_recovery_has_its_own_method(self):
         assert [s.id for s in R.for_test_type(R.RECOVERY)] == ["theis_recovery_1935"]

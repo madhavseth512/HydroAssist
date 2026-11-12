@@ -522,6 +522,7 @@
           "workspace"
         ],
         "summary": "Activate Test",
+        "description": "Show a test: its readings, its runs, and its own last result.",
         "operationId": "activate_test_api_tests__test_id__activate_post",
         "parameters": [
           {
@@ -1053,7 +1054,7 @@
           "analysis"
         ],
         "summary": "Current Result",
-        "description": "The last result, for a browser that reloaded mid-session.",
+        "description": "The active test's analysis: the one just run, or the one it already had.\n\nA result lived for one session and one test, so opening a saved project \u2014 or\ncoming back to the first of two tests \u2014 showed an empty panel beside readings\nand a saved analysis that plainly existed. The fit is recovered here rather\nthan in each route that opens a test, so every path benefits: activating a\ntest, opening a file, restoring the autosaved project, or reloading the page.\n\nRecovering means fitting again, which is deterministic and takes milliseconds.\nSee analysis.restore_last_analysis for why that is better than storing the\ncurve.",
         "operationId": "current_result_api_analyses_current_get",
         "parameters": [
           {
@@ -2106,6 +2107,11 @@
             ],
             "title": "S"
           },
+          "estimates": {
+            "type": "string",
+            "title": "Estimates",
+            "default": ""
+          },
           "r_squared": {
             "anyOf": [
               {
@@ -2267,6 +2273,40 @@
         },
         "type": "object",
         "title": "InspectionModel"
+      },
+      "ManualAxisModel": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "display_scale": {
+            "type": "number",
+            "title": "Display Scale",
+            "default": 1.0
+          },
+          "display_unit": {
+            "type": "string",
+            "title": "Display Unit",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "symbol",
+          "value"
+        ],
+        "title": "ManualAxisModel",
+        "description": "One parameter a hand-matching slider moves, when it is not T or S."
       },
       "ManualMatchModel": {
         "properties": {
@@ -2466,6 +2506,11 @@
           "estimates_storativity": {
             "type": "boolean",
             "title": "Estimates Storativity"
+          },
+          "uses_pumping_rate": {
+            "type": "boolean",
+            "title": "Uses Pumping Rate",
+            "default": true
           }
         },
         "type": "object",
@@ -2981,6 +3026,20 @@
             ],
             "title": "Figure",
             "description": "Plotly JSON for the fit diagnostic"
+          },
+          "response_unit": {
+            "type": "string",
+            "title": "Response Unit",
+            "description": "A tracer test's concentration unit, which its RMSE is in. Empty for a pumping test, whose RMSE is in metres.",
+            "default": ""
+          },
+          "manual_axes": {
+            "items": {
+              "$ref": "#/components/schemas/ManualAxisModel"
+            },
+            "type": "array",
+            "title": "Manual Axes",
+            "description": "What the sliders move, sent as T and S in a manual-match request. Empty for a pumping test, whose sliders are T and S."
           }
         },
         "type": "object",
@@ -3133,6 +3192,88 @@
             "title": "Recovery Clock",
             "description": "Whether the time column counts from pump start or stop",
             "default": "since_stop"
+          },
+          "tracer_injection": {
+            "type": "string",
+            "title": "Tracer Injection",
+            "description": "pulse or continuous",
+            "default": "pulse"
+          },
+          "tracer_conc_unit": {
+            "type": "string",
+            "title": "Tracer Conc Unit",
+            "default": "mg/L"
+          },
+          "tracer_background": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Tracer Background",
+            "default": 0.0
+          },
+          "tracer_C0": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracer C0",
+            "description": "Plateau concentration, if known"
+          },
+          "tracer_M_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracer M Kg",
+            "description": "Injected tracer mass"
+          },
+          "tracer_b_m": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracer B M",
+            "description": "Aquifer thickness"
+          },
+          "tracer_K_m_day": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracer K M Day",
+            "description": "Hydraulic conductivity"
+          },
+          "tracer_gradient": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracer Gradient",
+            "description": "Hydraulic gradient"
           }
         },
         "type": "object",

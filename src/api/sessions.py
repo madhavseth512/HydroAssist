@@ -88,8 +88,11 @@ class UnavailableChat:
         history = list(self.state.get("analysis_history") or [])
         history.append({"method": (result or {}).get("method", "unknown"),
                         "success": bool((result or {}).get("success")),
-                        "T_day": (result or {}).get("T_day"),
-                        "S": (result or {}).get("S"),
+                        # A tracer fit has neither, only their 0.0 placeholders.
+                        "T_day": (None if (result or {}).get("response_unit")
+                                  else (result or {}).get("T_day")),
+                        "S": (None if (result or {}).get("response_unit")
+                              else (result or {}).get("S")),
                         "r_squared": (result or {}).get("r_squared"),
                         "rmse": (result or {}).get("rmse"),
                         "n_points": (calc_input or {}).get("n_points")})

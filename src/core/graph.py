@@ -298,8 +298,9 @@ class HydroAssistChat:
         entry = {
             "method": result.get("method", "unknown"),
             "success": bool(result.get("success")),
-            "T_day": result.get("T_day"),
-            "S": result.get("S"),
+            # A tracer fit has neither, only their 0.0 placeholders.
+            "T_day": None if result.get("response_unit") else result.get("T_day"),
+            "S": None if result.get("response_unit") else result.get("S"),
             "r_squared": result.get("r_squared"),
             "rmse": result.get("rmse"),
             "Q_m3d": (calc_input.get("Q") or 0) * 86400 or None,

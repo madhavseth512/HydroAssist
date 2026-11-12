@@ -32,6 +32,7 @@ import re
 from typing import Optional
 
 from src.calculator import registry
+from src.calculator.parameters import summarise_parameters
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,25 @@ def describes_recovery(text: str) -> bool:
     return bool(text) and bool(_RECOVERY_CUES.search(text))
 
 
+# Words that mean the readings are concentrations, and the ones that say the
+# tracer was drawn to a pumped well rather than carried by ambient flow.
+_TRACER_CUES = re.compile(
+    r"\btracer\b|breakthrough curve|\bdye test\b|\bbromide\b|\bfluorescein\b|"
+    r"\brhodamine\b|\buranine\b",
+    re.IGNORECASE,
+)
+_FORCED_CUES = re.compile(
+    r"\bconvergent\b|\bconverging\b|forced[- ]gradient|\bpump(?:ed|ing)?\b",
+    re.IGNORECASE,
+)
+
+
+def describes_tracer(text: str) -> bool:
+    """Whether a message describes a tracer test. Public for the same reason as
+    `describes_recovery`: it may name no aquifer and no method."""
+    return bool(text) and bool(_TRACER_CUES.search(text))
+
+
 def suggest_method(
     aquifer_context: str = "unknown",
     selected_method: str = "",
@@ -197,6 +217,19 @@ def suggest_method(
                 "confidence": 0.85,
                 "supported": True,
             }
+
+    # ── 1c. A tracer test → a transport method ────────────────────────────────
+    # Ahead of the diagnosis for the same reason: a derivative reads drawdown.
+    if describes_tracer(text):
+        method_id = "sauty_1980" if _FORCED_CUES.search(text) else "ogata_banks_1961"
+        spec = registry.REGISTRY[method_id]
+        return {
+            "method": spec.label,
+            "reason": (spec.selection_rationale + " Choose the Tracer test type in "
+                       "Step 2 and enter the travel distance."),
+            "confidence": 0.8,
+            "supported": True,
+        }
 
     # ── 2. The data outranks the prose ────────────────────────────────────────
     # Drawdown curves for different aquifer types all look like smooth rising
@@ -395,6 +428,16 @@ def summarise_result(result: dict, calc_input: dict = None) -> str:
             "The last analysis did not converge: "
             f"{result.get('error_message', 'unknown error')}"
         )
+
+    if result.get("response_unit"):
+        lines = [f"**{result.get('method', 'Analysis')} — completed**", ""]
+        lines += [f"- {line}" for line in summarise_parameters(result.get("parameters"))]
+        lines.append(f"- **R²** = {result.get('r_squared', 0):.4f}, RMSE = "
+                     f"{result.get('rmse', 0):.3g} {result['response_unit']}")
+        notes = result.get("validity_notes", [])
+        if notes:
+            lines += ["", "**Validity notes:**"] + [f"- {n}" for n in notes[:4]]
+        return "\n".join(lines)
 
     lines = [
         f"**{result.get('method', 'Analysis')} — completed**",

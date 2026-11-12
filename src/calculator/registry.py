@@ -36,16 +36,21 @@ CONFINED = "confined"
 LEAKY = "leaky"
 UNCONFINED = "unconfined"
 FRACTURED = "fractured"
+# Transport depends on how water moves through the pores, not on what confines
+# the aquifer, so a tracer method is not tied to one of the types above. Keeping it
+# apart also stops the chat offering one for "a confined aquifer".
+POROUS = "porous"
 
-AQUIFER_TYPES = (CONFINED, LEAKY, UNCONFINED, FRACTURED)
+AQUIFER_TYPES = (CONFINED, LEAKY, UNCONFINED, FRACTURED, POROUS)
 
 CONSTANT_RATE = "constant_rate"
 RECOVERY = "recovery"
 STEP_DRAWDOWN = "step_drawdown"
 SLUG = "slug"
 CONSTANT_HEAD = "constant_head"
+TRACER = "tracer"
 
-TEST_TYPES = (CONSTANT_RATE, RECOVERY, STEP_DRAWDOWN, SLUG, CONSTANT_HEAD)
+TEST_TYPES = (CONSTANT_RATE, RECOVERY, STEP_DRAWDOWN, SLUG, CONSTANT_HEAD, TRACER)
 
 # Where the drawdown series was measured. Papadopulos-Cooper is fitted at the
 # pumped well face; Theis and Cooper-Jacob assume an observation well at distance r.
@@ -147,6 +152,13 @@ class MethodSpec:
     # not a scientific instrument.
     assumptions: tuple = ()
 
+    # The two parameters the manual-matching sliders move, in the order the
+    # interactive adapter takes them.
+    manual_parameters: tuple = ("T", "S")
+
+    # False for a test with no pumping, so the form does not ask for a rate.
+    uses_pumping_rate: bool = True
+
     def supports_aquifer(self, aquifer: str) -> bool:
         return aquifer in self.aquifer_types
 
@@ -197,6 +209,16 @@ def _warren_root():
 def _theis_recovery():
     from src.calculator.methods.theis_recovery import TheisRecoveryCalculator
     return TheisRecoveryCalculator()
+
+
+def _ogata_banks():
+    from src.calculator.methods.tracer import OgataBanksCalculator
+    return OgataBanksCalculator()
+
+
+def _sauty():
+    from src.calculator.methods.tracer import SautyCalculator
+    return SautyCalculator()
 
 
 # ── Lazy plot adapters ────────────────────────────────────────────────────────
@@ -266,6 +288,22 @@ def _recovery_interactive(result, ctx, T_manual, S_manual):
 def _recovery_report_plot(result, ctx):
     from src.calculator.report import _recovery_mpl
     return _recovery_mpl(result)
+
+
+def _tracer_diagnostic(result, ctx):
+    from src.calculator.plots import tracer_diagnostic
+    return tracer_diagnostic(result)
+
+
+def _tracer_interactive(result, ctx, first, second):
+    # The sliders carry this method's `manual_parameters`, not T and S.
+    from src.calculator.plots import tracer_interactive
+    return tracer_interactive(result, first, second)
+
+
+def _tracer_report_plot(result, ctx):
+    from src.calculator.report import _tracer_mpl
+    return _tracer_mpl(result)
 
 
 # ── The table ─────────────────────────────────────────────────────────────────
@@ -499,6 +537,87 @@ _SPECS = (
             "Flow to the well is through the fracture network only",
             "Exchange between matrix and fractures is pseudo-steady",
             "The fracture system is homogeneous at the scale of the test",
+        ),
+    ),
+    MethodSpec(
+        id="ogata_banks_1961",
+        label="Ogata-Banks (1961)",
+        year=1961,
+        authors=("Ogata, A.", "Banks, R.B."),
+        citation=(
+            "Ogata, A. & Banks, R.B. (1961). A solution of the differential equation "
+            "of longitudinal dispersion in porous media. U.S. Geological Survey "
+            "Professional Paper 411-A. Pulse form: Bear, J. (1972). Dynamics of "
+            "Fluids in Porous Media. Elsevier."
+        ),
+        aquifer_types=frozenset({POROUS}),
+        test_types=frozenset({TRACER}),
+        parameters=("v", "alpha_L", "amplitude"),
+        data_source=OBSERVATION_WELL,
+        aliases=("ogata-banks", "ogata banks", "ogata_banks", "ogata",
+                 "natural gradient tracer", "natural-gradient tracer"),
+        factory=_ogata_banks,
+        diagnostic_plot=_tracer_diagnostic,
+        interactive_plot=_tracer_interactive,
+        report_plot=_tracer_report_plot,
+        manual_parameters=("v", "alpha_L"),
+        uses_pumping_rate=False,
+        ui_help=(
+            "Natural-gradient test: tracer carried by ambient flow to a downgradient "
+            "well. Estimates velocity and dispersivity, and effective porosity "
+            "when K and the gradient are known."
+        ),
+        selection_rationale=(
+            "Ogata-Banks (1961) solves one-dimensional advection and dispersion in "
+            "uniform flow, which is what a tracer moving with the natural gradient "
+            "experiences."
+        ),
+        assumptions=(
+            "Steady, uniform flow along the line from the injection to the well",
+            "Homogeneous medium, with dispersion proportional to velocity",
+            "The sampling well lies on the plume's centreline, so transverse spreading is ignored",
+            "The tracer is conservative: no sorption, decay or density effects",
+            "Pumping for samples does not disturb the natural flow field",
+        ),
+    ),
+    MethodSpec(
+        id="sauty_1980",
+        label="Sauty (1980)",
+        year=1980,
+        authors=("Sauty, J.-P.",),
+        citation=(
+            "Sauty, J.-P. (1980). An analysis of hydrodispersive transfer in "
+            "aquifers. Water Resources Research, 16(1), 145-158. Radial spreading: "
+            "Hoopes, J.A. & Harleman, D.R.F. (1967). Dispersion in radial flow from "
+            "a recharge well. Journal of Geophysical Research, 72(14), 3595-3607."
+        ),
+        aquifer_types=frozenset({POROUS}),
+        test_types=frozenset({TRACER}),
+        parameters=("t_c", "alpha_L", "amplitude"),
+        data_source=EITHER,
+        aliases=("sauty", "radial convergent", "convergent radial",
+                 "convergent tracer", "forced gradient tracer",
+                 "forced-gradient tracer"),
+        factory=_sauty,
+        diagnostic_plot=_tracer_diagnostic,
+        interactive_plot=_tracer_interactive,
+        report_plot=_tracer_report_plot,
+        manual_parameters=("t_c", "alpha_L"),
+        ui_help=(
+            "Forced-gradient test: tracer drawn radially to a pumped well. Estimates "
+            "travel time and dispersivity, plus effective porosity when the "
+            "thickness is known and mass recovery when the injected mass is."
+        ),
+        selection_rationale=(
+            "Sauty (1980) treats a tracer drawn to a pumped well, where velocity "
+            "rises towards the well and the uniform-flow solution does not apply."
+        ),
+        assumptions=(
+            "Steady radial flow to a fully penetrating well, set up before the injection",
+            "Homogeneous aquifer of uniform thickness, with dispersion proportional to velocity",
+            "Injection does not disturb the flow field, and mixing in the wells is negligible",
+            "The tracer is conservative: no sorption, decay or density effects",
+            "Transport is advection-dominated, conventionally r/alpha_L above about 10",
         ),
     ),
 )

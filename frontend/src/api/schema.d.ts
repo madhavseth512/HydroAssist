@@ -186,7 +186,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Activate Test */
+        /**
+         * Activate Test
+         * @description Show a test: its readings, its runs, and its own last result.
+         */
         post: operations["activate_test_api_tests__test_id__activate_post"];
         delete?: never;
         options?: never;
@@ -349,7 +352,17 @@ export interface paths {
         };
         /**
          * Current Result
-         * @description The last result, for a browser that reloaded mid-session.
+         * @description The active test's analysis: the one just run, or the one it already had.
+         *
+         *     A result lived for one session and one test, so opening a saved project — or
+         *     coming back to the first of two tests — showed an empty panel beside readings
+         *     and a saved analysis that plainly existed. The fit is recovered here rather
+         *     than in each route that opens a test, so every path benefits: activating a
+         *     test, opening a file, restoring the autosaved project, or reloading the page.
+         *
+         *     Recovering means fitting again, which is deterministic and takes milliseconds.
+         *     See analysis.restore_last_analysis for why that is better than storing the
+         *     curve.
          */
         get: operations["current_result_api_analyses_current_get"];
         put?: never;
@@ -805,6 +818,11 @@ export interface components {
             T_m2_per_day?: number | null;
             /** S */
             S?: number | null;
+            /**
+             * Estimates
+             * @default
+             */
+            estimates: string;
             /** R Squared */
             r_squared?: number | null;
             /** Aicc */
@@ -874,6 +892,28 @@ export interface components {
             confidence: number;
             /** Issues */
             issues?: string[];
+        };
+        /**
+         * ManualAxisModel
+         * @description One parameter a hand-matching slider moves, when it is not T or S.
+         */
+        ManualAxisModel: {
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol: string;
+            /** Value */
+            value: number;
+            /**
+             * Display Scale
+             * @default 1
+             */
+            display_scale: number;
+            /**
+             * Display Unit
+             * @default
+             */
+            display_unit: string;
         };
         /** ManualMatchModel */
         ManualMatchModel: {
@@ -964,6 +1004,11 @@ export interface components {
             needs_well_geometry: boolean;
             /** Estimates Storativity */
             estimates_storativity: boolean;
+            /**
+             * Uses Pumping Rate
+             * @default true
+             */
+            uses_pumping_rate: boolean;
         };
         /**
          * OCRCellModel
@@ -1225,6 +1270,17 @@ export interface components {
              * @description Plotly JSON for the fit diagnostic
              */
             figure?: string | null;
+            /**
+             * Response Unit
+             * @description A tracer test's concentration unit, which its RMSE is in. Empty for a pumping test, whose RMSE is in metres.
+             * @default
+             */
+            response_unit: string;
+            /**
+             * Manual Axes
+             * @description What the sliders move, sent as T and S in a manual-match request. Empty for a pumping test, whose sliders are T and S.
+             */
+            manual_axes?: components["schemas"]["ManualAxisModel"][];
         };
         /**
          * RetrievedDocModel
@@ -1338,6 +1394,47 @@ export interface components {
              * @default since_stop
              */
             recovery_clock: string;
+            /**
+             * Tracer Injection
+             * @description pulse or continuous
+             * @default pulse
+             */
+            tracer_injection: string;
+            /**
+             * Tracer Conc Unit
+             * @default mg/L
+             */
+            tracer_conc_unit: string;
+            /**
+             * Tracer Background
+             * @default 0
+             */
+            tracer_background: number;
+            /**
+             * Tracer C0
+             * @description Plateau concentration, if known
+             */
+            tracer_C0?: number | null;
+            /**
+             * Tracer M Kg
+             * @description Injected tracer mass
+             */
+            tracer_M_kg?: number | null;
+            /**
+             * Tracer B M
+             * @description Aquifer thickness
+             */
+            tracer_b_m?: number | null;
+            /**
+             * Tracer K M Day
+             * @description Hydraulic conductivity
+             */
+            tracer_K_m_day?: number | null;
+            /**
+             * Tracer Gradient
+             * @description Hydraulic gradient
+             */
+            tracer_gradient?: number | null;
         };
         /** SuggestionModel */
         SuggestionModel: {

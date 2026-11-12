@@ -50,7 +50,16 @@ class TestFormRoundTrip:
         form = {KEY_Q: 12.5, KEY_Q_UNIT: "L/s", KEY_R: 35.0,
                 KEY_RW: 0.3, KEY_RC: 0.2, KEY_TEST_TYPE: "recovery",
                 KEY_TP: 12.0, KEY_CLOCK: "since_start"}
-        assert inputs_from_setup(setup_from_inputs(form)) == form
+        restored = inputs_from_setup(setup_from_inputs(form))
+        assert {key: restored[key] for key in form} == form
+
+    def test_a_tracer_setup_reproduces_its_inputs(self):
+        form = {KEY_TEST_TYPE: "tracer", "tracer_injection": "continuous",
+                "tracer_conc_unit": "ppb", "tracer_background": 0.5, "tracer_C0": 40.0,
+                "tracer_b_m": 12.0, "tracer_K_m_day": 8.0, "tracer_gradient": 0.01,
+                "tracer_M_kg": 2.0}
+        restored = inputs_from_setup(setup_from_inputs(form))
+        assert {key: restored[key] for key in form} == form
 
     def test_the_entered_unit_is_kept_not_converted(self):
         """Reopening must show 12.5 L/s, not 1080 m³/day."""

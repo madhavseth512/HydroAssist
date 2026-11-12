@@ -29,6 +29,8 @@ export interface MethodCardProps {
     rank?: number
     transmissivity?: string
     storativity?: string
+    /** For a method that reports neither T nor S. */
+    estimates?: string
     rSquared?: number
     deltaAicc?: number | null
     weight?: number | null
@@ -74,14 +76,19 @@ export function MethodCard({
               {method.parameters.length} parameter
               {method.parameters.length === 1 ? '' : 's'}
             </Badge>
-            {!method.estimates_storativity && (
+            {!method.estimates_storativity && !method.test_types.includes('tracer') && (
               <Badge size="xs" variant="light" color="gray">no S</Badge>
             )}
           </Group>
 
           {result ? (
             <Stack gap={2}>
-              <Text size="xs" style={NUMERIC_STYLE}>T {result.transmissivity}</Text>
+              {result.transmissivity && (
+                <Text size="xs" style={NUMERIC_STYLE}>T {result.transmissivity}</Text>
+              )}
+              {result.estimates && (
+                <Text size="xs" style={NUMERIC_STYLE}>{result.estimates}</Text>
+              )}
               {result.storativity && (
                 <Text size="xs" style={NUMERIC_STYLE}>S {result.storativity}</Text>
               )}

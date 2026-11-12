@@ -95,7 +95,12 @@ def prepared_model(prepared, rows: int = PREVIEW_ROWS) -> schemas.PreparedDataMo
     return schemas.PreparedDataModel(
         n_points=len(df),
         summary=prepared.summary(),
-        preview=df.head(max(1, rows)).to_dict(orient="records"),
+        # Under its real name where a person reads it: the column is called
+        # drawdown_m inside the pipeline whatever it holds.
+        preview=(df.head(max(1, rows))
+                 .rename(columns={"drawdown_m": prepared.quantity}
+                         if prepared.quantity != "drawdown" else {})
+                 .to_dict(orient="records")),
         conversions=list(prepared.conversions),
         rows_removed=list(prepared.rows_removed),
         inspection=inspection_model(prepared.inspection),
@@ -158,7 +163,21 @@ def result_model(result, record: dict) -> schemas.ResultModel:
                      if isinstance(v, (int, float)) and not isinstance(v, bool)},
         validity_notes=list(result.validity_notes),
         figure=figure_json(_safe_diagnostic(result, record)),
+        response_unit=(result.curves.get("tracer") or {}).get("unit", ""),
+        manual_axes=_manual_axes(result),
     )
+
+
+def _manual_axes(result) -> list:
+    if not result.curves.get("tracer"):
+        return []
+    axes = []
+    for name in registry.require(result.method_id).manual_parameters:
+        p = result.get(name)
+        axes.append(schemas.ManualAxisModel(
+            name=p.name, symbol=p.symbol, value=p.value,
+            display_scale=p.display_scale, display_unit=p.display_unit))
+    return axes
 
 
 def _safe_diagnostic(result, record: dict):
@@ -179,6 +198,7 @@ def comparison_model(test) -> schemas.ComparisonModel:
             n_params=row["n_params"],
             T_m2_per_day=row["T_m2_per_day"],
             S=row["S"],
+            estimates=row["estimates"],
             r_squared=row["r_squared"],
             aicc=row["aicc"],
             delta_aicc=row["delta_aicc"],

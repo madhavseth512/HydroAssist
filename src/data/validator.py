@@ -72,6 +72,11 @@ class DataValidator:
 
             errors  += self._check_min_points(sub, label)
             warnings += self._check_monotonic_time(sub, label)
+            # A breakthrough curve rises and falls by nature, and needs no log
+            # cycles: none of the drawdown checks below concern it.
+            if test_type == registry.TRACER:
+                warnings += self._check_negative_concentration(sub, label)
+                continue
             # Falling and even slightly negative drawdown is exactly what a
             # recovery record shows, so these two checks are for pumping data.
             if test_type != registry.RECOVERY:
@@ -113,6 +118,13 @@ class DataValidator:
         neg = (df["drawdown_m"] < 0).sum()
         if neg:
             return [f"{label}: {neg} negative drawdown value(s) — may include recovery data or measurement errors."]
+        return []
+
+    def _check_negative_concentration(self, df: pd.DataFrame, label: str) -> list:
+        neg = (df["drawdown_m"] < 0).sum()
+        if neg:
+            return [f"{label}: {neg} negative concentration value(s). Enter readings "
+                    "as measured and give the background separately."]
         return []
 
     def _check_log_cycle_span(self, df: pd.DataFrame, label: str) -> list:

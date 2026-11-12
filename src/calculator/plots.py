@@ -651,6 +651,117 @@ def generic_interactive(result: CalculationResult, forward,
     return fig, rmse_mm
 
 
+# ── Tracer ────────────────────────────────────────────────────────────────────
+#
+# A breakthrough curve is read on linear axes: its peak, its tail and the background
+# it rises from are the things to see, and the zero readings before arrival cannot
+# be placed on a log scale at all. Residuals stay in concentration, not millimetres.
+
+def _smooth_times(t_s: np.ndarray) -> np.ndarray:
+    return np.linspace(float(t_s.min()), float(t_s.max()), 300)
+
+
+def _concentration_label(result: CalculationResult) -> str:
+    return f"Concentration ({result.curves['tracer']['unit']})"
+
+
+def tracer_diagnostic(result: CalculationResult) -> go.Figure:
+    """The breakthrough curve and its fit, with residuals below."""
+    from src.calculator.methods.tracer import curve_from_result
+
+    t = np.asarray(result.time_s, dtype=float)
+    c_obs = np.asarray(result.drawdown_obs, dtype=float)
+    c_fit = np.asarray(result.drawdown_fitted, dtype=float)
+    unit = result.curves["tracer"]["unit"]
+    first, second = _tracer_fitted(result)
+    smooth = _smooth_times(t)
+
+    fig = _two_panel(f"{result.method} — Breakthrough Curve   "
+                     f"(R² = {result.r_squared:.4f}, RMSE = {result.rmse:.3g} {unit})")
+    fig.add_trace(go.Scatter(
+        x=t / 3600.0, y=c_obs, mode="markers", name="Observed",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+        hovertemplate=f"t = %{{x:.2f}} h<br>C = %{{y:.4g}} {unit}<extra></extra>",
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=smooth / 3600.0, y=curve_from_result(result, smooth, first, second),
+        mode="lines", name=f"Fit  ({_parameter_summary(result)})",
+        line=dict(color=COL_FIT, width=2),
+        hovertemplate=f"t = %{{x:.2f}} h<br>C_fit = %{{y:.4g}} {unit}<extra></extra>",
+    ), row=1, col=1)
+
+    # The trace goes first, for the reason given in _add_residuals.
+    fig.add_trace(go.Scatter(
+        x=t / 3600.0, y=c_obs - c_fit, mode="markers", name="Residual",
+        marker=dict(color=COL_OBS, size=6, symbol="circle",
+                    line=dict(width=1, color=COL_FIT)),
+        hovertemplate=f"t = %{{x:.2f}} h<br>residual = %{{y:.3g}} {unit}<extra></extra>",
+        showlegend=False,
+    ), row=2, col=1)
+    if result.rmse > 0:
+        fig.add_hrect(y0=-result.rmse, y1=result.rmse, line_width=0, fillcolor=COL_OBS,
+                      opacity=0.10, layer="below", row=2, col=1)
+    fig.add_hline(y=0, line=dict(color=COL_ZERO, width=1), layer="below", row=2, col=1)
+
+    _label_panels(fig, "Time since injection (hours)", _concentration_label(result),
+                  y_log=False, residual_title=f"Residual ({unit})")
+    fig.update_xaxes(type="linear")
+    fig.update_layout(height=560, legend=_LEGEND_H, margin=_MARGIN_DUAL,
+                      hovermode="x unified")
+    return fig
+
+
+def _tracer_fitted(result: CalculationResult) -> tuple:
+    from src.calculator import registry
+
+    names = registry.require(result.method_id).manual_parameters
+    return result.value(names[0]), result.value(names[1])
+
+
+def tracer_interactive(result: CalculationResult, first: float, second: float) -> tuple:
+    """Manual matching on the breakthrough curve. The amplitude stays at its fit.
+
+    Returned on the scale every other method's RMSE is returned on, so the value
+    is 1000 x the RMSE in concentration units; the browser divides it back.
+    """
+    from src.calculator.methods.tracer import curve_from_result
+
+    t = np.asarray(result.time_s, dtype=float)
+    c_obs = np.asarray(result.drawdown_obs, dtype=float)
+    fitted = _tracer_fitted(result)
+    smooth = _smooth_times(t)
+    unit = result.curves["tracer"]["unit"]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=t / 3600.0, y=c_obs, mode="markers", name="Observed",
+        marker=dict(color=COL_OBS, size=7, symbol="circle-open", line=dict(width=1.5)),
+    ))
+    fig.add_trace(go.Scatter(
+        x=smooth / 3600.0, y=curve_from_result(result, smooth, *fitted), mode="lines",
+        name=f"Auto fit  ({_parameter_summary(result)})",
+        line=dict(color=COL_FIT, width=2, dash="dot"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=smooth / 3600.0, y=curve_from_result(result, smooth, first, second),
+        mode="lines", name="Manual  (amplitude held at its fit)",
+        line=dict(color=COL_MANUAL, width=2.5),
+    ))
+
+    manual = curve_from_result(result, t, first, second)
+    rmse = float(np.sqrt(np.mean((c_obs - manual) ** 2)))
+
+    fig.update_xaxes(title_text="Time since injection (hours)", showgrid=True,
+                     gridcolor=COL_GRID)
+    fig.update_yaxes(title_text=_concentration_label(result), showgrid=True,
+                     gridcolor=COL_GRID)
+    fig.update_layout(
+        title=f"{result.method} Manual Matching — RMSE = {rmse:.3g} {unit}",
+        height=480, legend=_LEGEND_H, hovermode="x unified", margin=_MARGIN_SINGLE,
+    )
+    return fig, rmse * 1000.0
+
+
 # ── Recovery ──────────────────────────────────────────────────────────────────
 
 def _recovery_line(result, x, T=None, Q=None):

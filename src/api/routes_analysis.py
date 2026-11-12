@@ -11,6 +11,7 @@ from src.api import presenters, schemas
 from src.api.deps import current_session
 from src.api.routes_workspace import test_or_404
 from src.api.sessions import SessionState
+from src.calculator import registry
 from src.services import analysis as analysis_service
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -46,11 +47,13 @@ def run_analysis(payload: schemas.RunRequest,
     df = test.readings.to_frame()
 
     try:
+        analysis_service.check_readings_suit(test.readings, payload.method)
         result = analysis_service.run_analysis(df, payload.method, setup)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
-        # A setup a method cannot run with, e.g. recovery without a duration.
+        # A setup a method cannot run with, e.g. recovery without a duration, or
+        # readings of the wrong kind.
         raise HTTPException(status_code=400, detail=str(exc))
 
     record = analysis_service.run_record(setup, payload.method, result,
@@ -143,6 +146,9 @@ def manual_match(payload: schemas.ManualMatchRequest,
 
     result = session.result
     S = payload.S if payload.S is not None else result.S
+    # A tracer method's sliders move its own two parameters, not T and S.
+    if result.curves.get("tracer") and payload.S is None:
+        S = result.value(registry.require(result.method_id).manual_parameters[1])
     figure, rmse_mm = analysis_service.manual_match(result, session.record,
                                                     payload.T, S)
     return schemas.ManualMatchModel(

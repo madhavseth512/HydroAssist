@@ -194,3 +194,55 @@ describe('the unit switch', () => {
     expect(screen.getByText('215.3')).toBeInTheDocument()
   })
 })
+
+function tracerResult() {
+  const alpha = parameter({ name: 'alpha_L', symbol: 'α_L', value: 1.02, unit: 'm',
+    display: 1.02, display_unit: 'm', ci: [0.9, 1.1], display_ci: [0.9, 1.1] })
+  const tc = parameter({ name: 't_c', symbol: 't_c', value: 2.4e5, unit: 's',
+    display: 66.7, display_unit: 'hours', ci: [2.3e5, 2.5e5], display_ci: [64, 69] })
+  const ne = parameter({ name: 'n_e', symbol: 'n_e', value: 0.2, unit: '-', display: 0.2,
+    display_unit: '-', ci: null, display_ci: null, derived: true })
+  return result({
+    method: 'Sauty (1980)', method_id: 'sauty_1980', T: 0, T_day: 0, T_ci: null,
+    S: null, S_ci: null, estimates_storativity: false, rmse: 0.03,
+    response_unit: 'mg/L', parameters: [tc, alpha, ne],
+    manual_axes: [
+      { name: 't_c', symbol: 't_c', value: 2.4e5, display_scale: 1 / 3600, display_unit: 'hours' },
+      { name: 'alpha_L', symbol: 'α_L', value: 1.02, display_scale: 1, display_unit: 'm' },
+    ],
+  })
+}
+
+describe('a tracer result', () => {
+  it('leads with what it estimated, and has no T or S to report', async () => {
+    stubFetch([{ url: '/api/analyses/current', body: tracerResult() }])
+    renderWithProviders(<ResultsPanel />)
+
+    expect(await screen.findByText('Results — Sauty (1980)')).toBeInTheDocument()
+    expect(screen.getAllByText('α_L').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('66.70 hours').length).toBeGreaterThan(0)
+    expect(screen.getByText(/RMSE 0.0300 mg\/L/)).toBeInTheDocument()
+    expect(screen.queryByText(/^T \(/)).not.toBeInTheDocument()
+    expect(screen.queryByText('not determined')).not.toBeInTheDocument()
+  })
+
+  it('moves its own parameters when matching by hand, in concentration units', async () => {
+    const stub = stubFetch([
+      { url: '/api/analyses/manual-match', method: 'POST',
+        body: { figure: JSON.stringify({ data: [{}], layout: {} }), rmse_mm: 30, auto_rmse_mm: 30 } },
+      { url: '/api/analyses/current', body: tracerResult() },
+    ])
+    renderWithProviders(<ResultsPanel />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Manual matching' }))
+
+    expect(await screen.findByLabelText('log10 alpha_L')).toBeInTheDocument()
+    expect(screen.queryByLabelText('log10 T')).not.toBeInTheDocument()
+    expect(await screen.findByText('Manual RMSE 0.0300 mg/L')).toBeInTheDocument()
+
+    const [, init] = stub.mock.mock.calls.find(
+      ([url]) => String(url).includes('/api/analyses/manual-match'))!
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.T).toBeCloseTo(2.4e5, 0)
+    expect(body.S).toBeCloseTo(1.02, 6)
+  })
+})

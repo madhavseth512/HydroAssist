@@ -37,13 +37,13 @@ class TestVocabularyMatchesTheRegistry:
 
     def test_aquifer_types_agree(self):
         from src.calculator import geometry as g
-        assert {g.CONFINED, g.LEAKY, g.UNCONFINED, g.FRACTURED} == set(
+        assert {g.CONFINED, g.LEAKY, g.UNCONFINED, g.FRACTURED, g.POROUS} == set(
             registry.AQUIFER_TYPES)
 
     def test_test_types_agree(self):
         from src.calculator import geometry as g
         assert {g.CONSTANT_RATE, g.RECOVERY, g.STEP_DRAWDOWN, g.SLUG,
-                g.CONSTANT_HEAD} == set(registry.TEST_TYPES)
+                g.CONSTANT_HEAD, g.TRACER} == set(registry.TEST_TYPES)
 
 
 # ── Individual groups ─────────────────────────────────────────────────────────

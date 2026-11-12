@@ -80,6 +80,7 @@ export const projectInfo = {
 export const setup = {
   q_value: 500, q_unit: 'm³/day', r_m: 50, r_w_m: 0.15, r_c_m: 0.1,
   test_type: 'constant_rate', t_p_hours: null, recovery_clock: 'since_stop',
+  tracer_injection: 'pulse', tracer_conc_unit: 'mg/L', tracer_background: 0,
 }
 
 export function test_(overrides: Record<string, unknown> = {}) {

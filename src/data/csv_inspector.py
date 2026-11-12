@@ -20,6 +20,14 @@ _TIME_PATTERNS = re.compile(
 _DRAWDOWN_PATTERNS = re.compile(
     r"(drawdown|^dd|_dd|^s$|^s_|depth|water.?level|^wl|_wl)", re.IGNORECASE
 )
+# A tracer test's response. "conc" must not catch "conductivity", and a bare "c"
+# counts only at the start of a name: "temp_c" is a temperature, on a logger export.
+_CONCENTRATION_PATTERNS = re.compile(
+    r"(concentration|(?<![a-z])conc(?![a-z])|tracer|bromide|chloride|fluorescein|"
+    r"rhodamine|uranine|^c(?![a-z])|mg/?_?l(?![a-z])|[µu]g/?_?l(?![a-z])|"
+    r"(?<![a-z])pp[mb](?![a-z]))",
+    re.IGNORECASE,
+)
 _WELL_ID_PATTERNS = re.compile(
     r"(well|borehole|obs|monitoring|^mw|site|^id$|^name$)", re.IGNORECASE
 )
@@ -39,6 +47,10 @@ _UNIT_MINUTES = re.compile(r"(?<![a-zA-Z])(minutes|minute|mins|min)(?![a-zA-Z])"
 _UNIT_HOURS   = re.compile(r"(?<![a-zA-Z])(hours|hour|hrs|hr|h)(?![a-zA-Z])", re.IGNORECASE)
 _UNIT_FEET    = re.compile(r"(?<![a-zA-Z])(feet|foot|ft)(?![a-zA-Z])", re.IGNORECASE)
 _UNIT_METERS  = re.compile(r"(?<![a-zA-Z])(meters|metres|meter|metre|m)(?![a-zA-Z])", re.IGNORECASE)
+
+
+# Stands in for a length unit. Concentrations are never converted.
+CONCENTRATION = "concentration"
 
 
 @dataclass
@@ -83,12 +95,14 @@ class CSVInspector:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def inspect(self, df: pd.DataFrame) -> InspectionResult:
+    def inspect(self, df: pd.DataFrame, tracer: bool = False) -> InspectionResult:
         """
         Inspect df and return an InspectionResult.
 
         Args:
             df: Raw DataFrame from pd.read_csv
+            tracer: The test is known to be a tracer test, so whatever the
+                    response column is called, it holds concentrations.
 
         Returns:
             InspectionResult with detected columns, units, and quality issues
@@ -97,7 +111,8 @@ class CSVInspector:
         confidence = 1.0
 
         time_col, time_unit, time_conf = self._detect_time_column(df)
-        dd_cols,  dd_unit,   dd_conf   = self._detect_drawdown_columns(df)
+        dd_cols,  dd_unit,   dd_conf   = self._detect_response_columns(
+            df, time_col, tracer, issues)
         well_col                       = self._detect_well_id_column(df, exclude=[time_col] + dd_cols)
 
         confidence = min(time_conf, dd_conf)
@@ -111,7 +126,9 @@ class CSVInspector:
 
         # ── LLM fallback ──────────────────────────────────────────────────────
         llm_explanation = ""
-        if confidence < self.CONFIDENCE_THRESHOLD and self.llm and time_col and dd_cols:
+        # Its prompt asks for drawdown in metres or feet, which a concentration is not.
+        if (confidence < self.CONFIDENCE_THRESHOLD and self.llm and time_col and dd_cols
+                and dd_unit != CONCENTRATION):
             try:
                 time_col, time_unit, dd_cols, dd_unit, llm_explanation = \
                     self._llm_assisted_mapping(df, time_col, dd_cols)
@@ -125,7 +142,8 @@ class CSVInspector:
         if dd_cols:
             for col in dd_cols:
                 if col in df.columns:
-                    issues += self._scan_drawdown_anomalies(df[col], col)
+                    issues += self._scan_drawdown_anomalies(
+                        df[col], col, dd_unit == CONCENTRATION)
 
         needs_confirmation = confidence < self.CONFIDENCE_THRESHOLD
 
@@ -164,6 +182,33 @@ class CSVInspector:
 
         # Layer 2 fallback: find the monotonically increasing numeric column
         return self._statistical_time_detection(df)
+
+    def _detect_response_columns(self, df: pd.DataFrame, time_col: str,
+                                 tracer: bool, issues: list):
+        """The measured column: drawdown unless this is known to be a tracer test
+        or a column is named as a concentration and none is named as drawdown. A
+        logger's chloride channel beside its water level leaves this a pumping test.
+        """
+        named_drawdown = any(_DRAWDOWN_PATTERNS.search(str(col)) for col in df.columns)
+        if not tracer and named_drawdown:
+            return self._detect_drawdown_columns(df)
+
+        named = [col for col in df.columns
+                 if col != time_col and _CONCENTRATION_PATTERNS.search(str(col))
+                 and pd.to_numeric(df[col], errors="coerce").notna().any()]
+        if named:
+            return named, CONCENTRATION, 0.9
+        if not tracer:
+            return self._detect_drawdown_columns(df)
+
+        numeric = [col for col in df.select_dtypes(include=[np.number]).columns
+                   if col != time_col]
+        if not numeric:
+            return [], "unknown", 0.0
+        issues.append(
+            f"Read column '{numeric[0]}' as concentration, because the test type is "
+            "Tracer. If it is really drawdown, change the test type and upload again.")
+        return numeric[:1], CONCENTRATION, 0.7
 
     def _detect_drawdown_columns(self, df: pd.DataFrame):
         """Returns (col_names_list, unit, confidence)."""
@@ -312,11 +357,17 @@ Respond ONLY with valid JSON, no markdown:
             issues.append("t=0 row detected — will be removed before analysis (log transform undefined at t=0).")
         return issues
 
-    def _scan_drawdown_anomalies(self, series: pd.Series, col_name: str) -> list:
+    def _scan_drawdown_anomalies(self, series: pd.Series, col_name: str,
+                                 concentration: bool = False) -> list:
         issues = []
         if series.isnull().any():
             issues.append(f"Column '{col_name}' has {series.isnull().sum()} missing value(s).")
         if (series < 0).any():
             count = (series < 0).sum()
+            if concentration:
+                issues.append(f"Column '{col_name}' has {count} negative concentration "
+                              "value(s). Enter readings as measured, and the background "
+                              "separately in Step 2.")
+                return issues
             issues.append(f"Column '{col_name}' has {count} negative drawdown value(s) — check for recovery data.")
         return issues

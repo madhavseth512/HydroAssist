@@ -10,7 +10,7 @@ from typing import Mapping, Optional
 
 import pandas as pd
 
-from src.project.model import Project, PumpingTest, TestSetup
+from src.project.model import Project, PumpingTest, TRACER_FIELDS, TestSetup
 
 Q_TO_SI = {"m³/day": 1 / 86400, "m³/hour": 1 / 3600, "m³/s": 1.0, "L/s": 1e-3}
 Q_UNITS = list(Q_TO_SI)
@@ -28,6 +28,7 @@ KEY_CLOCK = "recovery_clock"
 TEST_TYPE_LABELS = {
     "constant_rate": "Constant-rate pumping",
     "recovery": "Recovery (after the pump stops)",
+    "tracer": "Tracer test",
 }
 CLOCK_LABELS = {
     "since_stop": "Time since pumping stopped (t′)",
@@ -74,7 +75,13 @@ def setup_from_inputs(values: Mapping) -> TestSetup:
         t_p_s=(float(values.get(KEY_TP, DEFAULTS[KEY_TP])) * 3600.0
                if test_type == "recovery" else None),
         recovery_clock=values.get(KEY_CLOCK, DEFAULTS[KEY_CLOCK]),
+        **_tracer_fields(values),
     )
+
+
+def _tracer_fields(values: Mapping) -> dict:
+    """The tracer inputs present in `values`; absent ones keep TestSetup's defaults."""
+    return {name: values[name] for name in TRACER_FIELDS if name in values}
 
 
 def setup_from_run(calc_inputs: Mapping) -> TestSetup:
@@ -94,6 +101,7 @@ def setup_from_run(calc_inputs: Mapping) -> TestSetup:
         test_type=calc_inputs.get("test_type", DEFAULTS[KEY_TEST_TYPE]),
         t_p_s=calc_inputs.get("t_p_s"),
         recovery_clock=calc_inputs.get("recovery_clock", DEFAULTS[KEY_CLOCK]),
+        **_tracer_fields(calc_inputs),
     )
 
 
@@ -119,6 +127,7 @@ def inputs_from_setup(setup: TestSetup) -> dict:
                  else DEFAULTS[KEY_TP]),
         KEY_CLOCK: (setup.recovery_clock if setup.recovery_clock in CLOCK_LABELS
                     else DEFAULTS[KEY_CLOCK]),
+        **{name: getattr(setup, name) for name in TRACER_FIELDS},
     }
 
 

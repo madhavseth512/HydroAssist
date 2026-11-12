@@ -36,10 +36,13 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 
+from src.calculator.parameters import summarise_parameters
+
 SCHEMA = "hydroassist.project"
 # 2: TestSetup gains test_type, t_p_s and recovery_clock for recovery tests.
 # Version-1 files open unchanged; the new fields default to a constant-rate test.
-SCHEMA_VERSION = 2
+# 3: tracer tests. Readings gain `quantity`; TestSetup gains the tracer_ fields.
+SCHEMA_VERSION = 3
 FILE_SUFFIX = ".hydroassist.json"
 
 # A project file is parsed from an upload, so bound what we are willing to read.
@@ -111,6 +114,10 @@ class Readings:
     well_id: Optional[List[str]] = None
     source_name: str = ""
     conversions: List[str] = field(default_factory=list)
+    # What `drawdown_m` holds: "drawdown", or "concentration" for a tracer test.
+    # Kept with the readings because fitting Theis to a breakthrough curve would
+    # produce a confident, meaningless transmissivity.
+    quantity: str = "drawdown"
 
     def __post_init__(self):
         if len(self.time_s) != len(self.drawdown_m):
@@ -120,7 +127,8 @@ class Readings:
 
     @classmethod
     def from_frame(cls, df: pd.DataFrame, source_name: str = "",
-                   conversions: Optional[List[str]] = None) -> "Readings":
+                   conversions: Optional[List[str]] = None,
+                   quantity: str = "drawdown") -> "Readings":
         return cls(
             time_s=[float(v) for v in df["time_s"]],
             drawdown_m=[float(v) for v in df["drawdown_m"]],
@@ -128,6 +136,7 @@ class Readings:
                      if "well_id" in df.columns else None),
             source_name=source_name,
             conversions=list(conversions or []),
+            quantity=quantity,
         )
 
     def to_frame(self) -> pd.DataFrame:
@@ -140,7 +149,12 @@ class Readings:
     def fingerprint(self) -> str:
         """Identifies this exact data, so analyses on different data are never
         compared with each other."""
-        payload = json.dumps([self.time_s, self.drawdown_m, self.well_id])
+        fields = [self.time_s, self.drawdown_m, self.well_id]
+        # Added only when it applies, so the fingerprints in existing project
+        # files still match the drawdown readings they describe.
+        if self.quantity != "drawdown":
+            fields.append(self.quantity)
+        payload = json.dumps(fields)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     def __len__(self) -> int:
@@ -169,6 +183,23 @@ class TestSetup:
     test_type: str = "constant_rate"
     t_p_s: Optional[float] = None
     recovery_clock: str = "since_stop"
+
+    # Tracer tests. The travel distance is r_m and the rate is Q_m3s. Optional
+    # values are ones a fit can do without: each only unlocks a derived quantity.
+    tracer_injection: str = "pulse"
+    tracer_conc_unit: str = "mg/L"
+    tracer_background: float = 0.0
+    tracer_C0: Optional[float] = None
+    tracer_M_kg: Optional[float] = None
+    tracer_b_m: Optional[float] = None
+    tracer_K_m_day: Optional[float] = None
+    tracer_gradient: Optional[float] = None
+
+
+# Copied as they are between the form, the setup and a run's record.
+TRACER_FIELDS = ("tracer_injection", "tracer_conc_unit", "tracer_background",
+                 "tracer_C0", "tracer_M_kg", "tracer_b_m", "tracer_K_m_day",
+                 "tracer_gradient")
 
 
 @dataclass
@@ -272,8 +303,10 @@ class PumpingTest:
             method_label=method_label,
             method_id=method_id or payload.get("method_id", ""),
             success=bool(payload.get("success")),
-            T_day=payload.get("T_day"),
-            S=payload.get("S"),
+            # None rather than the 0.0 placeholder for what a method did not
+            # estimate, so a tracer run is not logged as T = 0.
+            T_day=payload.get("T_day") if _estimates(payload, "T") else None,
+            S=payload.get("S") if _estimates(payload, "S") else None,
             r_squared=payload.get("r_squared"),
             rmse=payload.get("rmse"),
             n_points=n_points if n_points is not None else (
@@ -348,10 +381,14 @@ class PumpingTest:
                 "analysis_id": a.id,
                 "method": a.method_label,
                 "n_params": a.n_params,
-                "T_m2_per_day": a.result.get("T_day"),
+                "T_m2_per_day": (a.result.get("T_day")
+                                 if _estimates(a.result, "T") else None),
                 # None rather than the 0.0 placeholder when the method did not
                 # estimate S — recovery gives only S/S'.
                 "S": a.result.get("S") if _estimates(a.result, "S") else None,
+                # What to show instead when the method reports neither.
+                "estimates": ("" if _estimates(a.result, "T") else
+                              ", ".join(summarise_parameters(a.result["parameters"]))),
                 "r_squared": a.result.get("r_squared"),
                 "aicc": a.aicc,
                 "delta_aicc": (a.aicc - best) if a.aicc is not None else None,

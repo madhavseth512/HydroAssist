@@ -234,7 +234,9 @@ async def upload_readings(test_id: str,
 
     changed = data_intake.store_readings(test, prepared.df,
                                          source_name=file.filename or "",
-                                         conversions=prepared.conversions)
+                                         conversions=prepared.conversions,
+                                         quantity=prepared.quantity)
+    _follow_the_readings(test, prepared)
     # New data invalidates the last fit, and the conversation must not go on
     # discussing numbers from the previous dataset. `load_test` restores a test's
     # own remembered result, so that result has to be forgotten first — it
@@ -278,8 +280,10 @@ def paste_readings(test_id: str, payload: schemas.PastedReadings,
 
     prepared.conversions.extend(notes)
     if data_intake.store_readings(test, prepared.df, source_name="pasted",
-                                  conversions=prepared.conversions):
+                                  conversions=prepared.conversions,
+                                  quantity=prepared.quantity):
         session.forget_results(test.id)
+    _follow_the_readings(test, prepared)
     session.load_test(test)
     session.prepared = prepared
     _stage_for_chat(session, prepared)
@@ -331,17 +335,32 @@ def read_readings(test_id: str, session: SessionState = Depends(current_session)
     if test.readings is None:
         raise HTTPException(status_code=404,
                             detail="This test has no readings yet.")
-    prepared = data_intake.prepare(test.readings.to_frame(),
-                                   **intake_settings(session, test))
+    settings = intake_settings(session, test)
+    # Stored concentrations are a tracer test, whatever the form says just now.
+    if test.readings.quantity == "concentration":
+        settings["test_type"] = registry.TRACER
+    prepared = data_intake.prepare(test.readings.to_frame(), **settings)
     if test.id == session.active_test().id:
         session.prepared = prepared
         _stage_for_chat(session, prepared)
     return presenters.prepared_model(prepared, rows=rows)
 
 
+def _follow_the_readings(test, prepared) -> None:
+    """Open Step 2 on the Tracer test type when the readings are concentrations:
+    a pumping test would offer nothing that could be fitted to them."""
+    if prepared.test_type == registry.TRACER:
+        test.setup.test_type = registry.TRACER
+
+
 def _stage_for_chat(session: SessionState, prepared) -> None:
     """Publish the series to the conversation, so the method suggestion is read
-    off the derivative rather than guessed from the user's words."""
+    off the derivative rather than guessed from the user's words.
+
+    Not a breakthrough curve, whose derivative says nothing about flow regime."""
+    if prepared.test_type == registry.TRACER:
+        session.chat.clear_staged_series()
+        return
     df = prepared.df
     session.chat.stage_series(df.time_s.values, df.drawdown_m.values,
                               Q=session.active_test().setup.Q_m3s)

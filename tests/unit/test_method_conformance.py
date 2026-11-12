@@ -29,10 +29,29 @@ Q_PW, R_W, R_C = 300 / 86400, 0.30, 0.20
 SPECS = registry.all_specs()
 
 
+def _sliders(spec, result) -> tuple:
+    """What the manual-matching sliders start on: T and S for a pumping test, and
+    a method's own `manual_parameters` otherwise."""
+    if spec.manual_parameters == ("T", "S"):
+        return result.T, result.S
+    return tuple(result.value(name) for name in spec.manual_parameters)
+
+
 def _fit(spec):
     """Fit the method to the bundled sample appropriate to its test type and
     data source."""
-    if registry.RECOVERY in spec.test_types:
+    if registry.TRACER in spec.test_types:
+        from src.calculator.geometry import TracerGeometry
+        from src.services.data_intake import prepare_upload
+
+        path = ("tests/tracer_convergent_sample.csv" if spec.uses_pumping_rate
+                else "tests/tracer_natural_sample.csv")
+        df = prepare_upload(pd.read_csv(path)).df
+        Q = Q_OBS if spec.uses_pumping_rate else None
+        inputs = CalculationInput(df=df, Q=Q, r=R_OBS, test_type=registry.TRACER,
+                                  tracer=TracerGeometry())
+        ctx = registry.PlotContext(Q=Q or 0.0, r=R_OBS)
+    elif registry.RECOVERY in spec.test_types:
         from src.calculator.geometry import PumpingSchedule, RateStep
 
         # Same aquifer and rate as the constant-rate sample, 24 h of pumping.
@@ -80,7 +99,7 @@ class TestEveryMethodIsDisplayable:
 
     def test_manual_matching_renders(self, fitted):
         spec, result, _, ctx = fitted
-        fig, rmse_mm = spec.interactive_plot(result, ctx, result.T, result.S)
+        fig, rmse_mm = spec.interactive_plot(result, ctx, *_sliders(spec, result))
 
         assert isinstance(fig, go.Figure)
         assert np.isfinite(rmse_mm) and rmse_mm >= 0
@@ -93,14 +112,15 @@ class TestEveryMethodIsDisplayable:
         spec, result, _, ctx = fitted
         if spec.id == "cooper_jacob_1946":
             pytest.skip("RMSE basis differs by design")
-        _, rmse_mm = spec.interactive_plot(result, ctx, result.T, result.S)
+        _, rmse_mm = spec.interactive_plot(result, ctx, *_sliders(spec, result))
 
         assert rmse_mm == pytest.approx(result.rmse * 1000, rel=1e-3)
 
     def test_moving_the_sliders_changes_the_fit(self, fitted):
         spec, result, _, ctx = fitted
-        _, at_fit = spec.interactive_plot(result, ctx, result.T, result.S)
-        _, off_fit = spec.interactive_plot(result, ctx, result.T * 4, result.S)
+        first, second = _sliders(spec, result)
+        _, at_fit = spec.interactive_plot(result, ctx, first, second)
+        _, off_fit = spec.interactive_plot(result, ctx, first * 4, second)
 
         assert off_fit > at_fit
 

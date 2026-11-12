@@ -105,6 +105,10 @@ class TestTheAppWorksWithoutTorch:
                               test_type=registry.RECOVERY,
                               schedule=PumpingSchedule(steps=(
                                   RateStep(0.0, 500 / 86400), RateStep(86400.0, 0.0))))
+                if registry.TRACER in spec.test_types:
+                    from src.services.data_intake import prepare_upload
+                    kw.update(df=prepare_upload(pd.read_csv(
+                        "tests/tracer_natural_sample.csv")).df, test_type=registry.TRACER)
                 ok += spec.build().calculate(CalculationInput(**kw)).success
             print(ok, len(registry.all_specs()))
         """)

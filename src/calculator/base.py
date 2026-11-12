@@ -48,6 +48,7 @@ class CalculationInput:
     fracture: "FractureGeometry" = None
     slug: "SlugTestGeometry" = None
     schedule: "PumpingSchedule" = None
+    tracer: "TracerGeometry" = None
 
     # Per-method scalar overrides that are not geometry, e.g. {"u_threshold": 0.05}.
     options: dict = field(default_factory=dict)
@@ -90,24 +91,26 @@ class CalculationInput:
             self.observation = ObservationGeometry(r=self.r, well_id=self.well_id)
 
         # A slug test has no pumping rate and no observation distance — its
-        # driving term is an initial head displacement. Every other test type
-        # keeps exactly the guards it had before.
+        # driving term is an initial head displacement. A natural-gradient tracer
+        # test has no pumping rate either, but does have a travel distance. Every
+        # other test type keeps exactly the guards it had before.
         if self.test_type != "slug":
-            if self.Q is None:
+            if self.Q is None and self.test_type != "tracer":
                 raise ValueError(
                     "Q is required for this test type. Pass Q in m³/s."
                 )
-            # Runtime Q unit guard. Real pumping wells: 0.001–0.5 m³/s.
-            # Q > 1.0 m³/s almost always means m³/day was passed instead of m³/s.
-            # Theis (1935): "the same units must of course be used throughout."
-            if self.Q > 1.0:
-                raise ValueError(
-                    f"Q = {self.Q} m³/s appears unrealistically large. "
-                    "Q must be in m³/s, not m³/day. "
-                    f"To convert: Q_si = {self.Q:.1f} / 86400 = {self.Q / 86400:.6f} m³/s."
-                )
-            if self.Q <= 0:
-                raise ValueError(f"Q must be positive, got Q = {self.Q} m³/s.")
+            if self.Q is not None:
+                # Runtime Q unit guard. Real pumping wells: 0.001–0.5 m³/s.
+                # Q > 1.0 m³/s almost always means m³/day was passed instead of m³/s.
+                # Theis (1935): "the same units must of course be used throughout."
+                if self.Q > 1.0:
+                    raise ValueError(
+                        f"Q = {self.Q} m³/s appears unrealistically large. "
+                        "Q must be in m³/s, not m³/day. "
+                        f"To convert: Q_si = {self.Q:.1f} / 86400 = {self.Q / 86400:.6f} m³/s."
+                    )
+                if self.Q <= 0:
+                    raise ValueError(f"Q must be positive, got Q = {self.Q} m³/s.")
             if self.r <= 0:
                 raise ValueError(f"r must be positive, got r = {self.r} m.")
 
@@ -278,6 +281,8 @@ class CalculationResult:
             if isinstance(v, (int, float)) and not isinstance(v, bool)
         }
         payload["gof"] = self._gof_summary()
+        # Set only for a tracer test, whose RMSE is a concentration and not metres.
+        payload["response_unit"] = (self.curves.get("tracer") or {}).get("unit", "")
         return payload
 
     def _gof_summary(self) -> Optional[dict]:

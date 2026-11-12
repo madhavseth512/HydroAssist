@@ -18,6 +18,16 @@ export const Q_TO_SI: Record<(typeof Q_UNITS)[number], number> = {
   'L/s': 1e-3,
 }
 
+/** Concentrations are never converted. The unit labels them, and tells the server
+ * how to turn a fitted amplitude into a mass — `TO_GRAMS_PER_M3` in tracer.py, which
+ * has no entry for relative concentration because it carries no mass. */
+export const CONCENTRATION_UNITS = ['mg/L', 'µg/L', 'ppm', 'ppb', 'relative'] as const
+
+export const TRACER_INJECTIONS = [
+  { value: 'pulse', label: 'Pulse' },
+  { value: 'continuous', label: 'Continuous' },
+] as const
+
 export const RECOVERY_CLOCKS = [
   { value: 'since_stop', label: 'Time since pumping stopped (t′)' },
   { value: 'since_start', label: 'Time since pumping started (t)' },

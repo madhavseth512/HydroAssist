@@ -59,6 +59,9 @@ def format_analysis_context(result: dict, calc_input: dict = None,
             + earlier
         )
 
+    if result.get("response_unit"):
+        return _format_tracer_result(result, calc_input) + earlier
+
     lines = [
         "",
         "The user has ALREADY RUN an analysis on their own field data.",
@@ -88,6 +91,31 @@ def format_analysis_context(result: dict, calc_input: dict = None,
 
     lines.append("")
     return "\n".join(lines) + earlier
+
+
+def _format_tracer_result(result: dict, calc_input: dict = None) -> str:
+    """A tracer fit, which reports transport parameters and has no T or S."""
+    from src.calculator.parameters import summarise_parameters
+
+    lines = [
+        "",
+        "The user has ALREADY RUN a tracer test analysis on their own field data.",
+        "Refer to these numbers directly when the question is about their results:",
+        f"  Method:        {result.get('method', 'unknown')}",
+        "  Transmissivity and storativity are not estimated by a tracer test.",
+    ]
+    lines += [f"  {line}" for line in summarise_parameters(result.get("parameters"))]
+    lines.append(f"  Goodness of fit: R2 = {result.get('r_squared', 0):.4f}, "
+                 f"RMSE = {result.get('rmse', 0):.3g} {result['response_unit']}")
+    if calc_input:
+        lines.append(f"  Test setup:    distance = {calc_input.get('r', 0):.1f} m, "
+                     f"n = {calc_input.get('n_points', 0)} points")
+    notes = result.get("validity_notes", [])
+    if notes:
+        lines.append("  Validity notes produced by the calculator:")
+        lines += [f"    - {n}" for n in notes]
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _format_earlier_analyses(history: list, current: dict = None) -> str:
@@ -125,7 +153,8 @@ def _format_earlier_analyses(history: list, current: dict = None) -> str:
             parts.append(f"S = {row['S']:.4e}")
         if row.get("r_squared") is not None:
             parts.append(f"R2 = {row['r_squared']:.4f}")
-        if row.get("rmse") is not None:
+        # A tracer run has no T, and its RMSE is a concentration rather than metres.
+        if row.get("rmse") is not None and row.get("T_day") is not None:
             parts.append(f"RMSE = {row['rmse'] * 1000:.2f} mm")
         lines.append(f"  {method}: " + ", ".join(parts) if parts
                      else f"  {method}")

@@ -4,7 +4,8 @@
  * Every estimated parameter is listed, not only T and S, with the flags a
  * method raises about its own numbers: derived rather than fitted, pinned at a
  * bound, or unreliable by the method's own account (Papadopulos-Cooper on S).
- * A method that estimates no storativity says so rather than printing a zero.
+ * A method that estimates no storativity says so rather than printing a zero, and
+ * a tracer test, which estimates neither T nor S, leads with what it did estimate.
  */
 import {
   Accordion,
@@ -46,6 +47,12 @@ const INTERPRET_PROMPT =
   'Interpret the pumping test results I just computed. Is the fit trustworthy, ' +
   'are T and S physically plausible for this aquifer, and what do the validity ' +
   'notes mean in practice?'
+
+// The same question, for a test that has no T or S to be plausible.
+const INTERPRET_TRACER_PROMPT =
+  'Interpret the tracer test results I just computed. Is the fit trustworthy, are ' +
+  'the velocity, dispersivity and any porosity physically plausible, and what do ' +
+  'the validity notes mean in practice?'
 
 const SECONDS_PER_DAY = 86400
 
@@ -97,6 +104,8 @@ function SuccessfulResult({ result }: { result: Result }) {
   const interpret = useSendMessage()
   const [savedFor, setSavedFor] = useState<Result | null>(null)
   const saved = savedFor === result
+  const concentrationUnit = result.response_unit ?? ''
+  const isTracer = Boolean(concentrationUnit)
 
   return (
     <Card withBorder padding="md">
@@ -119,7 +128,7 @@ function SuccessfulResult({ result }: { result: Result }) {
               variant="light"
               leftSection={<IconMessageCircle size={16} />}
               loading={interpret.isPending}
-              onClick={() => interpret.mutate(INTERPRET_PROMPT, {
+              onClick={() => interpret.mutate(isTracer ? INTERPRET_TRACER_PROMPT : INTERPRET_PROMPT, {
                 onSuccess: () => notifications.show({
                   color: 'teal', title: 'The consultant has replied',
                   message: 'Open the Consultant panel to read the interpretation.',
@@ -139,6 +148,9 @@ function SuccessfulResult({ result }: { result: Result }) {
           </Group>
         </Group>
 
+        {isTracer ? (
+          <TracerMetrics result={result} unit={concentrationUnit} />
+        ) : (
         <SimpleGrid cols={{ base: 2, sm: 4 }}>
           <Metric label={`T (${transmissivity(0, system).unit})`}
                   value={formatNumber(transmissivity(result.T_day ?? 0, system).value)}
@@ -156,6 +168,7 @@ function SuccessfulResult({ result }: { result: Result }) {
           <Metric label="R²" value={(result.r_squared ?? 0).toFixed(4)}
                   hint={`RMSE ${formatQuantity(residual(result.rmse ?? 0, system), 3)}`} />
         </SimpleGrid>
+        )}
 
         <ParameterTable parameters={result.parameters ?? []} />
 
@@ -185,11 +198,37 @@ function SuccessfulResult({ result }: { result: Result }) {
             <PlotFigure figure={result.figure} height={520} />
           </Tabs.Panel>
           <Tabs.Panel value="manual" pt="sm">
-            <ManualMatching result={result} />
+            {isTracer
+              ? <TracerManualMatching result={result} unit={concentrationUnit} />
+              : <ManualMatching result={result} />}
           </Tabs.Panel>
         </Tabs>
       </Stack>
     </Card>
+  )
+}
+
+function parameterValue(p: Parameter): string {
+  const unit = (p.display_unit || p.unit).replace('^2', '²')
+  return `${p.display.toPrecision(4)}${unit && unit !== '-' ? ` ${unit}` : ''}`
+}
+
+/** What a breakthrough curve gave, in place of T and S. */
+function TracerMetrics({ result, unit }: { result: Result; unit: string }) {
+  const parameters = result.parameters ?? []
+  const shown = ['v', 't_c', 'alpha_L', 'n_e']
+    .map((name) => parameters.find((p) => p.name === name))
+    .filter((p): p is Parameter => Boolean(p))
+
+  return (
+    <SimpleGrid cols={{ base: 2, sm: 4 }}>
+      {shown.map((p) => (
+        <Metric key={p.name} label={p.symbol} value={parameterValue(p)}
+                hint={p.derived ? 'derived' : `95% CI ${formatCi(p.display_ci)}`} />
+      ))}
+      <Metric label="R²" value={(result.r_squared ?? 0).toFixed(4)}
+              hint={`RMSE ${(result.rmse ?? 0).toPrecision(3)} ${unit}`} />
+    </SimpleGrid>
   )
 }
 
@@ -240,6 +279,78 @@ function ParameterTable({ parameters }: { parameters: Parameter[] }) {
         ))}
       </Table.Tbody>
     </Table>
+  )
+}
+
+/** Half the width of a tracer slider, in decades either side of the fit. */
+const TRACER_SLIDER_DECADES = 1
+
+/** Manual matching on a breakthrough curve. The sliders move the method's own two
+ * parameters, which the request carries in the T and S fields. */
+function TracerManualMatching({ result, unit }: { result: Result; unit: string }) {
+  const match = useManualMatch()
+  const axes = result.manual_axes ?? []
+  const fitted = axes.map((axis) => Math.log10(axis.value))
+  const [logs, setLogs] = useState(fitted)
+
+  const request = (next: number[]) =>
+    match.mutate({ T: 10 ** next[0], S: 10 ** next[1] })
+
+  useEffect(() => {
+    setLogs(fitted)
+    if (fitted.length === 2) request(fitted)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result])
+
+  if (axes.length !== 2 || logs.length !== 2) return null
+
+  return (
+    <Stack gap="sm">
+      <Text size="sm" c="dimmed">
+        Move the sliders to match the curve by eye; the amplitude stays at its fitted
+        value. The figure updates when a slider is released.
+      </Text>
+      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+        {axes.map((axis, index) => {
+          const scale = axis.display_scale ?? 1
+          const shownUnit = axis.display_unit ?? ''
+          const withValue = (value: number) =>
+            logs.map((log, i) => (i === index ? value : log))
+          return (
+            <Stack gap={4} key={axis.name}>
+              <Text size="sm">
+                {axis.symbol} = {(10 ** logs[index] * scale).toPrecision(3)} {shownUnit}
+              </Text>
+              <Slider
+                aria-label={`log10 ${axis.name}`}
+                min={fitted[index] - TRACER_SLIDER_DECADES}
+                max={fitted[index] + TRACER_SLIDER_DECADES}
+                step={0.01}
+                value={logs[index]}
+                onChange={(value) => setLogs(withValue(value))}
+                onChangeEnd={(value) => request(withValue(value))}
+                label={(value) => (10 ** value * scale).toPrecision(3)}
+              />
+            </Stack>
+          )
+        })}
+      </SimpleGrid>
+
+      {/* The server reports RMSE on the scale of every other method, which is
+          1000 times the value in concentration units. */}
+      {match.data && (
+        <Group gap="xs">
+          <Badge variant="light">
+            Manual RMSE {(match.data.rmse_mm / 1000).toPrecision(3)} {unit}
+          </Badge>
+          <Badge variant="light" color="gray">
+            Auto RMSE {(match.data.auto_rmse_mm / 1000).toPrecision(3)} {unit}
+          </Badge>
+        </Group>
+      )}
+      <PlotFigure figure={match.data?.figure} loading={match.isPending && !match.data}
+                  height={480} emptyMessage="Release a slider to draw the manual curve." />
+    </Stack>
   )
 }
 

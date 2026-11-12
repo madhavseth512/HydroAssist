@@ -47,5 +47,6 @@ def test_the_conversion_factors_match_the_server():
 
 
 def test_the_recovery_clocks_match_the_server():
-    pairs = re.findall(r"value:\s*'([^']*)',\s*label:\s*'([^']*)'", _source())
+    pairs = re.findall(r"value:\s*'([^']*)',\s*label:\s*'([^']*)'",
+                       _source().split("RECOVERY_CLOCKS")[1])
     assert dict(pairs) == ws.CLOCK_LABELS

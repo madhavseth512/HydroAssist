@@ -115,7 +115,10 @@ class DataFormatter:
 
         # 6. Convert drawdown to meters
         dd_factor = DRAWDOWN_TO_METERS.get(result.drawdown_unit, 1.0)
-        if result.drawdown_unit == "feet":
+        if result.drawdown_unit == "concentration":
+            out["drawdown_m"] = out["_dd_raw"]
+            conversions.append("Concentration kept in the unit it was reported in.")
+        elif result.drawdown_unit == "feet":
             out["drawdown_m"] = out["_dd_raw"] * dd_factor
             conversions.append(f"Drawdown: feet → meters (×{dd_factor})")
         else:

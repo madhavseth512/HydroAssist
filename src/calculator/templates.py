@@ -96,6 +96,9 @@ class CurveFitCalculator(BaseCalculator):
     # Minimum points before a fit is meaningfully constrained.
     min_points: int = 10
 
+    # What to check when the optimiser gives up, in the terms of this method.
+    fit_failure_message: str = "Check the pumping rate, the well distance and the data quality."
+
     # ── Subclass contract ─────────────────────────────────────────────────────
 
     def parameter_specs(self, inputs: CalculationInput,
@@ -118,9 +121,19 @@ class CurveFitCalculator(BaseCalculator):
             overfitting_rule(),
         ]
 
+    def validate_inputs(self, inputs: CalculationInput) -> Optional[str]:
+        """Checks on the raw series. The shared ones by default; a tracer method
+        replaces them, because its response is a concentration and a natural-gradient
+        test has no pumping rate."""
+        return validate_series(inputs, min_points=self.min_points)
+
     def extra_validate(self, inputs: CalculationInput) -> Optional[str]:
         """Method-specific input checks beyond the shared ones."""
         return None
+
+    def extra_curves(self, inputs: CalculationInput, params: dict) -> dict:
+        """What the result should carry for its plots, on `result.curves`."""
+        return {}
 
     def extra_diagnostics(self, inputs: CalculationInput, params: dict) -> dict:
         """Method-specific values worth publishing, e.g. alpha or t0.
@@ -153,7 +166,7 @@ class CurveFitCalculator(BaseCalculator):
     def calculate(self, inputs: CalculationInput) -> CalculationResult:
         label = self.method_label or self.__class__.__name__
 
-        error = (validate_series(inputs, min_points=self.min_points)
+        error = (self.validate_inputs(inputs)
                  or require_geometry(inputs, self.requires, label)
                  or self.extra_validate(inputs))
         if error:
@@ -172,7 +185,7 @@ class CurveFitCalculator(BaseCalculator):
                 method=label, method_id=self.method_id, success=False,
                 error_message=(
                     f"Curve fitting failed: {outcome.message}. "
-                    "Check the pumping rate, the well distance and the data quality."
+                    f"{self.fit_failure_message}"
                 ),
             )
 
@@ -220,6 +233,7 @@ class CurveFitCalculator(BaseCalculator):
             parameters=estimated,
             gof=gof,
             diagnostics=diagnostics,
+            curves=self.extra_curves(inputs, params),
             findings=findings,
             time_s=time_s,
             drawdown_obs=drawdown_m,

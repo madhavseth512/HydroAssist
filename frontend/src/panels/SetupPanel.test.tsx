@@ -14,7 +14,7 @@ function method(overrides: Record<string, unknown> = {}) {
     citation: '', aquifer_types: ['confined'], test_types: ['constant_rate'],
     parameters: ['T', 'S'], data_source: 'observation_well', requires: [],
     ui_help: 'Full-curve type-curve fit.', selection_rationale: '',
-    needs_well_geometry: false, estimates_storativity: true, ...overrides,
+    needs_well_geometry: false, estimates_storativity: true, uses_pumping_rate: true, ...overrides,
   }
 }
 
@@ -196,5 +196,103 @@ describe('the rate the calculators receive', () => {
 
     expect(await screen.findByText(/dimensionless wellbore-storage parameter/))
       .toBeInTheDocument()
+  })
+})
+
+const SAUTY = method({
+  id: 'sauty_1980', label: 'Sauty (1980)', test_types: ['tracer'],
+  aquifer_types: ['porous'], parameters: ['t_c', 'alpha_L', 'amplitude'],
+  estimates_storativity: false,
+})
+const OGATA = method({
+  id: 'ogata_banks_1961', label: 'Ogata-Banks (1961)', test_types: ['tracer'],
+  aquifer_types: ['porous'], parameters: ['v', 'alpha_L', 'amplitude'],
+  estimates_storativity: false, uses_pumping_rate: false,
+})
+const TRACER_PROJECT = project({ tests: [test_({
+  n_readings: 40, setup: { ...setup, test_type: 'tracer' } })] })
+
+describe('the setup step for a tracer test', () => {
+  function stubTracer(offered: unknown[]) {
+    return stubFetch([
+      { url: '/api/methods', body: methodList(offered, { test_type: 'tracer' }) },
+      { url: '/api/test-types', body: TEST_TYPES },
+      { url: '/api/analyses/run', method: 'POST', body: { success: true } },
+      { url: '/api/project', body: TRACER_PROJECT },
+    ])
+  }
+
+  it('asks a forced-gradient test for Q, thickness and mass', async () => {
+    stubTracer([SAUTY])
+    renderWithProviders(<SetupPanel />)
+
+    expect(await screen.findByLabelText('Pumping rate Q')).toBeInTheDocument()
+    expect(screen.getByLabelText('Aquifer thickness b (m), for porosity')).toBeInTheDocument()
+    expect(screen.getByLabelText('Injected mass (kg), for recovery')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Hydraulic conductivity/)).not.toBeInTheDocument()
+  })
+
+  it('asks a natural-gradient test for K and the gradient, and no rate', async () => {
+    stubTracer([OGATA])
+    renderWithProviders(<SetupPanel />)
+
+    expect(await screen.findByLabelText(/Hydraulic conductivity/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Hydraulic gradient/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Pumping rate Q')).not.toBeInTheDocument()
+    expect(screen.queryByText(/m³\/s/)).not.toBeInTheDocument()
+  })
+
+  it('calls r the distance from the injection', async () => {
+    stubTracer([SAUTY])
+    renderWithProviders(<SetupPanel />)
+
+    expect(await screen.findByLabelText('Distance from injection to sampling well (m)'))
+      .toBeInTheDocument()
+  })
+
+  it('offers a plateau only for a continuous injection', async () => {
+    stubTracer([SAUTY])
+    renderWithProviders(<SetupPanel />)
+
+    await screen.findByLabelText('Injected mass (kg), for recovery')
+    expect(screen.queryByLabelText(/Plateau concentration/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Continuous'))
+
+    expect(await screen.findByLabelText(/Plateau concentration/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Injected mass (kg), for recovery')).not.toBeInTheDocument()
+  })
+
+  it('sends what was entered', async () => {
+    const stub = stubTracer([SAUTY])
+    renderWithProviders(<SetupPanel />)
+
+    fireEvent.change(await screen.findByLabelText('Aquifer thickness b (m), for porosity'),
+                     { target: { value: '12' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run analysis' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Run analysis' }))
+
+    await waitFor(() => expect(stub.calls.some((c) => c.url.includes('/analyses/run'))).toBe(true))
+    const [, init] = stub.mock.mock.calls.find(
+      ([url]) => String(url).includes('/api/analyses/run'))!
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.method).toBe('sauty_1980')
+    expect(body.setup.tracer_b_m).toBe(12)
+  })
+
+  it('stores the test type as soon as it is chosen, since the next upload depends on it', async () => {
+    const stub = stubFetch([
+      { url: '/api/methods', body: methodList([method()]) },
+      { url: '/api/test-types', body: [...TEST_TYPES, { id: 'tracer', label: 'Tracer test' }] },
+      { url: '/setup', method: 'PUT', body: test_() },
+      { url: '/api/project', body: WITH_READINGS },
+    ])
+    renderWithProviders(<SetupPanel />)
+
+    fireEvent.click(await screen.findByText('Tracer test'))
+
+    await waitFor(() => expect(stub.calls.some((c) => c.url.includes('/setup'))).toBe(true))
+    const [, init] = stub.mock.mock.calls.find(([url]) => String(url).includes('/setup'))!
+    expect(JSON.parse((init as RequestInit).body as string).test_type).toBe('tracer')
   })
 })

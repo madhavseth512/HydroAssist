@@ -94,11 +94,15 @@ def format_workspace_context(state) -> str:
 
     if result:
         if result.get("success"):
+            from src.calculator.parameters import summarise_parameters
+
+            estimates = (", ".join(summarise_parameters(result.get("parameters")))
+                         if result.get("response_unit") else
+                         f"T = {result.get('T_day', 0):.4g} m2/day, "
+                         f"S = {result.get('S') if result.get('S') else 'not estimated'}")
             lines.append(
                 f"A fit has been run with {result.get('method', 'a method')}: "
-                f"T = {result.get('T_day', 0):.4g} m2/day, "
-                f"S = {result.get('S') if result.get('S') else 'not estimated'}, "
-                f"R2 = {result.get('r_squared', 0):.4f}")
+                f"{estimates}, R2 = {result.get('r_squared', 0):.4f}")
             notes = result.get("validity_notes") or []
             if notes:
                 lines.append("Validity notes on that fit, which are the answer "

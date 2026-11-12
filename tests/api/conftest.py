@@ -18,6 +18,8 @@ from src.api.sessions import SessionStore
 THEIS_SAMPLE = "tests/theis_cooper_jacob_sample.csv"
 RECOVERY_SAMPLE = "tests/theis_recovery_sample.csv"
 PC_SAMPLE = "tests/papadopulos_cooper_sample.csv"
+TRACER_NATURAL_SAMPLE = "tests/tracer_natural_sample.csv"
+TRACER_CONVERGENT_SAMPLE = "tests/tracer_convergent_sample.csv"
 
 
 class _Message:

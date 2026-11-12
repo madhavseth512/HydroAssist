@@ -39,11 +39,12 @@ export function RunHistory() {
           <Group key={`${run.method}-${index}`} gap="xs" wrap="nowrap"
                  justify="space-between">
             <Text size="xs" truncate>{run.method}</Text>
-            {run.success && T ? (
+            {run.success ? (
               <Tooltip label={run.r_squared == null ? 'no R² recorded'
                 : `R² = ${run.r_squared.toFixed(4)}`}>
+                {/* A tracer run has no T, so it shows its fit quality instead. */}
                 <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                  {formatQuantity(T)}
+                  {T ? formatQuantity(T) : `R² ${(run.r_squared ?? 0).toFixed(3)}`}
                 </Text>
               </Tooltip>
             ) : (

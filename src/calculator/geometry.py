@@ -29,12 +29,18 @@ CONFINED = registry.CONFINED
 LEAKY = registry.LEAKY
 UNCONFINED = registry.UNCONFINED
 FRACTURED = registry.FRACTURED
+POROUS = registry.POROUS
 
 CONSTANT_RATE = registry.CONSTANT_RATE
 RECOVERY = registry.RECOVERY
 STEP_DRAWDOWN = registry.STEP_DRAWDOWN
 SLUG = registry.SLUG
 CONSTANT_HEAD = registry.CONSTANT_HEAD
+TRACER = registry.TRACER
+
+# How a tracer entered the aquifer.
+PULSE = "pulse"             # a slug, short against the travel time
+CONTINUOUS = "continuous"   # held at a constant concentration from t = 0
 
 
 @dataclass
@@ -184,6 +190,39 @@ class SlugTestGeometry:
             raise ValueError(f"r_casing must be positive, got {self.r_casing} m.")
         if self.r_screen <= 0:
             raise ValueError(f"r_screen must be positive, got {self.r_screen} m.")
+
+
+@dataclass
+class TracerGeometry:
+    """How a tracer test was run. The travel distance is the observation
+    distance `r`, and a forced-gradient test's thickness is `aquifer.b`.
+
+    Concentrations stay in `conc_unit` throughout. The solutions scale with their
+    amplitude, so no conversion is needed to fit one; the unit matters only to
+    turn a fitted amplitude into a recovered mass.
+    """
+
+    injection: str = PULSE
+    conc_unit: str = "mg/L"
+    background: float = 0.0                 # concentration before the test
+    C0: Optional[float] = None              # plateau, if known (continuous)
+    M_injected: Optional[float] = None      # tracer mass [kg] (pulse)
+    K: Optional[float] = None               # hydraulic conductivity [m/s]
+    gradient: Optional[float] = None        # hydraulic gradient [-]
+
+    def __post_init__(self):
+        if self.injection not in (PULSE, CONTINUOUS):
+            raise ValueError(
+                f"Injection must be '{PULSE}' or '{CONTINUOUS}', got {self.injection!r}."
+            )
+        if self.background < 0:
+            raise ValueError(
+                f"Background concentration cannot be negative, got {self.background}."
+            )
+        for name in ("C0", "M_injected", "K", "gradient"):
+            value = getattr(self, name)
+            if value is not None and value <= 0:
+                raise ValueError(f"Tracer input {name} must be positive, got {value}.")
 
 
 # ── Pumping schedule ──────────────────────────────────────────────────────────

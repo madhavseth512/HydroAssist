@@ -10,7 +10,7 @@ from src.calculator import registry
 from src.core.state import AgentState
 from src.core.config import AppConfig
 from src.agents.method_selection import (
-    canonical_method, describes_recovery, suggest_method,
+    canonical_method, describes_recovery, describes_tracer, suggest_method,
 )
 from src.prompts.manager_prompts import (
     INTENT_CLASSIFICATION_PROMPT,
@@ -189,6 +189,7 @@ class ManagerAgent(BaseAgent):
             # it confidently — but the gate used to return first, so no card
             # appeared and the workspace stayed on the wrong method.
             or describes_recovery(user_message)
+            or describes_tracer(user_message)
             # The method named in the sentence, read by the registry's own
             # aliases rather than by the model. `method` above is the
             # classifier's extraction, so without this a message saying
