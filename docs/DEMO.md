@@ -52,6 +52,8 @@ file dialog will be on screen:
 | `2-large-diameter-well.csv` | `tests/papadopulos_cooper_sample.csv` | §6 (optional) |
 | `3-field-sheet.png` | `tests/fixtures/field_data/field_sheet.png` | §5 |
 | `4-gridley-1962.csv` | `tests/fixtures/field_data/gridley_well1.csv` | §7 |
+| `5-tracer-convergent.csv` | `tests/tracer_convergent_sample.csv` | §7b |
+| `6-tracer-natural.csv` | `tests/tracer_natural_sample.csv` | §7b (optional) |
 
 ### Capture settings
 
@@ -80,7 +82,8 @@ Follow the order a hydrogeologist works in. Each segment earns the next.
 | 7 | Validated against the literature | 2:00 | Walton (1962), to within 1.9% |
 | 8 | The consultant | 2:30 | Grounded, cited, and honest about limits |
 | 9 | Keeping the work | 1:00 | Projects, runs, report |
-| 10 | How it is built and hosted | 1:00 | 1,696 tests; £0 |
+| 7b | A tracer test | 1:30 | Same workspace, contaminant transport |
+| 10 | How it is built and hosted | 1:00 | 1,823 tests; £0 |
 
 **If you need to cut to 8 minutes:** drop §5 and §9, and shorten §8 to two
 questions. **Do not cut §6 or §7** — they are the argument.
@@ -362,6 +365,37 @@ Step 2. Point at the method cards.`
 
 ---
 
+### § 7b — A tracer test (1:30)
+
+`[ACTION] File → New test. Choose 5-tracer-convergent.csv.`
+
+> Pumping tests tell you how much water an aquifer gives. For contamination you
+> need a different set of numbers — how fast a solute travels, how much it spreads,
+> and the effective porosity it moves through. Those come from a tracer test, and
+> the same workspace analyses one.
+
+`[ACTION] Point at "concentration: concentration_mg_L" and the test type, now Tracer.`
+
+> The column is a concentration, so the test has switched to *Tracer* by itself,
+> no flow-regime diagnostic is drawn — it means nothing on a breakthrough curve —
+> and the methods offered are the two tracer solutions.
+
+`[ACTION] Pick Sauty (1980). Enter r = 15 m, Q = 500 m³/day, b = 10 m, injected
+mass 5 kg. Run analysis.`
+
+> This was a forced-gradient test: a pulse injected 15 metres from a pumped well.
+> The fit returns the travel time and the longitudinal dispersivity, and from the
+> pumping rate and thickness, the effective porosity — 0.20 — and the share of the
+> injected mass that came back, 80 per cent.
+
+`[ACTION] Optional: Ogata-Banks (1961) on 6-tracer-natural.csv, r = 25 m.`
+
+> For a natural-gradient test there is no pumping rate to ask for, and the form
+> does not ask for one: Ogata and Banks give the seepage velocity, and with the
+> conductivity and gradient, the porosity.
+
+---
+
 ### § 8 — The consultant (2:30)
 
 `[ACTION] Open the Consultant panel if it is closed. Widen it by dragging.`
@@ -485,8 +519,8 @@ finishing. Do not read code aloud.`
 > and TypeScript, with its types generated from the API's own schema, so the two
 > halves cannot drift apart silently.
 >
-> There are one thousand six hundred and ninety-six automated tests on the backend,
-> a hundred and seventy-nine on the frontend, and eight that drive a real browser
+> There are one thousand eight hundred and twenty-three automated tests on the backend,
+> a hundred and eighty-seven on the frontend, and eleven that drive a real browser
 > end to end. The fits themselves are pinned to nine decimal places, so a
 > refactor that changes a number fails loudly.
 >
@@ -516,7 +550,8 @@ script quotes them.
 | §7 Theis on `4-gridley-1962.csv` (Q = 1199.2 m³/day, r = 251.2 m) | **T = 123.06 m²/day = 9,909 gpd/ft**; Walton published 11,000 |
 | §7 quoted, not shown | Gridley pumped well, Cooper-Jacob: **+1.9%** against Walton's 12,100 gpd/ft |
 | §5 `3-field-sheet.png` | **13 rows**, 1 of 26 cells marked uncertain |
-| §10 | 1,696 backend tests, 179 frontend, 8 browser |
+| §7b Sauty on `5-tracer-convergent.csv` (r = 15 m, Q = 500 m³/day, b = 10 m, M = 5 kg) | **t_c ≈ 67.8 h, α_L ≈ 1.01 m, n_e ≈ 0.20, recovery ≈ 0.80** |
+| §10 | 1,823 backend tests, 187 frontend, 11 browser |
 
 Papadopulos-Cooper on its *own* dataset (`2-large-diameter-well.csv`, Q = 300
 m³/day, r_w = 0.30 m, r_c = 0.20 m) gives T = 86.39 m²/day, S = 1.00×10⁻⁴,
@@ -553,14 +588,17 @@ from scipy least-squares on the equations in the papers, and the whole analysis
 path — upload, fit, compare, report — works with the model switched off.
 
 **"What does it not do yet?"** Step-drawdown and slug tests are not implemented.
-Neuman's unconfined solution is not implemented — the consultant can discuss it
+Tracer tests are limited to an instantaneous pulse or a continuous injection —
+no finite-duration injection, sorption, decay or well mixing — and have been
+checked against synthetic curves and a numerical solve, not yet against a
+published field tracer test. Neuman's unconfined solution is not implemented — the consultant can discuss it
 because the papers are in the library, but the calculator cannot run it. There is
 no forward prediction for test design, no multi-well composite analysis, and no
 named wells with coordinates. The comparison against an AQTESOLV demo, on the same
 datasets, has not been done.
 
 **"Why not just use AQTESOLV?"** It has roughly twenty-six methods against our
-seven, and it is a mature product. Two things here are not in it: the diagnostic
+nine, and it is a mature product. Two things here are not in it: the diagnostic
 drives the method choice rather than sitting beside it, and every result argues
 for itself from the literature. And it runs in a browser with nothing to install.
 

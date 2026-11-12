@@ -61,7 +61,7 @@ export function PlotFigure({
             autosize: true,
             // The server sets the figure's own height; the container decides
             // the width so it reflows on a narrow screen.
-            margin: (parsed.layout as { margin?: object }).margin,
+            margin: (parsed.layout as { margin?: object } | undefined)?.margin,
           }}
           style={{ width: '100%', height }}
           useResizeHandler

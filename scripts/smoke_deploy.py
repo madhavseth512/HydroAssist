@@ -1,7 +1,8 @@
 """Check a running HydroAssist end to end.
 
 Health, a session, a CSV upload, a Theis fit checked against the golden value, a
-photographed field sheet, and the PDF report — the path a hydrogeologist takes,
+photographed field sheet, the PDF report, and a tracer breakthrough curve fitted
+with Sauty (1980) — the path a hydrogeologist takes,
 over HTTP. Standard library only, so it runs on the server without the project's
 virtual environment:
 
@@ -29,6 +30,11 @@ SAMPLE = Path(__file__).resolve().parents[1] / "tests" / "theis_cooper_jacob_sam
 # Tesseract reads at 71% and the grid therefore marks for checking.
 FIELD_SHEET = (Path(__file__).resolve().parents[1] / "tests" / "fixtures"
                / "field_data" / "field_sheet.png")
+
+# A forced-gradient breakthrough curve generated with t_c = 67.86 h, alpha_L = 1 m,
+# n_e = 0.2 and 80% recovery of 5 kg, at r = 15 m, b = 10 m, Q = 500 m3/day.
+TRACER_SAMPLE = Path(__file__).resolve().parents[1] / "tests" / "tracer_convergent_sample.csv"
+EXPECTED_N_E = 0.2
 
 # The fit tests/fixtures/golden_fits.json pins for this sample.
 EXPECTED_T_DAY = 215.29
@@ -165,6 +171,24 @@ def main() -> None:
     status, pdf = client.request("GET", "/api/report.pdf")
     check(status == 200 and pdf.startswith(b"%PDF-"), "PDF report",
           success=f"{len(pdf)} bytes", failure=f"HTTP {status}, {len(pdf)} bytes")
+
+    # Tracer tests: a concentration column switches the test over by itself.
+    status, prepared = client.upload(f"/api/tests/{test_id}/readings", TRACER_SAMPLE)
+    check(status == 200 and isinstance(prepared, dict) and prepared.get("n_points") == 40,
+          "upload a tracer breakthrough curve", failure=f"HTTP {status}: {prepared}")
+
+    status, result = client.json("POST", "/api/analyses/run", {
+        "method": "sauty_1980",
+        "setup": {"test_type": "tracer", "q_value": 500, "q_unit": "m³/day", "r_m": 15,
+                  "tracer_b_m": 10, "tracer_M_kg": 5},
+    })
+    params = ({p["name"]: p["value"] for p in result.get("parameters", [])}
+              if isinstance(result, dict) and result.get("success") else {})
+    n_e = params.get("n_e")
+    check(status == 200 and n_e is not None and abs(n_e - EXPECTED_N_E) < 0.01,
+          "run Sauty (1980) on the tracer curve",
+          success=f"n_e = {n_e:.3f}, alpha_L = {params.get('alpha_L', 0):.2f} m" if n_e else "",
+          failure=f"HTTP {status}: {result}")
 
     print("All checks passed.")
 

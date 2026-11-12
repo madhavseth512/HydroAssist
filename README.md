@@ -5,15 +5,17 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Phase](https://img.shields.io/badge/phase-5%20in%20progress-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-1182%20python%20%2B%2054%20frontend-brightgreen.svg)]()
-[![Coverage](https://img.shields.io/badge/coverage-75%25-green.svg)]()
-[![Methods](https://img.shields.io/badge/methods-6%20across%204%20aquifer%20types-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1823%20python%20%2B%20187%20frontend%20%2B%2011%20browser-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen.svg)]()
+[![Methods](https://img.shields.io/badge/methods-9%20across%20pumping%20and%20tracer%20tests-blue.svg)]()
 
 ---
 
 ## Overview
 
-HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pumping test analysis.
+HydroAssist is a hydrogeology assistant for analysing aquifer tests: pumping tests
+(transmissivity and storativity) and tracer tests (velocity, dispersivity and
+effective porosity, for contaminant transport).
 
 **Phase 1 — Consultant (complete)**
 - RAG-based chatbot answering questions about pumping test theory, method selection, and aquifer characterisation
@@ -39,6 +41,14 @@ HydroAssist is a two-phase hydrogeology assistant targeting confined aquifer pum
 - Shared Stehfest Laplace engine, vectorised — Papadopulos-Cooper fitting went from 10–30 s to 0.04 s
 - **Bourdet log-derivative**, which reads the flow regime off the data and drives method selection
 - 795-test suite (75% coverage)
+
+**Phase 5 — Tracer tests (complete; closes MTP part 1)**
+- A concentration column switches a test to *Tracer* by itself; concentrations are never unit-converted
+- **Ogata-Banks (1961)**, natural gradient: velocity, longitudinal dispersivity, dispersion coefficient, Péclet number, and n_e = K·i/v
+- **Sauty (1980)**, forced gradient, radially convergent: travel time, dispersivity, n_e from Q, b and r, and mass recovery
+- Pulse or continuous injection, background concentration, validity rules (peak missed, tail truncated, plateau not reached, low Péclet, implausible porosity or recovery)
+- Results, manual matching, comparison, PDF report, saved projects and the consultant all speak in tracer quantities
+- The radial solution is checked against an independent numerical solve of the radial advection-dispersion equation
 
 ---
 
@@ -152,7 +162,8 @@ hydroassist/
 │   │   ├── methods/
 │   │   │   ├── hantush_jacob.py    # Hantush-Jacob (1955) — leaky
 │   │   │   ├── boulton.py          # Boulton (1963) — unconfined
-│   │   │   └── warren_root.py      # Warren-Root (1963) — fractured
+│   │   │   ├── warren_root.py      # Warren-Root (1963) — fractured
+│   │   │   └── tracer.py           # Ogata-Banks (1961), Sauty (1980) — tracer tests
 │   │   ├── plots.py                # Plotly diagnostic plots
 │   │   └── report.py               # ReportLab PDF report generation
 │   └── prompts/                    # LLM prompts for each agent
@@ -560,6 +571,8 @@ llm:
 - [x] **Hantush-Jacob (1955)** — leaky
 - [x] **Boulton (1963)** — unconfined
 - [x] **Warren-Root (1963)** — fractured
+- [x] **Ogata-Banks (1961)** — natural-gradient tracer test
+- [x] **Sauty (1980)** — forced-gradient, radially convergent tracer test
 - [x] **Bourdet log-derivative** driving data-based method selection
 - [x] Theis, Cooper-Jacob and Papadopulos-Cooper ported onto the template
 - [x] Recovery analysis — Theis (1935) recovery, Eq. 7
