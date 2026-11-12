@@ -283,11 +283,11 @@ class TestTracerThroughTheApi:
 
         assert types["tracer"] == "Tracer test"
         assert [(m["id"], m["uses_pumping_rate"]) for m in methods["offered"]] == [
-            ("ogata_banks_1961", False), ("sauty_1980", True)]
+            ("ogata_banks_1961", False), ("thiery_2022", True)]
 
     def test_the_fit_reports_transport_and_not_t_or_s(self, client):
         upload(client, TRACER_CONVERGENT_SAMPLE)
-        body = run(client, method="sauty_1980", **self._setup()).json()
+        body = run(client, method="thiery_2022", **self._setup()).json()
 
         assert body["success"] and body["response_unit"] == "mg/L"
         assert body["T"] == 0.0 and body["S"] is None
@@ -296,7 +296,7 @@ class TestTracerThroughTheApi:
 
     def test_the_inputs_read_back_as_they_were_entered(self, client):
         upload(client, TRACER_CONVERGENT_SAMPLE)
-        run(client, method="sauty_1980", **self._setup(tracer_conc_unit="ppb"))
+        run(client, method="thiery_2022", **self._setup(tracer_conc_unit="ppb"))
         setup = client.get("/api/project").json()["tests"][0]["setup"]
 
         assert setup["tracer_b_m"] == 10.0 and setup["tracer_conc_unit"] == "ppb"
@@ -332,7 +332,7 @@ class TestTracerThroughTheApi:
 
     def test_it_saves_compares_and_comes_back_after_a_reload(self, client):
         upload(client, TRACER_CONVERGENT_SAMPLE)
-        run(client, method="sauty_1980", **self._setup())
+        run(client, method="thiery_2022", **self._setup())
         rows = client.post("/api/analyses/save").json()["rows"]
 
         assert rows[0]["T_m2_per_day"] is None and "n_e" in rows[0]["estimates"]
@@ -341,7 +341,7 @@ class TestTracerThroughTheApi:
         client.post("/api/project/open", files={"file": ("p.hydroassist.json", raw)})
         body = client.get("/api/analyses/current").json()
 
-        assert body["method_id"] == "sauty_1980"
+        assert body["method_id"] == "thiery_2022"
         assert body["response_unit"] == "mg/L"
 
     def test_a_tracer_run_is_logged_without_a_transmissivity(self, client):

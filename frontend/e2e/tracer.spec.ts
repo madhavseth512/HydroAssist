@@ -25,14 +25,14 @@ test('a forced-gradient test: upload, fit, match, report, save', async ({ page }
   await expect(page.getByText(/Consistent with/)).toHaveCount(0)
 
   // The form has followed the readings to the tracer methods.
-  await page.getByRole('button', { name: /^Sauty \(1980\)/ }).click()
+  await page.getByRole('button', { name: /^Thiéry \(2022\)/ }).click()
   await page.getByLabel('Distance from injection to sampling well (m)').fill('15')
   await page.getByLabel('Aquifer thickness b (m), for porosity').fill('10')
   await page.getByLabel('Injected mass (kg), for recovery').fill('5')
   await page.screenshot({ path: 'test-results/tracer-setup.png', fullPage: true })
 
   await page.getByRole('button', { name: 'Run analysis' }).click()
-  await expect(page.getByText('Results — Sauty (1980)')).toBeVisible()
+  await expect(page.getByText('Results — Thiéry (2022)')).toBeVisible()
   await expect(page.getByText('n_e', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('cell', { name: 'Mass recovery' })).toBeVisible()
   await expect(page.getByText(/^T \(/)).toHaveCount(0)
@@ -44,7 +44,7 @@ test('a forced-gradient test: upload, fit, match, report, save', async ({ page }
 
   const report = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download report' }).click()
-  expect((await report).suggestedFilename()).toBe('sauty_report.pdf')
+  expect((await report).suggestedFilename()).toBe('thiery_report.pdf')
 
   await page.getByRole('button', { name: 'Save to project' }).click()
   await expect(page.getByText(/Compare saved analyses/)).toBeVisible()
@@ -80,5 +80,5 @@ test('choosing Tracer first reads an unnamed column as a concentration', async (
   await expect(page.getByText(/12 data points ready/)).toBeVisible()
   // 700 would have been converted from feet if it had been read as drawdown.
   await expect(page.getByText(/C: 0 – 700/)).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Sauty \(1980\)/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Thiéry \(2022\)/ })).toBeVisible()
 })

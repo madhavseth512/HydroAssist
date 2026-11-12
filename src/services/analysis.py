@@ -10,6 +10,7 @@ The registry decides dispatch, `TestSetup` carries the test parameters, and the
 project model records the outcome — this module only joins them up.
 """
 
+import unicodedata
 from typing import Optional, Sequence
 
 import pandas as pd
@@ -332,8 +333,10 @@ def restore_last_analysis(test: PumpingTest):
 
 
 def report_filename(method_label: str) -> str:
-    return (method_label.split("(")[0].strip().lower().replace(" ", "_")
-            + "_report.pdf")
+    """ASCII, so the download header carries it intact: "Thiéry" -> "thiery"."""
+    name = method_label.split("(")[0].strip().lower().replace(" ", "_")
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return name + "_report.pdf"
 
 
 def report_pdf(result: CalculationResult, record: dict, df: pd.DataFrame,

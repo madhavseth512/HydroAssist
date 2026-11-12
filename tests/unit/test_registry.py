@@ -60,7 +60,7 @@ class TestTableIntegrity:
             "Boulton (1963)",
             "Warren-Root (1963)",
             "Ogata-Banks (1961)",
-            "Sauty (1980)",
+            "Thiéry (2022)",
         ]
 
     @pytest.mark.parametrize("spec", R.all_specs(implemented_only=False),

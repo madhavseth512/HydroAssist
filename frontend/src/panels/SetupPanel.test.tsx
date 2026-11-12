@@ -199,8 +199,8 @@ describe('the rate the calculators receive', () => {
   })
 })
 
-const SAUTY = method({
-  id: 'sauty_1980', label: 'Sauty (1980)', test_types: ['tracer'],
+const THIERY = method({
+  id: 'thiery_2022', label: 'Thiéry (2022)', test_types: ['tracer'],
   aquifer_types: ['porous'], parameters: ['t_c', 'alpha_L', 'amplitude'],
   estimates_storativity: false,
 })
@@ -223,7 +223,7 @@ describe('the setup step for a tracer test', () => {
   }
 
   it('asks a forced-gradient test for Q, thickness and mass', async () => {
-    stubTracer([SAUTY])
+    stubTracer([THIERY])
     renderWithProviders(<SetupPanel />)
 
     expect(await screen.findByLabelText('Pumping rate Q')).toBeInTheDocument()
@@ -243,7 +243,7 @@ describe('the setup step for a tracer test', () => {
   })
 
   it('calls r the distance from the injection', async () => {
-    stubTracer([SAUTY])
+    stubTracer([THIERY])
     renderWithProviders(<SetupPanel />)
 
     expect(await screen.findByLabelText('Distance from injection to sampling well (m)'))
@@ -251,7 +251,7 @@ describe('the setup step for a tracer test', () => {
   })
 
   it('offers a plateau only for a continuous injection', async () => {
-    stubTracer([SAUTY])
+    stubTracer([THIERY])
     renderWithProviders(<SetupPanel />)
 
     await screen.findByLabelText('Injected mass (kg), for recovery')
@@ -264,7 +264,7 @@ describe('the setup step for a tracer test', () => {
   })
 
   it('sends what was entered', async () => {
-    const stub = stubTracer([SAUTY])
+    const stub = stubTracer([THIERY])
     renderWithProviders(<SetupPanel />)
 
     fireEvent.change(await screen.findByLabelText('Aquifer thickness b (m), for porosity'),
@@ -276,7 +276,7 @@ describe('the setup step for a tracer test', () => {
     const [, init] = stub.mock.mock.calls.find(
       ([url]) => String(url).includes('/api/analyses/run'))!
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.method).toBe('sauty_1980')
+    expect(body.method).toBe('thiery_2022')
     expect(body.setup.tracer_b_m).toBe(12)
   })
 

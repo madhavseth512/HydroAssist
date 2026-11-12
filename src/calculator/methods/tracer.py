@@ -17,19 +17,22 @@ flow to a well at distance x.
 
 The pulse is the plane-source solution of the same equation (Bear, 1972).
 
-**Forced gradient, radially convergent — Sauty (1980).** Tracer enters at distance
-r from a well pumping at Q, and velocity rises as 1/r on the way in. The radial
-equation has no closed form, so its breakthrough is approximated by the one with
-the same first two moments:
+**Forced gradient, radially convergent — Thiéry (2022).** Tracer enters at
+distance r from a well pumping at Q, and velocity rises as 1/r on the way in. The
+radial equation (Sauty, 1980) has no closed-form solution in the time domain, so
+the breakthrough is Thiéry's closed-form approximation for an unbounded domain:
+the one-dimensional expression with two correction factors, fitted to exact
+solutions for Peclet numbers P = r/alpha_L from about 1 to 1000 (Nash >= 0.999):
 
-    mean arrival    E[t] = t_c (1 + 2 alpha_L / r),    t_c = pi r^2 b n_e / Q
-    relative var.   var(t) / t_c^2 = 8 alpha_L / 3r,    so  P_eff = 3r / (4 alpha_L)
+    t_c = pi r^2 b n_e / Q,     t_D = t / t_c,     x = f_T t_D,     P' = P / f_P
+    pulse (eqs 21, 22):       C = (M/Q)/t_c * f_T/2 sqrt(P'/4 pi x) (x+1)/x exp(-P'(1-x)^2 / 4x)
+    continuous (eqs 15, 16):  C = C0/2 erfc(sqrt(P'/4x) (1-x))
+    f_T = a - b P^c,   f_P = d - e P^f
 
-Both follow from the radial equation directly (the variance is Hoopes & Harleman's
-1967 result). Using the uniform-flow Peclet number P = r/alpha_L instead would
-report a dispersivity wrong by a third, and ignoring the shift in the mean would
-overstate porosity by 2 alpha_L/r. tests/unit/test_tracer.py holds this
-approximation against a numerical solution of the radial equation.
+Sauty's own closed form (Thiéry's eq. 26) is not used: Thiéry found it overstates
+dispersivity by a median 69% and porosity by 67% on twelve field tests.
+tests/unit/test_tracer.py also holds this solution against a numerical solution
+of the radial equation.
 
 The readings keep the `drawdown_m` column name through the pipeline. Every layer
 between the upload and the plots treats it as "the measured response", and the
@@ -62,8 +65,17 @@ SECONDS_PER_HOUR = 3600.0
 TRAVEL_TIME_MARGIN = 10.0
 PECLET_MIN, PECLET_MAX = 0.2, 2000.0
 
-# Below this Peclet number the radial approximation starts to lose accuracy.
-RADIAL_PECLET_FLOOR = 10.0
+# Thiéry's correction factors were fitted for 1 <= P <= 1000 (0.8 for a continuous
+# injection), so the radial fit searches only that range.
+RADIAL_PECLET_RANGE = (1.0, 1000.0)
+# Below this the interpretation depends on the modelling choices, notably whether
+# dispersion upstream of the injection is allowed (Thiéry 2022, Appendix C).
+RADIAL_PECLET_FLOOR = 3.0
+
+# Thiéry (2022), unbounded domain: (a, b, c, d, e, f) in f_T = a - b P^c and
+# f_P = d - e P^f. Pulse: eqs 22a, 22b. Continuous: eqs 16a, 16b.
+THIERY_PULSE = (1.00092, 0.45272, -0.87334, 1.51016, 0.3189, -0.09496)
+THIERY_CONTINUOUS = (1.00627, 0.44829, -0.73712, 1.44488, 0.21574, -0.78005)
 
 # A tail still above this fraction of the peak means the record stopped too early
 # to bound the mass or to pin the dispersivity.
@@ -115,29 +127,39 @@ def natural_continuous(t, v: float, alpha_L: float, C0: float, x: float) -> np.n
     return C0 * step_response(v * np.asarray(t, dtype=float) / x, x / alpha_L)
 
 
-def radial_moments(t_c: float, alpha_L: float, r: float) -> tuple:
-    """(mean arrival time, effective Peclet number) of the radial breakthrough."""
-    return t_c * (1.0 + 2.0 * alpha_L / r), 3.0 * r / (4.0 * alpha_L)
+def thiery_factors(peclet: float, constants: tuple) -> tuple:
+    """(f_T, f_P): Thiéry's corrections to dimensionless time and Peclet number."""
+    a, b, c, d, e, f = constants
+    return a - b * peclet ** c, d - e * peclet ** f
 
 
 def radial_pulse(t, t_c: float, alpha_L: float, M_over_Q: float, r: float) -> np.ndarray:
-    """Flux concentration at the well. Its time integral is M_over_Q."""
-    mean, peclet = radial_moments(t_c, alpha_L, r)
-    t_R = np.asarray(t, dtype=float) / mean
-    return (M_over_Q / mean * np.sqrt(peclet / (4.0 * np.pi * t_R ** 3))
-            * _gaussian_exponent(t_R, peclet))
+    """Concentration at the pumped well after a pulse (Thiéry 2022, eq. 21).
+    Its time integral is M_over_Q."""
+    f_T, f_P = thiery_factors(r / alpha_L, THIERY_PULSE)
+    peclet = r / alpha_L / f_P
+    x = f_T * np.asarray(t, dtype=float) / t_c
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        c_D = (0.5 * f_T * np.sqrt(peclet / (4.0 * np.pi * x)) * (x + 1.0) / x
+               * np.exp(-peclet * (1.0 - x) ** 2 / (4.0 * x)))
+    return M_over_Q / t_c * np.nan_to_num(c_D, nan=0.0, posinf=0.0)
 
 
 def radial_continuous(t, t_c: float, alpha_L: float, C0: float, r: float) -> np.ndarray:
-    mean, peclet = radial_moments(t_c, alpha_L, r)
-    return C0 * step_response(np.asarray(t, dtype=float) / mean, peclet)
+    """Concentration at the pumped well under a continuous injection (eq. 15)."""
+    f_T, f_P = thiery_factors(r / alpha_L, THIERY_CONTINUOUS)
+    peclet = r / alpha_L / f_P
+    x = f_T * np.asarray(t, dtype=float) / t_c
+    with np.errstate(divide="ignore", invalid="ignore"):
+        c_D = 0.5 * erfc(np.sqrt(peclet / (4.0 * x)) * (1.0 - x))
+    return C0 * np.nan_to_num(c_D, nan=0.0)
 
 
 _SOLUTIONS = {
     ("ogata_banks_1961", PULSE): natural_pulse,
     ("ogata_banks_1961", CONTINUOUS): natural_continuous,
-    ("sauty_1980", PULSE): radial_pulse,
-    ("sauty_1980", CONTINUOUS): radial_continuous,
+    ("thiery_2022", PULSE): radial_pulse,
+    ("thiery_2022", CONTINUOUS): radial_continuous,
 }
 
 
@@ -191,8 +213,9 @@ def _step_shape(t: np.ndarray, y: np.ndarray, plateau: float) -> tuple:
     return middle, 2.0 * (middle / sigma) ** 2
 
 
-def _clip_peclet(peclet: float) -> float:
-    return float(np.clip(peclet, PECLET_MIN * 5, PECLET_MAX / 5))
+def _clip_peclet(peclet: float, low: float = PECLET_MIN * 5,
+                 high: float = PECLET_MAX / 5) -> float:
+    return float(np.clip(peclet, low, high))
 
 
 # ── The shared calculator ─────────────────────────────────────────────────────
@@ -210,6 +233,7 @@ class _TracerCalculator(CurveFitCalculator):
     """What the two arrangements share: checks, starting points, interpretation."""
 
     needs_rate = False
+    peclet_range = (PECLET_MIN, PECLET_MAX)
     fit_failure_message = ("Check the distance, the injection type and that the "
                            "times count from the injection.")
 
@@ -253,20 +277,22 @@ class _TracerCalculator(CurveFitCalculator):
         y = _response(inputs, drawdown_m)
         t_low, t_high = (float(time_s.min()) / TRAVEL_TIME_MARGIN,
                          float(time_s.max()) * TRAVEL_TIME_MARGIN)
+        low, high = self.peclet_range
+        start = (max(low * 1.5, PECLET_MIN * 5), min(high / 1.5, PECLET_MAX / 5))
 
         if tracer.injection == PULSE:
             t_mean, peak, peclet = _pulse_shape(time_s, y)
-            peclet = _clip_peclet(peclet)
+            peclet = _clip_peclet(peclet, *start)
             amplitude = self.pulse_amplitude(inputs, peak, t_mean, peclet)
         else:
             plateau = tracer.C0 if tracer.C0 else float(np.max(y))
             t_mean, peclet = _step_shape(time_s, y, plateau)
-            peclet = _clip_peclet(peclet)
+            peclet = _clip_peclet(peclet, *start)
             amplitude = _plateau_spec(tracer, plateau)
 
         return [
             self.travel_specs(inputs, t_mean, t_low, t_high),
-            ParameterSpec("alpha_L", "m", inputs.r / PECLET_MAX, inputs.r / PECLET_MIN,
+            ParameterSpec("alpha_L", "m", inputs.r / high, inputs.r / low,
                           inputs.r / peclet, symbol="α_L", log_scale=True,
                           description="Longitudinal dispersivity"),
             amplitude,
@@ -370,12 +396,13 @@ class OgataBanksCalculator(_TracerCalculator):
         return derived
 
 
-class SautyCalculator(_TracerCalculator):
+class ThieryCalculator(_TracerCalculator):
     """Forced-gradient tracer test: tracer drawn radially to a pumped well."""
 
-    method_id = "sauty_1980"
-    method_label = "Sauty (1980)"
+    method_id = "thiery_2022"
+    method_label = "Thiéry (2022)"
     needs_rate = True
+    peclet_range = RADIAL_PECLET_RANGE
     pulse_name = "M_over_Q"
 
     def travel_specs(self, inputs, t_mean, t_low, t_high):
@@ -530,9 +557,11 @@ def _radial_peclet_rule() -> ValidityRule:
         applies=lambda c: c.diagnostics["peclet"] < RADIAL_PECLET_FLOOR,
         message=lambda c: (
             f"Pe = r/α_L = {c.diagnostics['peclet']:.1f}, below "
-            f"{RADIAL_PECLET_FLOOR:.0f}. The radial breakthrough approximation "
-            "loses accuracy this far from advection-dominated transport, so treat "
-            "α_L and n_e as approximate."
+            f"{RADIAL_PECLET_FLOOR:.0f}. This close to dispersion-dominated "
+            "transport the result depends on modelling choices, such as whether "
+            "dispersion upstream of the injection well is allowed; Thiéry (2022) "
+            "found large differences in both α_L and n_e between such "
+            "interpretations. Treat them as approximate."
         ),
     )
 
@@ -544,7 +573,7 @@ def _recovery_rule() -> ValidityRule:
         if (tracer is None or tracer.M_injected is None or to_grams is None
                 or tracer.injection != PULSE):
             return None
-        return (c.value(SautyCalculator.pulse_name) * c.inputs.Q * to_grams
+        return (c.value(ThieryCalculator.pulse_name) * c.inputs.Q * to_grams
                 / 1000.0 / tracer.M_injected)
 
     def applies(c):

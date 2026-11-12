@@ -2,7 +2,7 @@
 
 Health, a session, a CSV upload, a Theis fit checked against the golden value, a
 photographed field sheet, the PDF report, and a tracer breakthrough curve fitted
-with Sauty (1980) — the path a hydrogeologist takes,
+with Thiéry (2022) — the path a hydrogeologist takes,
 over HTTP. Standard library only, so it runs on the server without the project's
 virtual environment:
 
@@ -178,7 +178,7 @@ def main() -> None:
           "upload a tracer breakthrough curve", failure=f"HTTP {status}: {prepared}")
 
     status, result = client.json("POST", "/api/analyses/run", {
-        "method": "sauty_1980",
+        "method": "thiery_2022",
         "setup": {"test_type": "tracer", "q_value": 500, "q_unit": "m³/day", "r_m": 15,
                   "tracer_b_m": 10, "tracer_M_kg": 5},
     })
@@ -186,7 +186,7 @@ def main() -> None:
               if isinstance(result, dict) and result.get("success") else {})
     n_e = params.get("n_e")
     check(status == 200 and n_e is not None and abs(n_e - EXPECTED_N_E) < 0.01,
-          "run Sauty (1980) on the tracer curve",
+          "run Thiery (2022) on the tracer curve",
           success=f"n_e = {n_e:.3f}, alpha_L = {params.get('alpha_L', 0):.2f} m" if n_e else "",
           failure=f"HTTP {status}: {result}")
 

@@ -404,8 +404,8 @@ _FIGURE_CAPTIONS = {
         "Ogata-Banks (1961) breakthrough curve. "
         "Blue circles: observed concentration. Red line: fitted solution."
     ),
-    "sauty_1980": (
-        "Sauty (1980) radial convergent breakthrough curve. "
+    "thiery_2022": (
+        "Thiéry (2022) radial convergent breakthrough curve. "
         "Blue circles: observed concentration. Red line: fitted solution."
     ),
 }

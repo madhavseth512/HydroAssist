@@ -380,10 +380,13 @@ Step 2. Point at the method cards.`
 > no flow-regime diagnostic is drawn — it means nothing on a breakthrough curve —
 > and the methods offered are the two tracer solutions.
 
-`[ACTION] Pick Sauty (1980). Enter r = 15 m, Q = 500 m³/day, b = 10 m, injected
+`[ACTION] Pick Thiéry (2022). Enter r = 15 m, Q = 500 m³/day, b = 10 m, injected
 mass 5 kg. Run analysis.`
 
 > This was a forced-gradient test: a pulse injected 15 metres from a pumped well.
+> The curve is fitted with Thiéry's 2022 closed form for radially convergent
+> flow. The classic Sauty approximation is deliberately not used: Thiéry showed it
+> overstates dispersivity by about 70 per cent at the Péclet numbers of real tests.
 > The fit returns the travel time and the longitudinal dispersivity, and from the
 > pumping rate and thickness, the effective porosity — 0.20 — and the share of the
 > injected mass that came back, 80 per cent.
@@ -550,7 +553,7 @@ script quotes them.
 | §7 Theis on `4-gridley-1962.csv` (Q = 1199.2 m³/day, r = 251.2 m) | **T = 123.06 m²/day = 9,909 gpd/ft**; Walton published 11,000 |
 | §7 quoted, not shown | Gridley pumped well, Cooper-Jacob: **+1.9%** against Walton's 12,100 gpd/ft |
 | §5 `3-field-sheet.png` | **13 rows**, 1 of 26 cells marked uncertain |
-| §7b Sauty on `5-tracer-convergent.csv` (r = 15 m, Q = 500 m³/day, b = 10 m, M = 5 kg) | **t_c ≈ 67.8 h, α_L ≈ 1.01 m, n_e ≈ 0.20, recovery ≈ 0.80** |
+| §7b Thiéry on `5-tracer-convergent.csv` (r = 15 m, Q = 500 m³/day, b = 10 m, M = 5 kg) | **t_c ≈ 67.8 h, α_L ≈ 0.99 m, n_e ≈ 0.20, recovery ≈ 0.80** |
 | §10 | 1,823 backend tests, 187 frontend, 11 browser |
 
 Papadopulos-Cooper on its *own* dataset (`2-large-diameter-well.csv`, Q = 300

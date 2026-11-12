@@ -203,7 +203,7 @@ function tracerResult() {
   const ne = parameter({ name: 'n_e', symbol: 'n_e', value: 0.2, unit: '-', display: 0.2,
     display_unit: '-', ci: null, display_ci: null, derived: true })
   return result({
-    method: 'Sauty (1980)', method_id: 'sauty_1980', T: 0, T_day: 0, T_ci: null,
+    method: 'Thiéry (2022)', method_id: 'thiery_2022', T: 0, T_day: 0, T_ci: null,
     S: null, S_ci: null, estimates_storativity: false, rmse: 0.03,
     response_unit: 'mg/L', parameters: [tc, alpha, ne],
     manual_axes: [
@@ -218,7 +218,7 @@ describe('a tracer result', () => {
     stubFetch([{ url: '/api/analyses/current', body: tracerResult() }])
     renderWithProviders(<ResultsPanel />)
 
-    expect(await screen.findByText('Results — Sauty (1980)')).toBeInTheDocument()
+    expect(await screen.findByText('Results — Thiéry (2022)')).toBeInTheDocument()
     expect(screen.getAllByText('α_L').length).toBeGreaterThan(0)
     expect(screen.getAllByText('66.70 hours').length).toBeGreaterThan(0)
     expect(screen.getByText(/RMSE 0.0300 mg\/L/)).toBeInTheDocument()

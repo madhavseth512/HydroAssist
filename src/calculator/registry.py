@@ -216,9 +216,9 @@ def _ogata_banks():
     return OgataBanksCalculator()
 
 
-def _sauty():
-    from src.calculator.methods.tracer import SautyCalculator
-    return SautyCalculator()
+def _thiery():
+    from src.calculator.methods.tracer import ThieryCalculator
+    return ThieryCalculator()
 
 
 # ── Lazy plot adapters ────────────────────────────────────────────────────────
@@ -581,24 +581,26 @@ _SPECS = (
         ),
     ),
     MethodSpec(
-        id="sauty_1980",
-        label="Sauty (1980)",
-        year=1980,
-        authors=("Sauty, J.-P.",),
+        id="thiery_2022",
+        label="Thiéry (2022)",
+        year=2022,
+        authors=("Thiéry, D.",),
         citation=(
+            "Thiéry, D. (2022). Simple approximate closed-form expressions for "
+            "tracer injection in aquifer with a radially converging or diverging "
+            "flow field. Journal of Hydrology, 608, 127661. "
+            "https://doi.org/10.1016/j.jhydrol.2022.127661. Governing equation: "
             "Sauty, J.-P. (1980). An analysis of hydrodispersive transfer in "
-            "aquifers. Water Resources Research, 16(1), 145-158. Radial spreading: "
-            "Hoopes, J.A. & Harleman, D.R.F. (1967). Dispersion in radial flow from "
-            "a recharge well. Journal of Geophysical Research, 72(14), 3595-3607."
+            "aquifers. Water Resources Research, 16(1), 145-158."
         ),
         aquifer_types=frozenset({POROUS}),
         test_types=frozenset({TRACER}),
         parameters=("t_c", "alpha_L", "amplitude"),
         data_source=EITHER,
-        aliases=("sauty", "radial convergent", "convergent radial",
+        aliases=("thiery", "thiéry", "sauty", "radial convergent", "convergent radial",
                  "convergent tracer", "forced gradient tracer",
                  "forced-gradient tracer"),
-        factory=_sauty,
+        factory=_thiery,
         diagnostic_plot=_tracer_diagnostic,
         interactive_plot=_tracer_interactive,
         report_plot=_tracer_report_plot,
@@ -609,20 +611,27 @@ _SPECS = (
             "thickness is known and mass recovery when the injected mass is."
         ),
         selection_rationale=(
-            "Sauty (1980) treats a tracer drawn to a pumped well, where velocity "
-            "rises towards the well and the uniform-flow solution does not apply."
+            "Thiéry (2022) treats a tracer drawn to a pumped well, where velocity "
+            "rises towards the well and the uniform-flow solution does not apply. "
+            "Its closed form reproduces the exact radial solution; Sauty's (1980) "
+            "approximation overstates dispersivity at the Peclet numbers of most "
+            "field tests."
         ),
         assumptions=(
             "Steady radial flow to a fully penetrating well, set up before the injection",
             "Homogeneous aquifer of uniform thickness, with dispersion proportional to velocity",
             "Injection does not disturb the flow field, and mixing in the wells is negligible",
             "The tracer is conservative: no sorption, decay or density effects",
-            "Transport is advection-dominated, conventionally r/alpha_L above about 10",
+            "Dispersion may act upstream of the injection well (unbounded domain)",
+            "Peclet number r/alpha_L between about 1 and 1000, the range the closed form was fitted over",
         ),
     ),
 )
 
 REGISTRY = {spec.id: spec for spec in _SPECS}
+
+# Ids and labels a saved project may still carry after a method was renamed.
+RETIRED = {"sauty_1980": "thiery_2022", "Sauty (1980)": "thiery_2022"}
 
 
 # ── Lookup ────────────────────────────────────────────────────────────────────
@@ -647,6 +656,8 @@ def get(id_or_label: str) -> Optional[MethodSpec]:
         return None
     if id_or_label in REGISTRY:
         return REGISTRY[id_or_label]
+    if id_or_label in RETIRED:
+        return REGISTRY[RETIRED[id_or_label]]
     for spec in REGISTRY.values():
         if spec.label == id_or_label:
             return spec

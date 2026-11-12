@@ -1,9 +1,10 @@
 """Tracer tests: the two solutions, and everything that keeps them honest.
 
-The radial method rests on an approximation, so it is checked against something
-other than itself: `radial_breakthrough` below solves the radial advection-dispersion
-equation numerically, and the fit has to recover the dispersivity and the travel
-time that went into it.
+The radial method rests on Thiéry's (2022) closed-form approximation, so it is
+checked twice: against the paper's equations written out independently, and against
+something other than itself — `radial_breakthrough` below solves the radial
+advection-dispersion equation numerically, and the fit has to recover the
+dispersivity and the travel time that went into it.
 """
 
 import io
@@ -42,7 +43,7 @@ def _natural(t, c, **tracer):
 
 
 def _radial(t, c, b=B, **tracer):
-    return tr.SautyCalculator().calculate(CalculationInput(
+    return tr.ThieryCalculator().calculate(CalculationInput(
         df=_frame(t, c), Q=Q, r=R, test_type="tracer",
         aquifer=AquiferGeometry(b=b), tracer=TracerGeometry(**tracer)))
 
@@ -127,17 +128,44 @@ class TestTheSolutions:
 
         assert np.trapezoid(c, t) == pytest.approx(1000.0, rel=1e-3)
 
-    def test_the_radial_mean_arrival_is_later_than_advection(self):
-        mean, peclet = tr.radial_moments(1000.0, 3.0, 30.0)
+    @pytest.mark.parametrize("P", [1.0, 4.3, 28.2, 300.0])
+    def test_the_radial_pulse_is_thierys_equation_21(self, P):
+        """Written out from the paper, eqs 21, 22a and 22b, in dimensionless form:
+        C_D = C pi r^2 h w / M = C Q t_a / M."""
+        tD = np.array([0.3, 0.8, 1.0, 1.4, 3.0])
+        fT = 1.00092 - 0.45272 * P ** -0.87334
+        fP = 1.51016 - 0.3189 * P ** -0.09496
+        x = fT * tD
+        paper = (0.5 * fT * np.sqrt(P / fP / (4 * np.pi * x)) * (x + 1) / x
+                 * np.exp(-P / fP / (4 * x) * (1 - x) ** 2))
 
-        assert mean == pytest.approx(1200.0)
-        assert peclet == pytest.approx(7.5)
+        ours = tr.radial_pulse(tD * 1000.0, 1000.0, 30.0 / P, 1.0, 30.0) * 1000.0
+
+        assert ours == pytest.approx(paper, rel=1e-12)
+
+    @pytest.mark.parametrize("P", [0.8, 4.3, 100.0])
+    def test_the_radial_step_is_thierys_equation_15(self, P):
+        tD = np.array([0.2, 0.9, 1.0, 2.0])
+        fT = 1.00627 - 0.44829 * P ** -0.73712
+        fP = 1.44488 - 0.21574 * P ** -0.78005
+        paper = 0.5 * erfc(np.sqrt(P / fP / (4 * fT * tD)) * (1 - fT * tD))
+
+        ours = tr.radial_continuous(tD * 50.0, 50.0, 12.0 / P, 1.0, 12.0)
+
+        assert ours == pytest.approx(paper, rel=1e-12)
+
+    def test_the_radial_step_rises_to_its_plateau(self):
+        early, late = tr.radial_continuous(np.array([1.0, 1e8]), 3e5, 1.0, 7.0, R)
+
+        assert early == pytest.approx(0.0, abs=1e-9)
+        assert late == pytest.approx(7.0, rel=1e-3)
 
 
 class TestAgainstTheRadialEquation:
     """The approximation against a numerical solution it had no part in."""
 
-    @pytest.mark.parametrize("peclet,tolerance", [(10, 0.08), (20, 0.05), (50, 0.05)])
+    @pytest.mark.parametrize("peclet,tolerance", [(3, 0.10), (5, 0.08), (10, 0.05),
+                                                   (20, 0.05), (50, 0.05)])
     def test_the_fit_recovers_what_went_in(self, peclet, tolerance):
         r0, alpha = 30.0, 30.0 / peclet
         t_R, c = radial_breakthrough(r0, alpha)
@@ -146,7 +174,7 @@ class TestAgainstTheRadialEquation:
         t_c = 86400.0
         mask = (t_R > 0.02) & (c > 1e-6 * c.max())
         t, conc = t_R[mask][::20] * t_c, c[mask][::20]
-        result = tr.SautyCalculator().calculate(CalculationInput(
+        result = tr.ThieryCalculator().calculate(CalculationInput(
             df=_frame(t, conc), Q=Q, r=r0, test_type="tracer",
             tracer=TracerGeometry(conc_unit="relative")))
 
@@ -156,9 +184,10 @@ class TestAgainstTheRadialEquation:
         assert result.value("t_c") == pytest.approx(t_c, rel=tolerance / 2)
 
     def test_using_the_uniform_flow_peclet_number_would_be_wrong(self):
-        """What the 3/4 is for: a uniform-flow reading of this curve overstates the
-        spreading. 8/3 is the leading term, so this is taken at a high Peclet number,
-        where the terms after it are small."""
+        """Why a radial test cannot be read with the uniform-flow solution: the
+        curve's spread is (8/3) alpha/r, not the 2 alpha/r of uniform flow
+        (Hoopes & Harleman, 1967). 8/3 is the leading term, so this is taken at a
+        high Peclet number, where the terms after it are small."""
         r0, alpha = 30.0, 0.3
         t_R, c = radial_breakthrough(r0, alpha)
         m0 = np.trapezoid(c, t_R)
@@ -235,7 +264,7 @@ class TestOgataBanks:
         assert _natural(df.time_s.values, df.drawdown_m.values).success
 
 
-class TestSauty:
+class TestThiery:
 
     def test_it_recovers_a_noiseless_pulse(self):
         t = np.arange(1, 41) * 6 * 3600.0
@@ -279,7 +308,7 @@ class TestSauty:
 
     def test_it_needs_the_pumping_rate(self):
         df = _sample(CONVERGENT_SAMPLE)
-        result = tr.SautyCalculator().calculate(CalculationInput(
+        result = tr.ThieryCalculator().calculate(CalculationInput(
             df=df, r=R, test_type="tracer", tracer=TracerGeometry()))
 
         assert not result.success and "Q" in result.error_message
@@ -333,7 +362,7 @@ class TestTheChecksAndTheNotes:
 
     def test_a_low_peclet_number_is_called_out_for_the_radial_method(self):
         t = np.arange(1, 41) * 6 * 3600.0
-        result = _radial(t, tr.radial_pulse(t, 2.4e5, 3.0, 5e5, R))
+        result = _radial(t, tr.radial_pulse(t, 2.4e5, 7.5, 5e5, R))
 
         assert "radial_peclet_low" in self._notes(result)
 
@@ -355,12 +384,19 @@ class TestRegistry:
     @pytest.mark.parametrize("text,expected", [
         ("Ogata-Banks", "ogata_banks_1961"),
         ("use ogata banks", "ogata_banks_1961"),
-        ("Sauty", "sauty_1980"),
-        ("a radial convergent test", "sauty_1980"),
+        ("Sauty", "thiery_2022"),
+        ("Thiéry", "thiery_2022"),
+        ("a radial convergent test", "thiery_2022"),
         ("natural gradient tracer test", "ogata_banks_1961"),
     ])
     def test_the_names_resolve(self, text, expected):
         assert registry.canonical_id(text) == expected
+
+    @pytest.mark.parametrize("old", ["sauty_1980", "Sauty (1980)"])
+    def test_a_project_saved_under_the_old_name_still_opens(self, old):
+        """The radial method was called Sauty (1980) until it moved to Thiéry's
+        closed form; projects saved before then name it that way."""
+        assert registry.require(old).id == "thiery_2022"
 
     def test_a_question_about_the_gradient_is_not_a_tracer_method(self):
         assert registry.canonical_id("what is the hydraulic gradient here?") is None
@@ -376,7 +412,7 @@ class TestRegistry:
 
     def test_only_they_are_offered_for_a_tracer_test(self):
         assert [s.id for s in registry.for_test_type(registry.TRACER)] == [
-            "ogata_banks_1961", "sauty_1980"]
+            "ogata_banks_1961", "thiery_2022"]
 
 
 class TestChoosingFromThePlainWords:
@@ -386,8 +422,8 @@ class TestChoosingFromThePlainWords:
          "Ogata-Banks (1961)"),
         ("We ran a bromide breakthrough curve under the natural gradient",
          "Ogata-Banks (1961)"),
-        ("I injected fluorescein 20 m from the pumped well", "Sauty (1980)"),
-        ("How do I analyse a convergent tracer test?", "Sauty (1980)"),
+        ("I injected fluorescein 20 m from the pumped well", "Thiéry (2022)"),
+        ("How do I analyse a convergent tracer test?", "Thiéry (2022)"),
     ])
     def test_the_arrangement_picks_the_method(self, message, expected):
         assert method_selection.suggest_method(user_message=message)["method"] == expected
@@ -476,7 +512,7 @@ class TestReadingTheFile:
         assert validation.is_usable
         assert not any("drawdown" in w.lower() or "log cycle" in w
                        for w in validation.warnings + validation.info)
-        assert set(validation.suitable_methods) == {"Ogata-Banks (1961)", "Sauty (1980)"}
+        assert set(validation.suitable_methods) == {"Ogata-Banks (1961)", "Thiéry (2022)"}
 
 
 class TestTheWrongKindOfReadings:
@@ -491,7 +527,7 @@ class TestTheWrongKindOfReadings:
         readings = Readings.from_frame(_frame([1.0, 2.0], [0.1, 0.2]))
 
         with pytest.raises(ValueError, match="fitted to concentrations"):
-            analysis.check_readings_suit(readings, "sauty_1980")
+            analysis.check_readings_suit(readings, "thiery_2022")
 
     def test_the_matching_kinds_pass(self):
         conc = Readings.from_frame(_sample(NATURAL_SAMPLE), quantity="concentration")
@@ -553,8 +589,8 @@ class TestTheProjectFile:
         project, test = self._project()
         df = test.readings.to_frame()
         setup = test.setup
-        result = analysis.run_analysis(df, "sauty_1980", setup)
-        analysis.save_analysis(test, result, analysis.run_record(setup, "sauty_1980", result))
+        result = analysis.run_analysis(df, "thiery_2022", setup)
+        analysis.save_analysis(test, result, analysis.run_record(setup, "thiery_2022", result))
 
         restored, record = analysis.restore_last_analysis(
             Project.from_json(project.to_json()).tests[0])
@@ -565,16 +601,16 @@ class TestTheProjectFile:
 
     def test_a_run_is_not_logged_as_zero_transmissivity(self):
         project, test = self._project()
-        result = analysis.run_analysis(test.readings.to_frame(), "sauty_1980", test.setup)
-        run = test.record_run(result, "Sauty (1980)", "sauty_1980")
+        result = analysis.run_analysis(test.readings.to_frame(), "thiery_2022", test.setup)
+        run = test.record_run(result, "Thiéry (2022)", "thiery_2022")
 
         assert run.T_day is None and run.S is None
 
     def test_the_comparison_shows_what_was_estimated_instead(self):
         project, test = self._project()
         setup = test.setup
-        result = analysis.run_analysis(test.readings.to_frame(), "sauty_1980", setup)
-        analysis.save_analysis(test, result, analysis.run_record(setup, "sauty_1980", result))
+        result = analysis.run_analysis(test.readings.to_frame(), "thiery_2022", setup)
+        analysis.save_analysis(test, result, analysis.run_record(setup, "thiery_2022", result))
 
         row = test.comparison()[0]
 
@@ -596,7 +632,7 @@ class TestTheReport:
         return " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
 
     def test_it_reads_as_a_tracer_report(self):
-        text = self._text("sauty_1980", CONVERGENT_SAMPLE, Q_m3s=Q, r_m=R, tracer_b_m=B)
+        text = self._text("thiery_2022", CONVERGENT_SAMPLE, Q_m3s=Q, r_m=R, tracer_b_m=B)
 
         assert "Tracer Test Analysis" in text and "Concentration (mg/L)" in text
         assert "Effective porosity" in text and "Travel distance" in text

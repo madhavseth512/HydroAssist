@@ -45,10 +45,10 @@ effective porosity, for contaminant transport).
 **Phase 5 — Tracer tests (complete; closes MTP part 1)**
 - A concentration column switches a test to *Tracer* by itself; concentrations are never unit-converted
 - **Ogata-Banks (1961)**, natural gradient: velocity, longitudinal dispersivity, dispersion coefficient, Péclet number, and n_e = K·i/v
-- **Sauty (1980)**, forced gradient, radially convergent: travel time, dispersivity, n_e from Q, b and r, and mass recovery
+- **Thiéry (2022)**, forced gradient, radially convergent: travel time, dispersivity, n_e from Q, b and r, and mass recovery. Thiéry's closed form reproduces the exact radial solution for Péclet 1–1000; Sauty's (1980) older approximation overstates dispersivity by a median 69% on field tests, so it is not used
 - Pulse or continuous injection, background concentration, validity rules (peak missed, tail truncated, plateau not reached, low Péclet, implausible porosity or recovery)
 - Results, manual matching, comparison, PDF report, saved projects and the consultant all speak in tracer quantities
-- The radial solution is checked against an independent numerical solve of the radial advection-dispersion equation
+- The radial solution is checked against Thiéry's published equations and against an independent numerical solve of the radial advection-dispersion equation (α_L within about 5%, t_c within 4%, for Péclet 3–50)
 
 ---
 
@@ -163,7 +163,7 @@ hydroassist/
 │   │   │   ├── hantush_jacob.py    # Hantush-Jacob (1955) — leaky
 │   │   │   ├── boulton.py          # Boulton (1963) — unconfined
 │   │   │   ├── warren_root.py      # Warren-Root (1963) — fractured
-│   │   │   └── tracer.py           # Ogata-Banks (1961), Sauty (1980) — tracer tests
+│   │   │   └── tracer.py           # Ogata-Banks (1961), Thiéry (2022) — tracer tests
 │   │   ├── plots.py                # Plotly diagnostic plots
 │   │   └── report.py               # ReportLab PDF report generation
 │   └── prompts/                    # LLM prompts for each agent
@@ -572,7 +572,7 @@ llm:
 - [x] **Boulton (1963)** — unconfined
 - [x] **Warren-Root (1963)** — fractured
 - [x] **Ogata-Banks (1961)** — natural-gradient tracer test
-- [x] **Sauty (1980)** — forced-gradient, radially convergent tracer test
+- [x] **Thiéry (2022)** — forced-gradient, radially convergent tracer test
 - [x] **Bourdet log-derivative** driving data-based method selection
 - [x] Theis, Cooper-Jacob and Papadopulos-Cooper ported onto the template
 - [x] Recovery analysis — Theis (1935) recovery, Eq. 7

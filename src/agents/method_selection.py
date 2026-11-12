@@ -221,7 +221,7 @@ def suggest_method(
     # ── 1c. A tracer test → a transport method ────────────────────────────────
     # Ahead of the diagnosis for the same reason: a derivative reads drawdown.
     if describes_tracer(text):
-        method_id = "sauty_1980" if _FORCED_CUES.search(text) else "ogata_banks_1961"
+        method_id = "thiery_2022" if _FORCED_CUES.search(text) else "ogata_banks_1961"
         spec = registry.REGISTRY[method_id]
         return {
             "method": spec.label,
