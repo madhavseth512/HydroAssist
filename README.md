@@ -1,11 +1,15 @@
 # HydroAssist — Intelligent Hydrogeological Analysis Platform
 
-**BTP-1 → BTP-2**: RAG-based consultant chatbot + confined aquifer pumping test calculator, powered by LangGraph and Gemini AI.
+**MTP Part 1, IIT Kharagpur.** A browser workspace that analyses aquifer pumping
+tests and tracer tests, with a consultant grounded in the hydrogeology literature
+that explains, and argues for, every result.
+
+**Live:** <https://hydroassist.onrender.com> (password protected — see DEPLOY.md)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Phase](https://img.shields.io/badge/phase-5%20in%20progress-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-1823%20python%20%2B%20187%20frontend%20%2B%2011%20browser-brightgreen.svg)]()
+[![Status](https://img.shields.io/badge/MTP%20part%201-complete-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1835%20python%20%2B%20187%20frontend%20%2B%2011%20browser-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen.svg)]()
 [![Methods](https://img.shields.io/badge/methods-9%20across%20pumping%20and%20tracer%20tests-blue.svg)]()
 
@@ -13,42 +17,75 @@
 
 ## Overview
 
-HydroAssist is a hydrogeology assistant for analysing aquifer tests: pumping tests
-(transmissivity and storativity) and tracer tests (velocity, dispersivity and
-effective porosity, for contaminant transport).
+HydroAssist analyses two kinds of aquifer test:
 
-**Phase 1 — Consultant (complete)**
-- RAG-based chatbot answering questions about pumping test theory, method selection, and aquifer characterisation
-- Grounded in a curated corpus of hydrogeology papers (see Knowledge Base below) plus AQTESOLV method metadata
-- Metadata-filtered retrieval (aquifer type, method, section)
-- Intent classification and conversation routing via LangGraph
+- **Pumping tests** — drawdown against time, giving transmissivity (T) and
+  storativity (S), with the flow regime read off the data first.
+- **Tracer tests** — concentration against time, giving velocity or travel time,
+  longitudinal dispersivity and effective porosity, which is what contaminant
+  transport and wellhead protection depend on.
 
-**Phase 2 — Calculator (complete)**
-- Data intake with automatic column detection, unit conversion, and validation — CSV, delimited text, Excel, pasted columns, logger exports, and OCR of a photographed table
-- Confined aquifer curve-fitting: Theis (1935), Cooper-Jacob (1946), Papadopulos-Cooper (1967)
-- Outputs T (transmissivity) and S (storativity) with 95% confidence intervals
-- Interactive Plotly diagnostic plots (type curves, residuals, manual matching)
-- PDF report generation (ReportLab)
+What it adds to a commercial curve-fitting package is the second half of the job:
+every result comes with the assumptions behind the method, the ones the data
+violate, the papers those conditions come from, and a comparison against the
+other methods that could have been used.
 
-**Phase 3 — Integrated workflow (complete)**
-- The consultant suggests a method from the conversation, and the workspace follows it
-- Completed analyses flow back into the chat, so the consultant can interpret the user's own T and S
-- `DataValidator` gates which methods the workspace offers for a given dataset
+### What was built, phase by phase
 
-**Phase 4 — Extensible calculator architecture (in progress)**
-- Refactored so a new method is a transfer function plus a parameter spec, not a new module
-- **All four aquifer types covered**: confined, leaky, unconfined, fractured
-- Shared Stehfest Laplace engine, vectorised — Papadopulos-Cooper fitting went from 10–30 s to 0.04 s
-- **Bourdet log-derivative**, which reads the flow regime off the data and drives method selection
-- 795-test suite (75% coverage)
+**Phase 1 — Consultant**
+- RAG chatbot on pumping-test theory, method selection and aquifer characterisation
+- Grounded in 50 hydrogeology papers (4,239 passages), cited by document and page
+- Intent classification and routing through a LangGraph state machine
+- Retrieval filtered by aquifer type and by the method a question names
 
-**Phase 5 — Tracer tests (complete; closes MTP part 1)**
-- A concentration column switches a test to *Tracer* by itself; concentrations are never unit-converted
-- **Ogata-Banks (1961)**, natural gradient: velocity, longitudinal dispersivity, dispersion coefficient, Péclet number, and n_e = K·i/v
-- **Thiéry (2022)**, forced gradient, radially convergent: travel time, dispersivity, n_e from Q, b and r, and mass recovery. Thiéry's closed form reproduces the exact radial solution for Péclet 1–1000; Sauty's (1980) older approximation overstates dispersivity by a median 69% on field tests, so it is not used
-- Pulse or continuous injection, background concentration, validity rules (peak missed, tail truncated, plateau not reached, low Péclet, implausible porosity or recovery)
-- Results, manual matching, comparison, PDF report, saved projects and the consultant all speak in tracer quantities
-- The radial solution is checked against Thiéry's published equations and against an independent numerical solve of the radial advection-dispersion equation (α_L within about 5%, t_c within 4%, for Péclet 3–50)
+**Phase 2 — Calculator**
+- Data intake with column detection, unit conversion and validation — CSV,
+  delimited text, Excel, pasted columns, Solinst / Van Essen Diver / In-Situ logger
+  exports, and OCR of a photographed field sheet
+- Theis (1935), Cooper-Jacob (1946), Papadopulos-Cooper (1967)
+- T and S with 95% confidence intervals, interactive type curves, residuals,
+  manual curve matching and a PDF report
+
+**Phase 3 — Integrated workflow**
+- The consultant proposes a method from the conversation; the user decides
+- Completed analyses flow back into the chat, so the consultant interprets the
+  user's own result
+- `DataValidator` decides which methods the workspace offers for a dataset
+
+**Phase 4 — Extensible calculator**
+- A new method is a model plus a parameter specification, not a new module
+- All four aquifer types: confined, leaky (Hantush-Jacob), unconfined (Boulton),
+  fractured (Warren-Root), plus Theis recovery
+- Vectorised Stehfest Laplace engine — Papadopulos-Cooper fitting from 10–30 s to 0.04 s
+- **Bourdet log-derivative**, which reads the flow regime off the data and drives
+  method selection
+- Methods compared by AICc, not R²
+
+**Phase 5 — Web application and deployment**
+- FastAPI back end and a React + TypeScript workspace, replacing Streamlit
+- Projects with several tests each, saved as a file, restored after a reload
+- Consultant answers streamed as they are written, with the passages they used
+- Rate limits and a fallback, so the calculators work without the language model
+- Deployed at no cost on Render, behind a password
+
+**Phase 6 — Tracer tests (closes MTP Part 1)**
+- A concentration column switches a test to *Tracer* by itself; concentrations
+  are never unit-converted
+- **Ogata-Banks (1961)**, natural gradient: velocity, longitudinal dispersivity,
+  dispersion coefficient, Péclet number, and n_e = K·i/v
+- **Thiéry (2022)**, forced gradient, radially convergent: travel time,
+  dispersivity, n_e from Q, b and r, and mass recovery. Thiéry's closed form
+  reproduces the exact radial solution for Péclet 1–1000; Sauty's (1980) older
+  approximation overstates dispersivity by a median 69% on field tests, so it is
+  not used
+- Pulse or continuous injection and a background concentration; validity rules for
+  a missed peak, a truncated tail, an unreached plateau, a low Péclet number, and
+  implausible porosity or recovery
+- Results, manual matching, comparison, PDF report, saved projects and the
+  consultant all speak in tracer quantities
+- Checked against Thiéry's published equations and against an independent
+  numerical solution of the radial advection-dispersion equation: α_L within about
+  5% and t_c within 4% for Péclet 3–50
 
 ---
 
@@ -168,17 +205,13 @@ hydroassist/
 │   │   └── report.py               # ReportLab PDF report generation
 │   └── prompts/                    # LLM prompts for each agent
 ├── tests/
-│   ├── unit/                       # 298 tests
-│   │   ├── test_theis.py                 # 46
-│   │   ├── test_cooper_jacob.py          # 17
-│   │   ├── test_papadopulos_cooper.py    # 41
-│   │   ├── test_csv_inspector.py         # 40
-│   │   ├── test_formatter.py             # 26
-│   │   ├── test_validator.py             # 24
-│   │   ├── test_plots_report.py          # 34
-│   │   └── test_method_selection.py      # 70
+│   ├── unit/                       # calculators, data pipeline, retrieval, project model
+│   ├── validation/                 # published well-function tables and field datasets
 │   ├── integration/                # agents, graph, retrieval regression
-│   └── api/                        # HTTP API tests (FastAPI TestClient)
+│   ├── api/                        # HTTP API tests (FastAPI TestClient)
+│   └── *_sample.csv                # sample datasets, one per method family
+├── frontend/e2e/                   # Playwright browser tests
+├── knowledge source/               # the PDF corpus, one folder per aquifer type
 └── data/
     ├── raw/                        # USGS PDFs, AQTESOLV metadata
     ├── processed/                  # Chunked documents
@@ -199,6 +232,9 @@ hydroassist/
 | **Hantush-Jacob** (1955) | leaky | T, S, B | Vertical leakage through an aquitard with no storage of its own |
 | **Boulton** (1963) | unconfined | T, S, S_y, α | Delayed gravity drainage from the water table |
 | **Warren-Root** (1963) | fractured | T, S, ω, λ | Double porosity — fractures transmit, matrix stores |
+| **Theis recovery** (1935) | confined | T | Residual drawdown after pumping stops (Eq. 7) |
+| **Ogata-Banks** (1961) | porous, tracer | v, α_L, D_L, n_e | Natural-gradient tracer test, uniform flow |
+| **Thiéry** (2022) | porous, tracer | t_c, α_L, n_e, recovery | Forced-gradient tracer test, radially convergent; Péclet 1–1000 |
 
 Every method must pass three acceptance gates before it is merged:
 
@@ -233,6 +269,24 @@ off the plot without fitting anything** — the implementation recovers it to 0.
 on synthetic data. That reading also drives `suggest_method`: a user who describes
 a "confined aquifer test" over a curve that plainly shows leakage is steered to
 Hantush-Jacob rather than Theis.
+
+### Tracer tests
+
+```
+natural gradient (Ogata-Banks 1961), at distance x downstream:
+    pulse       C = A / sqrt(4 pi D t) * exp(-(x - vt)^2 / 4Dt),           D = alpha_L v
+    continuous  C = C0/2 [erfc((x - vt)/2sqrt(Dt)) + exp(vx/D) erfc((x + vt)/2sqrt(Dt))]
+
+forced gradient, radially convergent (Thiéry 2022, unbounded domain):
+    t_c = pi r^2 b n_e / Q,   t_D = t / t_c,   x = f_T t_D,   P' = (r/alpha_L) / f_P
+    pulse (eqs 21-22)       C = (M/Q)/t_c * f_T/2 sqrt(P'/4 pi x) (x+1)/x exp(-P'(1-x)^2/4x)
+    continuous (eqs 15-16)  C = C0/2 erfc(sqrt(P'/4x) (1-x))
+```
+
+f_T and f_P are Thiéry's correction factors, functions of the Péclet number alone.
+The radial method needs Q; thickness b gives effective porosity, and the injected
+mass gives the fraction recovered. The natural-gradient method needs no pumping
+rate; hydraulic conductivity and gradient give effective porosity.
 
 ### Four-Step Workflow
 
@@ -329,7 +383,8 @@ Key implementation decisions grounded in the original paper:
 
 ## Tests
 
-1,182 Python tests and 54 frontend unit tests, plus 3 Playwright browser tests.
+1,836 Python tests (1,835 pass, 1 skipped), 187 frontend unit tests and 11
+Playwright browser tests, all passing on the commit that is deployed.
 
 ```bash
 pytest tests/ -q                 # backend, API and integration
@@ -342,46 +397,64 @@ npm run build && npm run e2e     # browser tests (Playwright, real API, consulta
 
 Run through `python -m pytest` if the venv's `.exe` shims carry a stale path.
 
+### Is the mathematics right?
+
+| Check | Tests | What it compares against |
+|------|------|------|
+| `validation/test_published_values.py` | 46 | W(u) and W(u, r/B) as printed in the literature (AQTESOLV guide; Hantush 1956 via Walton's Bulletin 49) |
+| `validation/test_field_datasets.py` | 22 | Real published field tests against the analyst's own answer — e.g. Walton (1962), Gridley, within 1.9% |
+| `unit/test_tracer.py` | 96 | Thiéry's equations written out from the paper; an independent Crank-Nicolson solve of the radial equation |
+| `unit/test_golden_regression.py` | 20 | The shipped fits, pinned to 1e-9 |
+| `unit/test_laplace.py` | 47 | The inverter against known transform pairs and every analytical limit |
+
 ### Calculators
 
-| File | Tests | Module coverage |
-|------|-------|-----------------|
-| `test_theis.py` | 46 | `theis.py` 91% |
-| `test_papadopulos_cooper.py` | 41 | `papadopulos_cooper.py` 91% |
-| `test_hantush_jacob.py` | 38 | `hantush_jacob.py` 97% |
-| `test_boulton_warren_root.py` | 38 | `boulton.py` 98%, `warren_root.py` 98% |
-| `test_cooper_jacob.py` | 17 | `cooper_jacob.py` 81% |
-| `test_golden_regression.py` | 20 | pins the shipped fits to 1e-9 |
+| File | Tests |
+|------|-------|
+| `test_tracer.py` | 96 |
+| `test_method_conformance.py` | 75 — every registered method obeys the same contract |
+| `test_theis.py` | 46 |
+| `test_papadopulos_cooper.py` | 41 |
+| `test_hantush_jacob.py` | 38 |
+| `test_boulton_warren_root.py` | 38 |
+| `test_template_ports.py` | 31 |
+| `test_theis_recovery.py` | 23 |
+| `test_cooper_jacob.py` | 17 |
 
 ### Shared machinery
 
 | File | Tests | Covers |
 |------|-------|--------|
-| `test_registry.py` | 70 | Method table integrity, alias resolution, import weight |
-| `test_laplace.py` | 47 | Inverter against known transform pairs; every analytical limit |
-| `test_fitting.py` | 42 | `fit_curve`, CIs, bound detection, AIC/AICc, log-scale |
-| `test_validation_rules.py` | 44 | Shared input checks and the validity-rule library |
-| `test_parameters.py` | 32 | Bidirectional `CalculationResult` reconciliation |
+| `test_registry.py` | 97 | Method table integrity, alias resolution, import weight |
 | `test_geometry.py` | 65 | Geometry invariants and backward compatibility |
+| `test_validation_rules.py` | 44 | Shared input checks and the validity-rule library |
+| `test_fitting.py` | 42 | `fit_curve`, CIs, bound detection, AIC/AICc, log-scale |
+| `test_parameters.py` | 32 | Bidirectional `CalculationResult` reconciliation |
 | `test_derivative.py` | 29 | Bourdet derivative and flow-regime diagnosis |
 
-### Data pipeline, plotting, method selection
+### Data, projects, retrieval
 
 | File | Tests |
 |------|-------|
 | `test_method_selection.py` | 84 |
+| `test_ingestion.py` | 63 |
+| `test_services.py` | 61 |
+| `test_plots_report.py` | 41 |
 | `test_csv_inspector.py` | 40 |
-| `test_plots_report.py` | 34 |
-| `test_formatter.py` | 26 |
-| `test_validator.py` | 24 |
+| `test_table_ocr.py` / `test_table_reader.py` | 39 / 36 |
+| `test_project.py` / `test_project_workspace.py` / `test_project_runs.py` | 36 / 23 / 14 |
+| `test_logger_import.py` | 29 |
+| `test_formatter.py` / `test_validator.py` | 26 / 24 |
+| `test_corpus_methods.py` | 24 |
 
-### Integration
+### Integration and API
 
 | File | Tests | What it covers |
 |------|-------|----------------|
+| `tests/api/` | 202 | The HTTP API — sessions, projects, fits, tracer runs, chat, auth, rate limit, resilience |
+| `test_end_to_end_journey.py` | 50 | Full journey through the compiled LangGraph |
 | `test_chat_calculator_bridge.py` | 26 | Agents with stubbed LLM + retriever |
-| `test_end_to_end_journey.py` | 18 | Full journey through the compiled LangGraph |
-| `tests/api/` | 112 | The HTTP API through FastAPI's TestClient — sessions, projects, fits, chat, rate limit |
+| `test_method_filtered_retrieval.py` | 21 | Method tags narrow the search without silencing it |
 
 No test needs a network connection or an API key. The LLM and vector store are
 stubbed; the calculators, graph, routing and state reducers are real.
@@ -403,6 +476,13 @@ more accurate ones.
 |------|--------|-----------|
 | `tests/theis_cooper_jacob_sample.csv` | Theis / Cooper-Jacob | T=2.5×10⁻³ m²/s, S=5×10⁻⁵, Q=500 m³/day, r=50 m |
 | `tests/papadopulos_cooper_sample.csv` | Papadopulos-Cooper | T=1.0×10⁻³ m²/s, S=1.0×10⁻⁴, Q=300 m³/day, r_w=0.30 m, r_c=0.20 m |
+| `tests/theis_recovery_sample.csv` | Theis recovery | residual drawdown after pumping stops |
+| `tests/tracer_natural_sample.csv` | Ogata-Banks | natural gradient, x=25 m |
+| `tests/tracer_convergent_sample.csv` | Thiéry | pulse, r=15 m, Q=500 m³/day, b=10 m; t_c=67.86 h, α_L=1 m, n_e=0.2, 80% of 5 kg recovered |
+
+The two tracer samples are synthetic, generated from the models themselves; they
+prove the fitting, not the physics. The physics is checked against the radial
+equation solved numerically.
 
 ---
 
@@ -459,16 +539,24 @@ python scripts/ingest_knowledge_source.py
 # Takes ~5–10 minutes on first run.
 ```
 
-Current contents — 3,843 chunks:
+Current contents — 50 papers, 4,239 chunks:
 
 | Source folder | Aquifer tag | Chunks |
 |---|---|---|
-| Unconfined Aquifer | `unconfined` | 1,574 |
-| Confined Aquifer | `confined` | 613 |
-| General | `general` | 597 |
+| Unconfined Aquifer | `unconfined` | 1,358 |
+| General | `general` (237 pinned to `unconfined` by the manifest) | 919 |
+| Confined Aquifer | `confined` | 617 |
 | Leaky Confined Aquifer | `leaky` | 572 |
-| Fractured Aquifers | `fractured` | 472 |
-| AQTESOLV method metadata | per method | 6 |
+| Fractured Aquifers | `fractured` | 539 |
+| Tracer Tests | `porous` | 222 |
+| Step drawdown test | `general` | 12 |
+
+`configs/corpus_methods.yaml` tags every paper with the methods it covers, and every
+assignment has been reviewed. To add one paper without rebuilding everything:
+
+```bash
+python scripts/ingest_knowledge_source.py --only "part of its filename"
+```
 
 `scripts/ingest.py --all` is a separate path that fetches USGS TWI Book 3-B1;
 it is **not** what produced the bundled store.
@@ -531,70 +619,28 @@ llm:
 
 ## Roadmap
 
-### Phase 1 — Consultant (Complete)
-- [x] RAG-based consultant chatbot
-- [x] LangGraph multi-agent state machine
-- [x] Intent classification and conversation routing
-- [x] Metadata-filtered retrieval (aquifer type, method, source)
-- [x] Streamlit web interface
+### Done in MTP Part 1
+- [x] RAG consultant, LangGraph routing, filtered retrieval, cited answers
+- [x] Data intake in the forms field data arrives in, including OCR of a photograph
+- [x] Nine methods: Theis, Theis recovery, Cooper-Jacob, Papadopulos-Cooper,
+      Hantush-Jacob, Boulton, Warren-Root, Ogata-Banks, Thiéry
+- [x] Bourdet derivative driving method selection; AICc comparison
+- [x] Projects, runs, saved analyses, PDF reports
+- [x] React workspace, FastAPI back end, browser tests
+- [x] Deployed on Render (see DEPLOY.md)
+- [x] Tracer tests, natural and forced gradient
 
-### Phase 2 — Calculator (Complete)
-- [x] CSV inspector — 3-layer column/unit detection with LLM fallback
-- [x] Data formatter — unit conversion, t=0 removal, wide-to-long melt
-- [x] Data validator — physical plausibility checks, method suitability pre-filtering
-- [x] Theis (1935) calculator — verified against original paper
-- [x] Cooper-Jacob (1946) calculator — iterative u-filter (u < 0.02), paper-verified
-- [x] Papadopulos-Cooper (1967) calculator — Stehfest (1970) Laplace inversion
-- [x] Plotly interactive diagnostic plots (type curves + residuals for all 3 methods)
-- [x] PDF report generation (ReportLab)
-- [x] Calculator workspace UI (4-step workflow)
-
-### Phase 3 — Integration (Complete)
-- [x] Method suggestion card: the Manager recommends a method from the conversation
-- [x] Workspace preselects the confirmed method
-- [x] Completed analyses published back into `AgentState`
-- [x] Consultant interprets the user's own results, with citations
-- [x] `DataValidator` wired in — gates the method dropdown per dataset
-- [x] Test coverage for the data pipeline, plotting and PDF layers
-- [x] Streamlit UI smoke tests
-
-### Phase 4 — Extensible architecture and domain increment (In progress)
-- [x] Method registry — one declarative table replacing ten hardcoded call sites
-- [x] Golden-fit regression baseline, enforced at 1e-9
-- [x] Shared fitting machinery: `ParameterSpec`, CIs, bound detection, AIC/AICc
-- [x] Log-scale fitting, without which multi-parameter methods do not converge
-- [x] Parameter-correlation diagnostic for non-unique fits
-- [x] `CalculationResult` carries a variable-length parameter set
-- [x] Geometry dataclasses — aquifer, well, aquitard, fracture, pumping schedule
-- [x] Stehfest inverter extracted and **vectorised** (PC fitting 10–30 s → 0.04 s)
-- [x] `CurveFitCalculator` template — a new method is a model plus a spec
-- [x] **Hantush-Jacob (1955)** — leaky
-- [x] **Boulton (1963)** — unconfined
-- [x] **Warren-Root (1963)** — fractured
-- [x] **Ogata-Banks (1961)** — natural-gradient tracer test
-- [x] **Thiéry (2022)** — forced-gradient, radially convergent tracer test
-- [x] **Bourdet log-derivative** driving data-based method selection
-- [x] Theis, Cooper-Jacob and Papadopulos-Cooper ported onto the template
-- [x] Recovery analysis — Theis (1935) recovery, Eq. 7
+### Next
+- [ ] Validate the tracer methods against field breakthrough curves — Thiéry's
+      (2022) supplementary data for tests 1–8, with his fitted α_L and n_e as the answer
+- [ ] Add the remaining tracer literature to the corpus: Ogata & Banks (1961),
+      Sauty (1980), Moench (1989), USGS WRI 98-4126A, EPA QTRACER2
+- [ ] Finite-duration injections, sorption (retardation) and decay for tracers
 - [ ] Step-drawdown (Birsoy-Summers 1980)
 - [ ] Neuman (1974) unconfined — needs a transcendental root series
-- [ ] Forward simulation / test design
 - [ ] Slug tests — a different input shape, and Stehfest is the wrong inverter
-- [ ] Deployment — one image, two free hosts: Render (no card) or Oracle Cloud Always Free (see DEPLOY.md)
-- [x] Projects — tests, readings and analyses saved as a file, compared by AICc
-- [x] Field data in the forms it arrives in — delimited text, Excel, pasted
-      columns, Solinst/Diver/In-Situ logger exports, and a photograph of a
-      printed table read into a grid the user confirms
+- [ ] Forward simulation / test design
 - [ ] Named wells with coordinates
-- [ ] IIT KGP email authentication (deferred)
-
-### Phase 5 — Web application (In progress)
-- [x] Workspace logic extracted into UI-free services
-- [x] FastAPI HTTP API with per-visitor sessions
-- [x] React + TypeScript workspace replacing Streamlit (see PARITY.md)
-- [x] Consultant rate limit, and a fallback when the model is unavailable
-- [x] Browser end-to-end tests (Playwright)
-- [ ] Deploy — Render or Oracle Cloud Always Free
 
 ---
 
@@ -602,8 +648,10 @@ llm:
 
 | Issue | Impact | Status |
 |---|---|---|
-| `knowledge source/` contains paywalled publisher PDFs tracked in git | Redistribution of copyrighted material from a public repo | **Open** — needs `git rm --cached` plus a DOI manifest |
-| ~~`method` metadata is `multiple` for 3,837 of 3,843 chunks~~ | Method-level retrieval filtering was ineffective | **Fixed** — `configs/corpus_methods.yaml` tags each paper; chunks carry a flag per method and the consultant filters on it when a question names one. Assignments are `reviewed: false` until a hydrogeologist confirms them |
+| `knowledge source/` contains paywalled publisher PDFs tracked in git | Redistribution of copyrighted material if the repository or site were made public | **Mitigated** — the repository is private, the PDFs are kept out of the Docker image, and the site is password protected. A licensing decision before going public |
+| ~~`method` metadata is `multiple` for 3,837 of 3,843 chunks~~ | Method-level retrieval filtering was ineffective | **Fixed** — `configs/corpus_methods.yaml` tags each paper; chunks carry a flag per method and the consultant filters on it when a question names one. Every assignment has been reviewed |
+| Tracer methods have no field validation yet | Checked against published equations and a numerical solution, not measured breakthrough curves | Open — see Roadmap |
+| ~~The radial tracer method was labelled Sauty (1980) but used a moment approximation~~ | α_L out by up to +48% at low Péclet, +9% for continuous injection | **Fixed** — replaced by Thiéry (2022); projects saved under the old name still open |
 | ~~`canonical_method("Hantush-Jacob")` resolves to Cooper-Jacob~~ | Shared surname | **Fixed** — implementing the method resolved it; the longer alias now wins |
 | ~~Agarwal (recovery) and one other PDF are image-only scans~~ | They contributed **zero** chunks; the recovery paper was absent | **Fixed** — OCR (pypdfium2 + Tesseract) recovered 20/20 and 14/14 pages. Ingestion now reports any document that yields too little instead of skipping it |
 | Boulton, Warren-Root, Papadopulos-Cooper and recovery have no published table in the corpus | They are checked against analytical limits and their own forward models, not against values published elsewhere | Open — `tests/validation/` covers Theis, Cooper-Jacob and Hantush-Jacob; the rest needs AQTESOLV or new references |
@@ -637,14 +685,17 @@ llm:
 ## References
 
 1. **Theis, C.V. (1935)**. The relation between the lowering of the piezometric surface and the rate and duration of discharge of a well using ground-water storage. *Transactions of the American Geophysical Union*, 16, 519–524.
-
 2. **Cooper, H.H. & Jacob, C.E. (1946)**. A generalized graphical method for evaluating formation constants and summarizing well-field history. *Transactions of the American Geophysical Union*, 27(4), 526–534.
-
-3. **Papadopulos, I.S. & Cooper, H.H. (1967)**. Drawdown in a well of large diameter. *Water Resources Research*, 3(1), 241–244.
-
-4. **Stehfest, H. (1970)**. Algorithm 368: Numerical inversion of Laplace transforms. *Communications of the ACM*, 13(1), 47–49.
-
-5. **USGS TWI Book 3-B1** — Techniques of Water-Resources Investigations, Book 3, Chapter B1.
+3. **Hantush, M.S. & Jacob, C.E. (1955)**. Non-steady radial flow in an infinite leaky aquifer. *Transactions of the American Geophysical Union*, 36(1), 95–100.
+4. **Boulton, N.S. (1963)**. Analysis of data from non-equilibrium pumping tests allowing for delayed yield from storage. *Proceedings of the Institution of Civil Engineers*, 26, 469–482.
+5. **Warren, J.E. & Root, P.J. (1963)**. The behavior of naturally fractured reservoirs. *Society of Petroleum Engineers Journal*, 3(3), 245–255.
+6. **Papadopulos, I.S. & Cooper, H.H. (1967)**. Drawdown in a well of large diameter. *Water Resources Research*, 3(1), 241–244.
+7. **Stehfest, H. (1970)**. Algorithm 368: Numerical inversion of Laplace transforms. *Communications of the ACM*, 13(1), 47–49.
+8. **Ogata, A. & Banks, R.B. (1961)**. A solution of the differential equation of longitudinal dispersion in porous media. *USGS Professional Paper 411-A*.
+9. **Sauty, J.-P. (1980)**. An analysis of hydrodispersive transfer in aquifers. *Water Resources Research*, 16(1), 145–158.
+10. **Gelhar, L.W., Welty, C. & Rehfeldt, K.R. (1992)**. A critical review of data on field-scale dispersion in aquifers. *Water Resources Research*, 28(7), 1955–1974.
+11. **Thiéry, D. (2022)**. Simple approximate closed-form expressions for tracer injection in aquifer with a radially converging or diverging flow field. *Journal of Hydrology*, 608, 127661.
+12. **Walton, W.C. (1962)**. Selected analytical methods for well and aquifer evaluation. *Illinois State Water Survey Bulletin 49*.
 
 ---
 
@@ -653,8 +704,8 @@ llm:
 - USGS for public domain hydrogeological publications
 - Google for Gemini API
 - LangChain & LangGraph teams
-- IIT Kharagpur — BTP supervision
+- IIT Kharagpur — project supervision by Prof. Anirban Dhar
 
 ---
 
-**Developed as part of BTP (Bachelor Thesis Project) at IIT Kharagpur**
+**Developed at IIT Kharagpur as a BTP and MTP Part 1 project**
